@@ -140,7 +140,7 @@ cask "$CASK_TOKEN" do
   desc "$DESCRIPTION"
   homepage "$HOMEPAGE"
 
-  depends_on macos: ">= :sequoia"
+  depends_on macos: :sequoia
 
   app "$APP_NAME.app"
 
