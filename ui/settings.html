@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · Settings</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+      </div>
+      <div class="titlebar-title">GWorkbench · Settings</div>
+      <div class="titlebar-right"><span class="theme-tag" data-theme-tag>Light</span></div>
+    </div>
+
+    <div class="shell shell-settings">
+      <aside class="sidebar">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>Worktrees <span class="count">12</span></div>
+        <div class="sidebar-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M5.5 12.5h2.5a2 2 0 0 0 2-2V8.5"/></svg>Merge Requests <span class="count">7</span></div>
+        <div class="sidebar-item" aria-selected="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M1 8h2M13 8h2M3.5 12.5l1.5-1.5M11 5l1.5-1.5"/></svg>Settings</div>
+      </aside>
+
+      <nav class="settings-nav" data-settings-nav>
+        <div class="sidebar-section-label">Preferences</div>
+        <a class="sn-item" aria-current="true" data-target="g-paths">Local Paths</a>
+        <a class="sn-item" data-target="g-ide">IDE</a>
+        <a class="sn-item" data-target="g-gitlab">GitLab</a>
+        <a class="sn-item" data-target="g-policy">Merge Policy</a>
+        <a class="sn-item" data-target="g-envs">Environment Branches</a>
+        <a class="sn-item" data-target="g-mappings">Branch Mappings</a>
+        <div class="sidebar-section-label" style="margin-top:14px;">Advanced</div>
+        <a class="sn-item" data-target="g-shortcuts">Keyboard</a>
+        <a class="sn-item" data-target="g-diag">Diagnostics</a>
+      </nav>
+
+      <section class="detail-pane">
+        <div class="detail-toolbar">
+          <span class="path-text">Settings · saved automatically</span>
+          <span class="spacer"></span>
+          <span class="text-muted fs-sm">Last sync 12s ago</span>
+        </div>
+
+        <div class="settings-scroll">
+
+          <section class="settings-group" id="g-paths">
+            <header class="settings-group-header">
+              <h2 class="settings-group-title">Local Paths</h2>
+              <p class="settings-group-desc">Where GWorkbench scans for repos and where new worktrees go.</p>
+            </header>
+            <div class="settings-row">
+              <div><div class="sr-label">Project roots</div><div class="sr-help">Scanned every 5 minutes</div></div>
+              <div class="sr-control" style="flex-direction:column;align-items:stretch;gap:6px;">
+                <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:5px;background:var(--surface-2);">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" style="width:13px;height:13px;color:var(--muted);"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>
+                  <span class="path-text" style="flex:1;">~/code/hengjian-core</span>
+                  <button class="btn btn-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5l5 5 5-5"/></svg></button>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:5px;background:var(--surface-2);">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" style="width:13px;height:13px;color:var(--muted);"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>
+                  <span class="path-text" style="flex:1;">~/code/hengjian-mobile</span>
+                  <button class="btn btn-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5l5 5 5-5"/></svg></button>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:5px;background:var(--surface-2);">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" style="width:13px;height:13px;color:var(--muted);"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>
+                  <span class="path-text" style="flex:1;">~/vibeCodes/hengjian/flowbridge</span>
+                  <button class="btn btn-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5l5 5 5-5"/></svg></button>
+                </div>
+                <button class="btn" style="align-self:flex-start;">+ Add folder…</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Worktree root</div><div class="sr-help">All new worktrees are created under this folder</div></div>
+              <div class="sr-control" style="flex:1;">
+                <input class="input mono" value="~/dev/wt" />
+                <button class="btn">Browse…</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-group" id="g-ide">
+            <header class="settings-group-header">
+              <h2 class="settings-group-title">IDE</h2>
+              <p class="settings-group-desc">The "Open in IDE" action uses these defaults.</p>
+            </header>
+            <div class="settings-row">
+              <div><div class="sr-label">Default IDE</div></div>
+              <div class="sr-control">
+                <div class="segmented">
+                  <button>VS Code</button>
+                  <button aria-pressed="true">Cursor</button>
+                  <button>RustRover</button>
+                  <button>Xcode</button>
+                  <button>Other…</button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Open command</div><div class="sr-help">Used when launching · supports <span class="text-mono">$PATH</span></div></div>
+              <div class="sr-control" style="flex:1;">
+                <input class="input mono" value="cursor" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Per-project override</div><div class="sr-help">hengjian-mobile opens in Xcode</div></div>
+              <div class="sr-control"><button class="toggle" aria-pressed="true"></button></div>
+            </div>
+          </section>
+
+          <section class="settings-group" id="g-gitlab">
+            <header class="settings-group-header">
+              <h2 class="settings-group-title">GitLab</h2>
+              <p class="settings-group-desc">Self-hosted or GitLab.com. Token stays in the macOS Keychain.</p>
+            </header>
+            <div class="settings-row">
+              <div><div class="sr-label">Host</div></div>
+              <div class="sr-control" style="flex:1;">
+                <input class="input mono" value="https://gitlab.hengjian.io" />
+              </div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Personal access token</div><div class="sr-help">Needs <span class="text-mono">api</span> + <span class="text-mono">read_user</span> scopes</div></div>
+              <div class="sr-control" style="flex:1;">
+                <input class="input mono" type="password" value="glpat-••••••••••••••••" />
+                <button class="btn">Replace</button>
+                <button class="btn">Test</button>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Connection</div></div>
+              <div class="sr-control"><span class="pill pill-ok"><span class="dot"></span>connected as @yi.lin</span></div>
+            </div>
+          </section>
+
+          <section class="settings-group" id="g-policy">
+            <header class="settings-group-header">
+              <h2 class="settings-group-title">Merge Policy</h2>
+              <p class="settings-group-desc">Safety gates GWorkbench applies before destructive or risky actions.</p>
+            </header>
+            <div class="settings-row">
+              <div><div class="sr-label">Protected targets</div><div class="sr-help">MRs into these branches require captain approval</div></div>
+              <div class="sr-control" style="flex-wrap:wrap;">
+                <span class="tag">main</span>
+                <span class="tag">release/*</span>
+                <span class="tag">hotfix/*</span>
+                <span class="tag" style="color:var(--accent);border-color:var(--accent);">+ add</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Confirm before "Approve &amp; Merge"</div></div>
+              <div class="sr-control"><button class="toggle" aria-pressed="true"></button></div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Confirm before deleting remote branch</div></div>
+              <div class="sr-control"><button class="toggle" aria-pressed="true"></button></div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Squash by default</div><div class="sr-help">New MRs start with the squash flag checked</div></div>
+              <div class="sr-control"><button class="toggle" aria-pressed="false"></button></div>
+            </div>
+            <div class="settings-row">
+              <div><div class="sr-label">Batch MR rate limit</div></div>
+              <div class="sr-control">
+                <input class="input mono" style="width:80px;" value="1.0" />
+                <span class="text-muted fs-sm">requests / second</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-group" id="g-envs">
+            <header class="settings-group-header">
+              <h2 class="settings-group-title">Environment Branches</h2>
+              <p class="settings-group-desc">How environments map to branches per project.</p>
+            </header>
+            <div class="settings-row" style="grid-template-columns:200px 1fr auto;">
+              <div><div class="sr-label">hengjian-core</div></div>
+              <div class="sr-control" style="gap:6px;">
+                <span class="pill pill-info"><span class="dot"></span>prod</span><span class="text-mono fs-sm">main</span>
+                <span class="diag-arrow">·</span>
+                <span class="pill pill-info"><span class="dot"></span>stage</span><span class="text-mono fs-sm">release/4.13</span>
+                <span class="diag-arrow">·</span>
+                <span class="pill pill-info"><span class="dot"></span>dev</span><span class="text-mono fs-sm">develop</span>
+              </div>
+              <button class="btn">Edit</button>
+            </div>
+            <div class="settings-row" style="grid-template-columns:200px 1fr auto;">
+              <div><div class="sr-label">hengjian-mobile</div></div>
+              <div class="sr-control" style="gap:6px;">
+                <span class="pill pill-info"><span class="dot"></span>prod</span><span class="text-mono fs-sm">main</span>
+                <span class="diag-arrow">·</span>
+                <span class="pill pill-info"><span class="dot"></span>stage</span><span class="text-mono fs-sm">release/4.13</span>
+                <span class="diag-arrow">·</span>
+                <span class="pill pill-info"><span class="dot"></span>dev</span><span class="text-mono fs-sm">develop</span>
+              </div>
+              <button class="btn">Edit</button>
+            </div>
+            <div class="settings-row" style="grid-template-columns:200px 1fr auto;">
+              <div><div class="sr-label">flowbridge</div></div>
+              <div class="sr-control" style="gap:6px;">
+                <span class="pill pill-info"><span class="dot"></span>prod</span><span class="text-mono fs-sm">main</span>
+                <span class="diag-arrow">·</span>
+                <span class="pill pill-info"><span class="dot"></span>dev</span><span class="text-mono fs-sm">develop</span>
+              </div>
+              <button class="btn">Edit</button>
+            </div>
+          </section>
+
+          <section class="settings-group" id="g-mappings">
+            <header class="settings-group-header">
+              <h2 class="settings-group-title">Branch Mappings</h2>
+              <p class="settings-group-desc">Rules that turn one source branch into multiple candidate MRs (used by Batch MR).</p>
+            </header>
+            <div class="settings-row">
+              <div><div class="sr-label">Show mapping previews</div></div>
+              <div class="sr-control"><button class="toggle" aria-pressed="true"></button></div>
+            </div>
+            <div class="settings-row" style="grid-template-columns:1fr;align-items:stretch;">
+              <div style="border:1px solid var(--border);border-radius:7px;overflow:hidden;">
+                <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                  <span class="text-mono fs-md">hotfix/* → release/4.13, main</span>
+                  <span class="pill pill-info"><span class="dot"></span>4 active branches</span>
+                </div>
+                <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                  <span class="text-mono fs-md">fix/* → release/4.13, develop</span>
+                  <span class="pill pill-info"><span class="dot"></span>7 active branches</span>
+                </div>
+                <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+                  <span class="text-mono fs-md">feat/* → develop</span>
+                  <span class="pill pill-info"><span class="dot"></span>11 active branches</span>
+                </div>
+              </div>
+              <button class="btn" style="align-self:flex-start;margin-top:8px;">+ Add mapping rule…</button>
+            </div>
+          </section>
+
+          <section class="settings-group" id="g-shortcuts">
+            <header class="settings-group-header">
+              <h2 class="settings-group-title">Keyboard</h2>
+            </header>
+            <div class="settings-row"><div><div class="sr-label">New worktree</div></div><div class="sr-control"><span class="kbd">⌘</span><span class="kbd">N</span></div></div>
+            <div class="settings-row"><div><div class="sr-label">Open selected in IDE</div></div><div class="sr-control"><span class="kbd">⌘</span><span class="kbd">O</span></div></div>
+            <div class="settings-row"><div><div class="sr-label">Reveal in Finder</div></div><div class="sr-control"><span class="kbd">⌘</span><span class="kbd">⇧</span><span class="kbd">R</span></div></div>
+            <div class="settings-row"><div><div class="sr-label">Approve &amp; Merge</div></div><div class="sr-control"><span class="kbd">⌘</span><span class="kbd">↩</span></div></div>
+            <div class="settings-row"><div><div class="sr-label">Focus list</div></div><div class="sr-control"><span class="kbd">⌘</span><span class="kbd">2</span></div></div>
+          </section>
+
+          <section class="settings-group" id="g-diag">
+            <header class="settings-group-header">
+              <h2 class="settings-group-title">Diagnostics</h2>
+            </header>
+            <div class="settings-row"><div><div class="sr-label">Log level</div></div><div class="sr-control"><div class="segmented"><button>Off</button><button aria-pressed="true">Info</button><button>Debug</button><button>Trace</button></div></div></div>
+            <div class="settings-row"><div><div class="sr-label">Open log directory</div></div><div class="sr-control"><span class="path-text">~/Library/Logs/GWorkbench</span><button class="btn">Reveal</button></div></div>
+            <div class="settings-row"><div><div class="sr-label">Core version</div></div><div class="sr-control"><span class="text-mono fs-sm">gworkbench-core 0.4.2 · macOS 14.6 · arm64</span></div></div>
+          </section>
+
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="shared/shell.js"></script>
+</body>
+</html>

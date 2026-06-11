@@ -1,0 +1,126 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to publish, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build-assets:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            triple: arm64-apple-macosx
+            scratch_path: .build
+            archive_name: GWorkbench-macos-arm64
+          - runner: macos-15-intel
+            triple: x86_64-apple-macosx
+            scratch_path: .build-x86
+            archive_name: GWorkbench-macos-x86_64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Build app bundle
+        run: |
+          TARGET_TRIPLE="${{ matrix.triple }}" \
+          SCRATCH_PATH="${{ matrix.scratch_path }}" \
+          DIST_DIR="$PWD/dist/${{ matrix.archive_name }}" \
+          ./scripts/build-mac-app.sh
+
+      - name: Package zip
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          mkdir -p release-assets
+          ditto -c -k --keepParent "dist/${{ matrix.archive_name }}/GWorkbench.app" \
+            "release-assets/${{ matrix.archive_name }}-v${version}.zip"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive_name }}
+          path: release-assets/*
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: build-assets
+
+    steps:
+      - name: Download packaged assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: GWorkbench-macos-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: release-assets/*
+          generate_release_notes: true
+
+  update-homebrew-tap:
+    runs-on: ubuntu-latest
+    needs: publish-release
+    env:
+      HOMEBREW_TAP_PUSH_TOKEN: ${{ secrets.HOMEBREW_TAP_PUSH_TOKEN }}
+
+    steps:
+      - name: Skip when tap token is unavailable
+        if: ${{ env.HOMEBREW_TAP_PUSH_TOKEN == '' }}
+        run: echo "HOMEBREW_TAP_PUSH_TOKEN is not configured; skipping tap update."
+
+      - name: Checkout tool repository
+        if: ${{ env.HOMEBREW_TAP_PUSH_TOKEN != '' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Checkout homebrew tap
+        if: ${{ env.HOMEBREW_TAP_PUSH_TOKEN != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: life2you/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_PUSH_TOKEN }}
+          path: homebrew-tap
+
+      - name: Generate updated cask
+        if: ${{ env.HOMEBREW_TAP_PUSH_TOKEN != '' }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          ./scripts/update-homebrew-cask.sh "$version" --output "homebrew-tap/Casks/gworkbench.rb"
+
+      - name: Commit and push tap update
+        if: ${{ env.HOMEBREW_TAP_PUSH_TOKEN != '' }}
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p Casks
+          git add Casks/gworkbench.rb
+          if git diff --cached --quiet; then
+            echo "No tap update needed."
+            exit 0
+          fi
+          git commit -m "Update gworkbench to ${RELEASE_TAG#v}"
+          git push origin HEAD:main

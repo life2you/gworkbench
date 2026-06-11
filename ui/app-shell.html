@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · App Shell</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+</head>
+<body>
+  <div class="window" data-od-id="window">
+    <div class="titlebar" data-od-id="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+      </div>
+      <div class="titlebar-title">GWorkbench</div>
+      <div class="titlebar-right">
+        <span class="theme-tag" data-theme-tag>Light</span>
+      </div>
+    </div>
+
+    <div class="shell" data-od-id="shell">
+      <aside class="sidebar" data-od-id="sidebar">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>
+          Worktrees
+          <span class="count">12</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M5.5 12.5h2.5a2 2 0 0 0 2-2V8.5"/></svg>
+          Merge Requests
+          <span class="count">7</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M1 8h2M13 8h2M3.5 12.5l1.5-1.5M11 5l1.5-1.5"/></svg>
+          Settings
+        </div>
+
+        <div class="sidebar-section-label" style="margin-top:18px;">Projects</div>
+        <div class="sidebar-item"><span style="width:8px;height:8px;border-radius:2px;background:oklch(60% 0.16 30);"></span>hengjian-core <span class="count">8</span></div>
+        <div class="sidebar-item"><span style="width:8px;height:8px;border-radius:2px;background:oklch(58% 0.14 255);"></span>hengjian-mobile <span class="count">3</span></div>
+        <div class="sidebar-item"><span style="width:8px;height:8px;border-radius:2px;background:oklch(60% 0.16 320);"></span>flowbridge <span class="count">1</span></div>
+
+        <div style="flex:1;"></div>
+        <div class="sidebar-item" style="opacity:0.7;">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="6"/><path d="M8 5v3M8 10v0.5"/></svg>
+          About
+        </div>
+      </aside>
+
+      <section class="list-pane" data-od-id="list-empty">
+        <div class="list-toolbar">
+          <span class="path-text">Select a section</span>
+        </div>
+        <div class="empty-state">
+          <div>
+            <div style="font-size:13px;color:var(--fg-2);margin-bottom:4px;">Three-pane shell</div>
+            <div>Sidebar · List · Detail / Inspector</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="detail-pane" data-od-id="detail-empty">
+        <div class="detail-toolbar">
+          <span class="path-text">—</span>
+        </div>
+        <div class="empty-state">
+          <div>
+            <div style="font-size:13px;color:var(--fg-2);margin-bottom:4px;">No selection</div>
+            <div>Click a row to load its inspector</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="shared/shell.js"></script>
+</body>
+</html>

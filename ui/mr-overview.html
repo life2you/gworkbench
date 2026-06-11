@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · Merge Requests</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+      </div>
+      <div class="titlebar-title">GWorkbench · Merge Requests · hengjian-core</div>
+      <div class="titlebar-right"><span class="theme-tag" data-theme-tag>Light</span></div>
+    </div>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>
+          Worktrees <span class="count">12</span>
+        </div>
+        <div class="sidebar-item" aria-selected="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M5.5 12.5h2.5a2 2 0 0 0 2-2V8.5"/></svg>
+          Merge Requests <span class="count">7</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M1 8h2M13 8h2M3.5 12.5l1.5-1.5M11 5l1.5-1.5"/></svg>
+          Settings
+        </div>
+
+        <div class="sidebar-section-label" style="margin-top:18px;">Filter</div>
+        <div class="sidebar-item" aria-selected="true" style="font-size:12px;">Open <span class="count">7</span></div>
+        <div class="sidebar-item" style="font-size:12px;">Mine <span class="count">3</span></div>
+        <div class="sidebar-item" style="font-size:12px;">Awaiting my approval <span class="count">2</span></div>
+        <div class="sidebar-item" style="font-size:12px;">Merged <span class="count">28</span></div>
+        <div class="sidebar-item" style="font-size:12px;">Closed <span class="count">4</span></div>
+      </aside>
+
+      <section class="list-pane">
+        <div class="list-toolbar">
+          <button class="proj-switcher" type="button">
+            <span style="width:6px;height:6px;border-radius:2px;background:oklch(60% 0.16 30);"></span>hengjian-core
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+          </button>
+          <input class="list-search" placeholder="IID, title, branch…" />
+          <button class="btn btn-icon" title="Refresh">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13 3v3h-3M3 13v-3h3"/><path d="M13 6a5 5 0 0 0-9-1M3 10a5 5 0 0 0 9 1"/></svg>
+          </button>
+          <button class="btn btn-primary">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10"/></svg>
+            New MR
+          </button>
+        </div>
+        <div class="list-scroll" data-list="mrs">
+
+          <div class="list-row" aria-selected="true" data-item-id="mr-1284">
+            <span class="row-title">!1284 · payment webhook retry queue</span>
+            <span class="row-meta"><span class="pill pill-warn"><span class="dot"></span>2 / 3</span></span>
+            <span class="row-sub"><span class="text-mono">feat/payment-webhook</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></span>
+            <span class="row-meta row-meta-bottom">YL · 3m</span>
+          </div>
+
+          <div class="list-row" data-item-id="mr-1281">
+            <span class="row-title">!1281 · SSO returnTo persistence</span>
+            <span class="row-meta"><span class="pill pill-ok"><span class="dot"></span>3 / 3</span></span>
+            <span class="row-sub"><span class="text-mono">fix/login-redirect-loop</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></span>
+            <span class="row-meta row-meta-bottom">MS · 1h</span>
+          </div>
+
+          <div class="list-row" data-item-id="mr-1278">
+            <span class="row-title">!1278 · rust 1.78 + tokio 1.39</span>
+            <span class="row-meta"><span class="pill pill-mute"><span class="dot"></span>0 / 2</span></span>
+            <span class="row-sub"><span class="text-mono">chore/upgrade-rust-1.78</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></span>
+            <span class="row-meta row-meta-bottom">YL · 3h</span>
+          </div>
+
+          <div class="list-row" data-item-id="mr-1275">
+            <span class="row-title">!1275 · invoice line-item rounding</span>
+            <span class="row-meta"><span class="pill pill-warn"><span class="dot"></span>1 / 3</span></span>
+            <span class="row-sub"><span class="text-mono">fix/invoice-rounding</span> <span class="diag-arrow">→</span> <span class="text-mono">release/4.13</span></span>
+            <span class="row-meta row-meta-bottom">YT · 5h</span>
+          </div>
+
+          <div class="list-row" data-item-id="mr-1271">
+            <span class="row-title">!1271 · add region routing for eu-west</span>
+            <span class="row-meta"><span class="pill pill-ok"><span class="dot"></span>3 / 3</span></span>
+            <span class="row-sub"><span class="text-mono">feat/eu-west-routing</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></span>
+            <span class="row-meta row-meta-bottom">JW · 1d</span>
+          </div>
+
+          <div class="list-row" data-item-id="mr-1268">
+            <span class="row-title">!1268 · drop legacy v1 API endpoints</span>
+            <span class="row-meta"><span class="pill pill-danger"><span class="dot"></span>blocked</span></span>
+            <span class="row-sub"><span class="text-mono">chore/drop-v1-endpoints</span> <span class="diag-arrow">→</span> <span class="text-mono">main</span></span>
+            <span class="row-meta row-meta-bottom">MS · 2d</span>
+          </div>
+
+          <div class="list-row" data-item-id="mr-1264">
+            <span class="row-title">!1264 · onboarding empty state copy</span>
+            <span class="row-meta"><span class="pill"><span class="dot"></span>draft</span></span>
+            <span class="row-sub"><span class="text-mono">copy/onboarding-empty</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></span>
+            <span class="row-meta row-meta-bottom">JW · 3d</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="detail-pane">
+        <div class="detail-toolbar">
+          <span class="path-text">gitlab.hengjian.io / core / -/merge_requests / 1284</span>
+          <span class="spacer"></span>
+          <button class="btn">Comment</button>
+          <button class="btn">Close MR</button>
+          <button class="btn btn-primary"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 5h10M3 8h7M3 11h10"/><circle cx="12" cy="8" r="1.5"/></svg>Approve &amp; Merge</button>
+        </div>
+
+        <div class="detail-scroll" data-detail-group="mrs">
+
+          <!-- 1284 (default) -->
+          <div data-detail-for="mr-1284" class="active">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Merge request · open · 14 commits · 18 files changed</p>
+              <h1 class="detail-title">!1284 · payment webhook retry queue</h1>
+              <p class="detail-subtitle">Adds idempotency keys, a retry table, and parses <span class="text-mono">Retry-After</span> on 429s. Closes #4187.</p>
+            </header>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
+              <span class="pill pill-info"><span class="dot"></span>Open</span>
+              <span class="pill"><span class="dot"></span>can be merged</span>
+              <span class="pill pill-ok"><span class="dot"></span>CI passing · 142/142</span>
+              <span class="pill pill-warn"><span class="dot"></span>awaiting 1 approval</span>
+            </div>
+
+            <dl class="meta-grid">
+              <dt>Source</dt><dd>feat/payment-webhook · e7c2a09</dd>
+              <dt>Target</dt><dd>develop · 7b1d8f4 <span class="pill pill-mute" style="margin-left:6px;">protected</span></dd>
+              <dt>Author</dt><dd class="body"><span class="avatar sm av-bg-3" style="margin-right:6px;">YL</span>Yi Lin · @yi.lin</dd>
+              <dt>Created</dt><dd>3 days ago</dd>
+              <dt>Pipeline</dt><dd>#48217 · success in 4m 12s</dd>
+              <dt>Labels</dt><dd class="body">
+                <span class="tag" style="padding:2px 7px;border-radius:3px;font-size:11px;">billing</span>
+                <span class="tag" style="padding:2px 7px;border-radius:3px;font-size:11px;margin-left:4px;">backend</span>
+                <span class="tag" style="padding:2px 7px;border-radius:3px;font-size:11px;margin-left:4px;">P1</span>
+              </dd>
+            </dl>
+
+            <div class="section-block">
+              <p class="section-label">Approvals · 2 of 3 required</p>
+              <div style="border:1px solid var(--border);border-radius:7px;overflow:hidden;">
+                <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);">
+                  <span class="avatar av-bg-1">MS</span>
+                  <div>
+                    <div style="font-size:13px;color:var(--fg);">Mei Sun</div>
+                    <div style="font-size:11px;color:var(--muted);">Backend reviewer · approved 1h ago</div>
+                  </div>
+                  <span class="pill pill-ok"><span class="dot"></span>approved</span>
+                </div>
+                <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);">
+                  <span class="avatar av-bg-5">JW</span>
+                  <div>
+                    <div style="font-size:13px;color:var(--fg);">Jian Wu</div>
+                    <div style="font-size:11px;color:var(--muted);">Billing owner · approved 2h ago</div>
+                  </div>
+                  <span class="pill pill-ok"><span class="dot"></span>approved</span>
+                </div>
+                <div style="display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 14px;">
+                  <span class="avatar av-bg-2">YT</span>
+                  <div>
+                    <div style="font-size:13px;color:var(--fg);">Yu Tang</div>
+                    <div style="font-size:11px;color:var(--muted);">Release captain · requested 3d ago</div>
+                  </div>
+                  <span class="pill pill-warn"><span class="dot"></span>pending</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-block">
+              <p class="section-label">Recent activity</p>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div style="display:flex;gap:10px;align-items:flex-start;"><span class="avatar sm av-bg-3">YL</span><div style="font-size:12.5px;"><span style="color:var(--fg);">Yi Lin</span> <span class="text-muted">pushed 1 commit · </span><span class="text-mono">e7c2a09</span> add retry-after parsing for 429s <span class="text-muted">· 3m ago</span></div></div>
+                <div style="display:flex;gap:10px;align-items:flex-start;"><span class="avatar sm av-bg-1">MS</span><div style="font-size:12.5px;"><span style="color:var(--fg);">Mei Sun</span> <span class="text-muted">approved this merge request · 1h ago</span></div></div>
+                <div style="display:flex;gap:10px;align-items:flex-start;"><span class="avatar sm av-bg-5">JW</span><div style="font-size:12.5px;"><span style="color:var(--fg);">Jian Wu</span> <span class="text-muted">commented: </span>"backfill plan looks safe. let's flip the feature flag at 10% first." <span class="text-muted">· 2h ago</span></div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 1281 -->
+          <div data-detail-for="mr-1281">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Merge request · open · ready to merge</p>
+              <h1 class="detail-title">!1281 · SSO returnTo persistence</h1>
+              <p class="detail-subtitle">Restore the returnTo URL from sessionStorage after the SSO round-trip. Fixes #4192.</p>
+            </header>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
+              <span class="pill pill-ok"><span class="dot"></span>3 of 3 approved</span>
+              <span class="pill pill-ok"><span class="dot"></span>CI passing</span>
+              <span class="pill"><span class="dot"></span>ready</span>
+            </div>
+            <dl class="meta-grid">
+              <dt>Source</dt><dd>fix/login-redirect-loop · c8a1f54</dd>
+              <dt>Target</dt><dd>develop</dd>
+              <dt>Author</dt><dd class="body"><span class="avatar sm av-bg-1" style="margin-right:6px;">MS</span>Mei Sun</dd>
+              <dt>Updated</dt><dd>1h ago</dd>
+            </dl>
+            <div class="alert alert-info">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 5v4M8 11v0.5"/></svg>
+              <div>All approvals satisfied. <strong>Approve &amp; Merge</strong> will squash 3 commits and delete the source branch.</div>
+            </div>
+          </div>
+
+          <!-- 1278 -->
+          <div data-detail-for="mr-1278">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Merge request · open · awaiting review</p>
+              <h1 class="detail-title">!1278 · rust 1.78 + tokio 1.39</h1>
+              <p class="detail-subtitle">Toolchain bump plus the clippy fallout. No behavior change expected.</p>
+            </header>
+            <dl class="meta-grid">
+              <dt>Source</dt><dd>chore/upgrade-rust-1.78 · 2db4f0c</dd>
+              <dt>Target</dt><dd>develop</dd>
+              <dt>Author</dt><dd class="body"><span class="avatar sm av-bg-3" style="margin-right:6px;">YL</span>Yi Lin</dd>
+              <dt>Approvals</dt><dd class="body"><span class="pill pill-mute"><span class="dot"></span>0 / 2</span></dd>
+            </dl>
+          </div>
+
+          <!-- 1275 -->
+          <div data-detail-for="mr-1275">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Merge request · open · release branch</p>
+              <h1 class="detail-title">!1275 · invoice line-item rounding</h1>
+              <p class="detail-subtitle">Half-up rounding for sub-cent line items. Backport to release/4.13.</p>
+            </header>
+            <div class="alert">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2l6 11H2L8 2zM8 6v3M8 11v0.5"/></svg>
+              <div>Target <span class="text-mono">release/4.13</span> is protected. Merge requires release captain approval.</div>
+            </div>
+          </div>
+
+          <!-- 1271 -->
+          <div data-detail-for="mr-1271">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Merge request · open · approved</p>
+              <h1 class="detail-title">!1271 · add region routing for eu-west</h1>
+              <p class="detail-subtitle">DNS-based region routing for the new EU cluster.</p>
+            </header>
+          </div>
+
+          <!-- 1268 -->
+          <div data-detail-for="mr-1268">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Merge request · open · blocked</p>
+              <h1 class="detail-title">!1268 · drop legacy v1 API endpoints</h1>
+              <p class="detail-subtitle">Removes the v1 surface after the 90-day deprecation window.</p>
+            </header>
+            <div class="alert">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2l6 11H2L8 2zM8 6v3M8 11v0.5"/></svg>
+              <div>Pipeline failing: <span class="text-mono">migration_safety</span> at step 3/7. Fix CI before approval.</div>
+            </div>
+          </div>
+
+          <!-- 1264 -->
+          <div data-detail-for="mr-1264">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Merge request · draft</p>
+              <h1 class="detail-title">!1264 · onboarding empty state copy</h1>
+              <p class="detail-subtitle">Replaces the cold empty states with specific next-step CTAs.</p>
+            </header>
+          </div>
+
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="shared/shell.js"></script>
+</body>
+</html>

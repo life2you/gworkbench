@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · Create MR</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+      </div>
+      <div class="titlebar-title">GWorkbench · Merge Requests · hengjian-core</div>
+      <div class="titlebar-right"><span class="theme-tag" data-theme-tag>Light</span></div>
+    </div>
+
+    <div class="shell" style="filter: blur(0.5px);">
+      <aside class="sidebar">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>Worktrees <span class="count">12</span></div>
+        <div class="sidebar-item" aria-selected="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M5.5 12.5h2.5a2 2 0 0 0 2-2V8.5"/></svg>Merge Requests <span class="count">7</span></div>
+        <div class="sidebar-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2"/></svg>Settings</div>
+      </aside>
+
+      <section class="list-pane">
+        <div class="list-toolbar">
+          <button class="proj-switcher" type="button">hengjian-core<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg></button>
+          <input class="list-search" placeholder="IID, title…" />
+        </div>
+        <div class="list-scroll">
+          <div class="list-row"><span class="row-title">!1284 · payment webhook retry queue</span><span class="row-meta">2/3</span><span class="row-sub">feat/payment-webhook → develop</span><span class="row-meta row-meta-bottom">3m</span></div>
+          <div class="list-row"><span class="row-title">!1281 · SSO returnTo persistence</span><span class="row-meta">3/3</span><span class="row-sub">fix/login-redirect-loop → develop</span><span class="row-meta row-meta-bottom">1h</span></div>
+          <div class="list-row"><span class="row-title">!1278 · rust 1.78 + tokio 1.39</span><span class="row-meta">0/2</span><span class="row-sub">chore/upgrade → develop</span><span class="row-meta row-meta-bottom">3h</span></div>
+        </div>
+      </section>
+
+      <section class="detail-pane">
+        <div class="detail-toolbar"><span class="path-text">Select an MR</span></div>
+        <div class="detail-scroll"><div class="empty-state"><div>Inspector</div></div></div>
+      </section>
+    </div>
+
+    <!-- Sheet -->
+    <div class="sheet-overlay">
+      <div class="sheet sheet-lg" role="dialog" aria-labelledby="sheet-title">
+        <div class="sheet-header">
+          <h2 class="sheet-title" id="sheet-title">Create merge request</h2>
+          <p class="sheet-subtitle">Project: hengjian-core · gitlab.hengjian.io</p>
+        </div>
+        <div class="sheet-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div class="field">
+              <label class="field-label">Source branch</label>
+              <select class="select mono">
+                <option>feat/payment-webhook · 14 commits ahead</option>
+                <option>fix/login-redirect-loop · 3 commits ahead</option>
+                <option>chore/upgrade-rust-1.78 · 21 commits ahead</option>
+                <option>exp/new-billing-prototype · 38 commits ahead</option>
+              </select>
+              <span class="field-help">From the active worktrees in this project.</span>
+            </div>
+            <div class="field">
+              <label class="field-label">Target branch</label>
+              <select class="select mono">
+                <option>develop</option>
+                <option>main · protected</option>
+                <option>release/4.13 · protected</option>
+              </select>
+              <span class="field-help">Protected targets require captain approval.</span>
+            </div>
+          </div>
+
+          <div class="alert">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2l6 11H2L8 2zM8 6v3M8 11v0.5"/></svg>
+            <div>
+              <strong style="color:var(--fg);">Heads-up</strong> · target is currently <span class="text-mono">develop</span>. If you switch to <span class="text-mono">main</span>, GWorkbench will require an explicit confirmation before pushing.
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Title</label>
+            <input class="input" value="payment webhook retry queue" />
+            <span class="field-help">Pre-filled from the head commit subject. Edit before submitting.</span>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Description</label>
+            <textarea class="textarea" style="min-height:120px;">### Summary
+- Adds an idempotency-key index on `stripe_events`.
+- Introduces a retry queue table; parses `Retry-After` on 429 responses.
+- Backfill plan: behind feature flag `billing.retry-queue` at 10% rollout.
+
+Closes #4187.
+
+### Test plan
+- `cargo test billing::webhook` — 18 new cases
+- Manual smoke against staging webhook with replayed payloads</textarea>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div class="field">
+              <label class="field-label">Labels</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 8px;border:1px solid var(--border-strong);border-radius:5px;min-height:34px;">
+                <span class="tag">billing</span>
+                <span class="tag">backend</span>
+                <span class="tag">P1</span>
+                <span class="tag" style="color:var(--accent);border-color:var(--accent);">+ add</span>
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label">Assignee · reviewers</label>
+              <div style="display:flex;gap:6px;align-items:center;padding:6px 8px;border:1px solid var(--border-strong);border-radius:5px;min-height:34px;">
+                <span class="avatar sm av-bg-1">MS</span>
+                <span class="avatar sm av-bg-5">JW</span>
+                <span class="avatar sm av-bg-2">YT</span>
+                <span class="tag" style="color:var(--accent);border-color:var(--accent);">+ add</span>
+              </div>
+            </div>
+          </div>
+
+          <label class="checkbox-row">
+            <input type="checkbox" checked />
+            <div>
+              <span class="cb-label">Mark as <strong>Draft</strong> until ready</span>
+              <span class="cb-help">Prefix the title with <span class="text-mono">Draft:</span> · skips approval gating</span>
+            </div>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" checked />
+            <div>
+              <span class="cb-label">Delete source branch when merged</span>
+              <span class="cb-help">Recommended for short-lived feature branches</span>
+            </div>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" />
+            <div>
+              <span class="cb-label">Squash commits when merged</span>
+              <span class="cb-help">Forces a single commit on the target branch</span>
+            </div>
+          </label>
+        </div>
+        <div class="sheet-footer">
+          <span style="font-size:11px;color:var(--muted);align-self:center;margin-right:auto;">
+            <span class="kbd">⌘</span> <span class="kbd">↵</span> submit
+          </span>
+          <button class="btn">Cancel</button>
+          <button class="btn">Save as draft</button>
+          <button class="btn btn-primary">Create MR</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="shared/shell.js"></script>
+</body>
+</html>

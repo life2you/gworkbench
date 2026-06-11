@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · Batch MR Review</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+      </div>
+      <div class="titlebar-title">GWorkbench · Batch MR · hengjian-mobile</div>
+      <div class="titlebar-right"><span class="theme-tag" data-theme-tag>Light</span></div>
+    </div>
+
+    <div class="shell shell-detail-only">
+      <aside class="sidebar">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>Worktrees <span class="count">12</span></div>
+        <div class="sidebar-item" aria-selected="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M5.5 12.5h2.5a2 2 0 0 0 2-2V8.5"/></svg>Merge Requests <span class="count">7</span></div>
+        <div class="sidebar-item"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2"/></svg>Settings</div>
+      </aside>
+
+      <section class="detail-pane">
+        <div class="detail-toolbar">
+          <a href="mr-overview.html" class="btn btn-ghost"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 4l-4 4 4 4"/></svg>Merge Requests</a>
+          <span class="diag-arrow">/</span>
+          <span class="path-text">Batch create · branch-mapping preview</span>
+          <span class="spacer"></span>
+          <button class="btn">Refresh mappings</button>
+          <button class="btn">Edit policy…</button>
+        </div>
+
+        <div class="detail-scroll" style="max-width:1040px;">
+          <header class="detail-header">
+            <p class="detail-eyebrow">Batch · 6 source branches · 12 candidate MRs</p>
+            <h1 class="detail-title" style="font-family:var(--font-display);">Promote release/4.13 fixes to develop and main</h1>
+            <p class="detail-subtitle">Branch mapping resolved 12 candidate MRs across 2 protected targets. Tick the rows you want to create. Protected targets need a captain on review.</p>
+          </header>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
+            <span class="pill pill-ok"><span class="dot"></span>9 selected</span>
+            <span class="pill pill-warn"><span class="dot"></span>2 protected targets</span>
+            <span class="pill"><span class="dot"></span>1 skipped · already open</span>
+          </div>
+
+          <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+            <table class="data-table" data-table-list="batch">
+              <thead>
+                <tr>
+                  <th style="width:32px;"><input type="checkbox" checked /></th>
+                  <th style="width:32%;">Source <span class="diag-arrow">→</span> Target</th>
+                  <th>Title (editable)</th>
+                  <th class="mono" style="width:60px;">Files</th>
+                  <th style="width:90px;">Target type</th>
+                  <th style="width:80px;">Pipeline</th>
+                  <th style="width:70px;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-item-id="b1" class="selected">
+                  <td><input type="checkbox" checked /></td>
+                  <td><span class="text-mono">hotfix/crash-on-cold-launch</span> <span class="diag-arrow">→</span> <span class="text-mono">release/4.13</span></td>
+                  <td>fix cold-launch crash on iOS 17 first run</td>
+                  <td class="mono">4</td>
+                  <td><span class="pill pill-warn"><span class="dot"></span>protected</span></td>
+                  <td><span class="pill pill-ok"><span class="dot"></span>passed</span></td>
+                  <td><span class="pill"><span class="dot"></span>ready</span></td>
+                </tr>
+                <tr data-item-id="b2">
+                  <td><input type="checkbox" checked /></td>
+                  <td><span class="text-mono">hotfix/crash-on-cold-launch</span> <span class="diag-arrow">→</span> <span class="text-mono">main</span></td>
+                  <td>fix cold-launch crash on iOS 17 first run</td>
+                  <td class="mono">4</td>
+                  <td><span class="pill pill-warn"><span class="dot"></span>protected</span></td>
+                  <td><span class="pill pill-ok"><span class="dot"></span>passed</span></td>
+                  <td><span class="pill"><span class="dot"></span>ready</span></td>
+                </tr>
+                <tr data-item-id="b3">
+                  <td><input type="checkbox" checked /></td>
+                  <td><span class="text-mono">fix/push-token-refresh</span> <span class="diag-arrow">→</span> <span class="text-mono">release/4.13</span></td>
+                  <td>refresh push token on cold start, not on resume</td>
+                  <td class="mono">7</td>
+                  <td><span class="pill pill-warn"><span class="dot"></span>protected</span></td>
+                  <td><span class="pill pill-ok"><span class="dot"></span>passed</span></td>
+                  <td><span class="pill"><span class="dot"></span>ready</span></td>
+                </tr>
+                <tr data-item-id="b4">
+                  <td><input type="checkbox" checked /></td>
+                  <td><span class="text-mono">fix/push-token-refresh</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></td>
+                  <td>refresh push token on cold start, not on resume</td>
+                  <td class="mono">7</td>
+                  <td><span class="pill"><span class="dot"></span>normal</span></td>
+                  <td><span class="pill pill-ok"><span class="dot"></span>passed</span></td>
+                  <td><span class="pill"><span class="dot"></span>ready</span></td>
+                </tr>
+                <tr data-item-id="b5">
+                  <td><input type="checkbox" checked /></td>
+                  <td><span class="text-mono">fix/share-sheet-jp-locale</span> <span class="diag-arrow">→</span> <span class="text-mono">release/4.13</span></td>
+                  <td>share-sheet crash for ja-JP system locale</td>
+                  <td class="mono">2</td>
+                  <td><span class="pill pill-warn"><span class="dot"></span>protected</span></td>
+                  <td><span class="pill pill-ok"><span class="dot"></span>passed</span></td>
+                  <td><span class="pill"><span class="dot"></span>ready</span></td>
+                </tr>
+                <tr data-item-id="b6">
+                  <td><input type="checkbox" checked /></td>
+                  <td><span class="text-mono">fix/share-sheet-jp-locale</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></td>
+                  <td>share-sheet crash for ja-JP system locale</td>
+                  <td class="mono">2</td>
+                  <td><span class="pill"><span class="dot"></span>normal</span></td>
+                  <td><span class="pill pill-ok"><span class="dot"></span>passed</span></td>
+                  <td><span class="pill"><span class="dot"></span>ready</span></td>
+                </tr>
+                <tr data-item-id="b7">
+                  <td><input type="checkbox" /></td>
+                  <td><span class="text-mono">chore/swiftlint-6.0</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></td>
+                  <td>upgrade SwiftLint to 6.0; fix warnings</td>
+                  <td class="mono">38</td>
+                  <td><span class="pill"><span class="dot"></span>normal</span></td>
+                  <td><span class="pill pill-warn"><span class="dot"></span>pending</span></td>
+                  <td><span class="pill pill-mute"><span class="dot"></span>skip</span></td>
+                </tr>
+                <tr data-item-id="b8">
+                  <td><input type="checkbox" checked /></td>
+                  <td><span class="text-mono">fix/deeplink-empty-path</span> <span class="diag-arrow">→</span> <span class="text-mono">release/4.13</span></td>
+                  <td>treat empty deeplink path as home, not crash</td>
+                  <td class="mono">3</td>
+                  <td><span class="pill pill-warn"><span class="dot"></span>protected</span></td>
+                  <td><span class="pill pill-ok"><span class="dot"></span>passed</span></td>
+                  <td><span class="pill"><span class="dot"></span>ready</span></td>
+                </tr>
+                <tr data-item-id="b9">
+                  <td><input type="checkbox" checked /></td>
+                  <td><span class="text-mono">fix/deeplink-empty-path</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></td>
+                  <td>treat empty deeplink path as home, not crash</td>
+                  <td class="mono">3</td>
+                  <td><span class="pill"><span class="dot"></span>normal</span></td>
+                  <td><span class="pill pill-ok"><span class="dot"></span>passed</span></td>
+                  <td><span class="pill"><span class="dot"></span>ready</span></td>
+                </tr>
+                <tr data-item-id="b10">
+                  <td><input type="checkbox" /></td>
+                  <td><span class="text-mono">copy/onboarding-empty</span> <span class="diag-arrow">→</span> <span class="text-mono">develop</span></td>
+                  <td>onboarding empty state copy revisions</td>
+                  <td class="mono">9</td>
+                  <td><span class="pill"><span class="dot"></span>normal</span></td>
+                  <td><span class="pill pill-mute"><span class="dot"></span>—</span></td>
+                  <td><span class="pill pill-mute"><span class="dot"></span>open MR exists</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="section-block" style="margin-top:24px;">
+            <p class="section-label">Defaults applied to every selected row</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+              <label class="checkbox-row"><input type="checkbox" checked /><div><span class="cb-label">Mark as draft</span><span class="cb-help">Skip approvals until ready</span></div></label>
+              <label class="checkbox-row"><input type="checkbox" checked /><div><span class="cb-label">Delete source branch on merge</span></div></label>
+              <label class="checkbox-row"><input type="checkbox" /><div><span class="cb-label">Squash commits</span></div></label>
+              <label class="checkbox-row"><input type="checkbox" checked /><div><span class="cb-label">Assign me</span><span class="cb-help">Yi Lin · @yi.lin</span></div></label>
+            </div>
+          </div>
+
+          <div class="alert">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 2l6 11H2L8 2zM8 6v3M8 11v0.5"/></svg>
+            <div>
+              <strong style="color:var(--fg);">5 protected-target MRs in this batch.</strong> Captain approval (Yu Tang · @yu.tang) will be requested on each. GWorkbench creates one MR per second to avoid GitLab rate limits.
+            </div>
+          </div>
+
+          <!-- bottom action bar -->
+          <div style="position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--border);margin:24px -28px -24px;padding:14px 28px;display:flex;align-items:center;gap:12px;">
+            <div class="progress" style="flex:1;max-width:280px;">
+              <span class="text-mono fs-sm">0 / 9</span>
+              <div class="progress-track"><div class="progress-fill" style="width:0%;"></div></div>
+            </div>
+            <span class="spacer"></span>
+            <button class="btn">Cancel</button>
+            <button class="btn">Save as draft batch</button>
+            <button class="btn btn-primary btn-lg">Create 9 merge requests</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="shared/shell.js"></script>
+</body>
+</html>

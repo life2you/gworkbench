@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · Create Worktree</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+      </div>
+      <div class="titlebar-title">GWorkbench · Worktrees · hengjian-core</div>
+      <div class="titlebar-right"><span class="theme-tag" data-theme-tag>Light</span></div>
+    </div>
+
+    <div class="shell" style="filter: blur(0.5px);">
+      <aside class="sidebar">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-item" aria-selected="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>
+          Worktrees <span class="count">12</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M5.5 12.5h2.5a2 2 0 0 0 2-2V8.5"/></svg>
+          Merge Requests <span class="count">7</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M1 8h2M13 8h2M3.5 12.5l1.5-1.5M11 5l1.5-1.5"/></svg>
+          Settings
+        </div>
+      </aside>
+
+      <section class="list-pane">
+        <div class="list-toolbar">
+          <button class="proj-switcher" type="button">
+            <span style="width:6px;height:6px;border-radius:2px;background:oklch(60% 0.16 30);"></span>hengjian-core
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+          </button>
+          <input class="list-search" placeholder="Filter worktrees…" />
+        </div>
+        <div class="list-scroll">
+          <div class="list-row"><span class="row-title">main</span><span class="row-meta">main repo</span><span class="row-sub">production</span><span class="row-meta row-meta-bottom">12m</span></div>
+          <div class="list-row"><span class="row-title">feat/payment-webhook</span><span class="row-meta">worktree</span><span class="row-sub">Stripe webhook retry</span><span class="row-meta row-meta-bottom">3m</span></div>
+          <div class="list-row"><span class="row-title">fix/login-redirect-loop</span><span class="row-meta">worktree</span><span class="row-sub">SSO returnTo lost</span><span class="row-meta row-meta-bottom">42m</span></div>
+          <div class="list-row"><span class="row-title">chore/upgrade-rust-1.78</span><span class="row-meta">worktree</span><span class="row-sub">tokio 1.39</span><span class="row-meta row-meta-bottom">2h</span></div>
+        </div>
+      </section>
+
+      <section class="detail-pane">
+        <div class="detail-toolbar"><span class="path-text">~/dev/wt/hengjian-core/…</span></div>
+        <div class="detail-scroll"><div class="empty-state"><div>Inspector</div></div></div>
+      </section>
+    </div>
+
+    <!-- Sheet overlay -->
+    <div class="sheet-overlay">
+      <div class="sheet" role="dialog" aria-labelledby="sheet-title">
+        <div class="sheet-header">
+          <h2 class="sheet-title" id="sheet-title">Create worktree</h2>
+          <p class="sheet-subtitle">Project: hengjian-core · Worktree root: ~/dev/wt</p>
+        </div>
+        <div class="sheet-body">
+          <div class="field">
+            <label class="field-label">Base branch</label>
+            <select class="select mono">
+              <option>develop</option>
+              <option>main</option>
+              <option>release/4.13</option>
+              <option>release/4.12</option>
+            </select>
+            <span class="field-help">New worktree starts from the tip of this branch.</span>
+          </div>
+
+          <div class="field">
+            <label class="field-label">New branch name</label>
+            <input class="input mono" value="feat/inbox-thread-view" placeholder="feat/your-branch-name" />
+            <span class="field-help">Will be created locally. Push later from the worktree.</span>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Description <span class="text-muted">(optional)</span></label>
+            <textarea class="textarea" placeholder="One line. Stored locally for the worktree list.">Thread grouping for the inbox · prep for design review on Thursday</textarea>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Worktree path</label>
+            <div style="display:flex;gap:8px;">
+              <input class="input mono" value="~/dev/wt/hengjian-core/feat-inbox-thread-view" />
+              <button class="btn">Browse…</button>
+            </div>
+            <span class="field-help">Derived from the branch name. Override only if you have a reason.</span>
+          </div>
+
+          <hr />
+
+          <label class="checkbox-row">
+            <input type="checkbox" checked />
+            <div>
+              <span class="cb-label">Open in Cursor after create</span>
+              <span class="cb-help">Default IDE — change in Settings → IDE</span>
+            </div>
+          </label>
+          <label class="checkbox-row">
+            <input type="checkbox" />
+            <div>
+              <span class="cb-label">Run <span class="text-mono">pnpm install</span> in the new worktree</span>
+              <span class="cb-help">Detected from <span class="text-mono">package.json</span> · adds ~40s</span>
+            </div>
+          </label>
+        </div>
+        <div class="sheet-footer">
+          <span style="font-size:11px;color:var(--muted);align-self:center;margin-right:auto;">
+            <span class="kbd">⌘</span> <span class="kbd">↵</span> to create
+          </span>
+          <button class="btn">Cancel</button>
+          <button class="btn btn-primary">Create worktree</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="shared/shell.js"></script>
+</body>
+</html>

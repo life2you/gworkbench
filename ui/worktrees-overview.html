@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · Worktrees</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+      </div>
+      <div class="titlebar-title">GWorkbench · Worktrees · hengjian-core</div>
+      <div class="titlebar-right"><span class="theme-tag" data-theme-tag>Light</span></div>
+    </div>
+
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-item" aria-selected="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>
+          Worktrees <span class="count">12</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M5.5 12.5h2.5a2 2 0 0 0 2-2V8.5"/></svg>
+          Merge Requests <span class="count">7</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M1 8h2M13 8h2M3.5 12.5l1.5-1.5M11 5l1.5-1.5"/></svg>
+          Settings
+        </div>
+
+        <div class="sidebar-section-label" style="margin-top:18px;">Projects</div>
+        <div class="sidebar-item"><span style="width:8px;height:8px;border-radius:2px;background:oklch(60% 0.16 30);"></span>hengjian-core <span class="count">5</span></div>
+        <div class="sidebar-item"><span style="width:8px;height:8px;border-radius:2px;background:oklch(58% 0.14 255);"></span>hengjian-mobile <span class="count">3</span></div>
+        <div class="sidebar-item"><span style="width:8px;height:8px;border-radius:2px;background:oklch(60% 0.16 320);"></span>flowbridge <span class="count">4</span></div>
+      </aside>
+
+      <section class="list-pane">
+        <div class="list-toolbar">
+          <button class="proj-switcher" type="button">
+            <span style="width:6px;height:6px;border-radius:2px;background:oklch(60% 0.16 30);"></span>
+            hengjian-core
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 6l4 4 4-4"/></svg>
+          </button>
+          <input class="list-search" placeholder="Filter worktrees…" />
+          <button class="btn btn-icon" title="Refresh">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13 3v3h-3M3 13v-3h3"/><path d="M13 6a5 5 0 0 0-9-1M3 10a5 5 0 0 0 9 1"/></svg>
+          </button>
+          <button class="btn btn-primary">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10"/></svg>
+            New
+          </button>
+        </div>
+        <div class="list-scroll" data-list="worktrees">
+          <div class="list-row" data-item-id="wt-main">
+            <span class="row-title">main</span>
+            <span class="row-meta">main repo</span>
+            <span class="row-sub">production · do not commit directly</span>
+            <span class="row-meta row-meta-bottom">12m ago</span>
+          </div>
+          <div class="list-row" aria-selected="true" data-item-id="wt-payment">
+            <span class="row-title">feat/payment-webhook</span>
+            <span class="row-meta">worktree</span>
+            <span class="row-sub">Stripe webhook retry · idempotency keys</span>
+            <span class="row-meta row-meta-bottom">3m ago</span>
+          </div>
+          <div class="list-row" data-item-id="wt-login">
+            <span class="row-title">fix/login-redirect-loop</span>
+            <span class="row-meta">worktree</span>
+            <span class="row-sub">SSO returnTo lost after refresh</span>
+            <span class="row-meta row-meta-bottom">42m ago</span>
+          </div>
+          <div class="list-row" data-item-id="wt-rust">
+            <span class="row-title">chore/upgrade-rust-1.78</span>
+            <span class="row-meta">worktree</span>
+            <span class="row-sub">tokio 1.39 · clippy fallout</span>
+            <span class="row-meta row-meta-bottom">2h ago</span>
+          </div>
+          <div class="list-row" data-item-id="wt-billing">
+            <span class="row-title">exp/new-billing-prototype</span>
+            <span class="row-meta">worktree</span>
+            <span class="row-sub">spike — not for review</span>
+            <span class="row-meta row-meta-bottom">yesterday</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="detail-pane">
+        <div class="detail-toolbar">
+          <span class="path-text" id="wt-path">~/dev/wt/hengjian-core/feat-payment-webhook</span>
+          <span class="spacer"></span>
+          <button class="btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 3H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V9M10 2h4v4M14 2L8 8"/></svg>Open in IDE</button>
+          <button class="btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 5.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5.5Z"/></svg>Reveal</button>
+          <button class="btn btn-icon" title="More">
+            <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>
+          </button>
+        </div>
+
+        <div class="detail-scroll" data-detail-group="worktrees">
+
+          <!-- main -->
+          <div data-detail-for="wt-main">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Main repository · hengjian-core</p>
+              <h1 class="detail-title">main</h1>
+              <p class="detail-subtitle">production branch · do not commit directly</p>
+            </header>
+            <dl class="meta-grid">
+              <dt>Path</dt><dd>~/code/hengjian-core</dd>
+              <dt>Head</dt><dd>a3f81bc · release v4.12.2 (#2841)</dd>
+              <dt>Updated</dt><dd>12m ago by ci-bot</dd>
+              <dt>Disk usage</dt><dd>184 MB</dd>
+              <dt>Type</dt><dd class="body"><span class="pill pill-info"><span class="dot"></span>Main repo</span></dd>
+            </dl>
+            <div class="alert alert-info">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6"/><path d="M8 5v4M8 11v0.5"/></svg>
+              <div>This is the main repository. To work on a feature, create a worktree from a branch instead of committing here directly.</div>
+            </div>
+          </div>
+
+          <!-- payment (default selected) -->
+          <div data-detail-for="wt-payment" class="active">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Worktree · hengjian-core</p>
+              <h1 class="detail-title">feat/payment-webhook</h1>
+              <p class="detail-subtitle">Stripe webhook retry · idempotency keys</p>
+            </header>
+            <dl class="meta-grid">
+              <dt>Path</dt><dd>~/dev/wt/hengjian-core/feat-payment-webhook</dd>
+              <dt>Branch</dt><dd>feat/payment-webhook → origin/develop</dd>
+              <dt>Head</dt><dd>e7c2a09 · add retry-after parsing for 429s</dd>
+              <dt>Created</dt><dd>3 days ago, from develop @ 7b1d8f4</dd>
+              <dt>Updated</dt><dd>3m ago · 14 commits ahead</dd>
+              <dt>Disk usage</dt><dd>62 MB · node_modules dedup’d</dd>
+              <dt>Type</dt><dd class="body"><span class="pill"><span class="dot"></span>Worktree</span></dd>
+            </dl>
+
+            <div class="section-block">
+              <p class="section-label">Actions</p>
+              <div class="btn-row">
+                <button class="btn btn-primary btn-lg">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 3H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V9M10 2h4v4M14 2L8 8"/></svg>
+                  Open in Cursor
+                </button>
+                <button class="btn btn-lg">Reveal in Finder</button>
+                <button class="btn btn-lg">Open in Terminal</button>
+                <button class="btn btn-lg">Copy path</button>
+              </div>
+              <p class="field-help" style="margin-top:10px;">Default IDE is set in <a href="settings.html" style="color:var(--accent);">Settings → IDE</a>.</p>
+            </div>
+
+            <div class="section-block">
+              <p class="section-label">Recent commits</p>
+              <table class="data-table">
+                <thead><tr><th class="mono" style="width:90px;">SHA</th><th>Message</th><th style="width:90px;">Author</th><th class="mono" style="width:80px;">When</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">e7c2a09</td><td>add retry-after parsing for 429s</td><td><span class="avatar sm av-bg-3">YL</span></td><td class="mono">3m</td></tr>
+                  <tr><td class="mono">b491d22</td><td>idempotency key index migration</td><td><span class="avatar sm av-bg-3">YL</span></td><td class="mono">2h</td></tr>
+                  <tr><td class="mono">7f2c10e</td><td>extract webhook signature verifier</td><td><span class="avatar sm av-bg-1">MS</span></td><td class="mono">1d</td></tr>
+                  <tr><td class="mono">3a8e1b7</td><td>scaffold retry queue table</td><td><span class="avatar sm av-bg-3">YL</span></td><td class="mono">3d</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="section-block">
+              <p class="section-label">Cleanup</p>
+              <div style="border:1px solid var(--border);border-radius:7px;padding:14px 16px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+                  <div>
+                    <div style="font-size:13px;color:var(--fg);font-weight:500;">Remove this worktree</div>
+                    <div style="font-size:12px;color:var(--muted);margin-top:3px;">Deletes the working directory. The branch stays on local and remote unless you tick the boxes below.</div>
+                  </div>
+                  <button class="btn btn-danger">Remove worktree</button>
+                </div>
+                <hr style="margin:14px 0;" />
+                <label class="checkbox-row">
+                  <input type="checkbox" />
+                  <div>
+                    <span class="cb-label">Also remove local branch <span class="text-mono">feat/payment-webhook</span></span>
+                    <span class="cb-help">Refuses if the branch is unmerged into develop or main.</span>
+                  </div>
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" />
+                  <div>
+                    <span class="cb-label">Also delete remote branch <span class="text-mono">origin/feat/payment-webhook</span></span>
+                    <span class="cb-help">Requires a confirmation step. Disabled for protected targets.</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- login -->
+          <div data-detail-for="wt-login">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Worktree · hengjian-core</p>
+              <h1 class="detail-title">fix/login-redirect-loop</h1>
+              <p class="detail-subtitle">SSO returnTo lost after refresh</p>
+            </header>
+            <dl class="meta-grid">
+              <dt>Path</dt><dd>~/dev/wt/hengjian-core/fix-login-redirect-loop</dd>
+              <dt>Branch</dt><dd>fix/login-redirect-loop → origin/develop</dd>
+              <dt>Head</dt><dd>c8a1f54 · restore returnTo from sessionStorage</dd>
+              <dt>Updated</dt><dd>42m ago · 3 commits ahead</dd>
+              <dt>Disk usage</dt><dd>48 MB</dd>
+              <dt>Type</dt><dd class="body"><span class="pill"><span class="dot"></span>Worktree</span></dd>
+            </dl>
+            <div class="section-block">
+              <p class="section-label">Actions</p>
+              <div class="btn-row">
+                <button class="btn btn-primary btn-lg">Open in Cursor</button>
+                <button class="btn btn-lg">Reveal in Finder</button>
+                <button class="btn btn-lg">Open in Terminal</button>
+                <button class="btn btn-danger btn-lg">Remove worktree</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- rust -->
+          <div data-detail-for="wt-rust">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Worktree · hengjian-core</p>
+              <h1 class="detail-title">chore/upgrade-rust-1.78</h1>
+              <p class="detail-subtitle">tokio 1.39 · clippy fallout</p>
+            </header>
+            <dl class="meta-grid">
+              <dt>Path</dt><dd>~/dev/wt/hengjian-core/chore-upgrade-rust-1.78</dd>
+              <dt>Branch</dt><dd>chore/upgrade-rust-1.78 → origin/develop</dd>
+              <dt>Head</dt><dd>2db4f0c · fix lint: needless_return in worker.rs</dd>
+              <dt>Updated</dt><dd>2h ago · 21 commits ahead</dd>
+              <dt>Disk usage</dt><dd>112 MB · target/ cold</dd>
+              <dt>Type</dt><dd class="body"><span class="pill"><span class="dot"></span>Worktree</span></dd>
+            </dl>
+            <div class="section-block">
+              <p class="section-label">Actions</p>
+              <div class="btn-row">
+                <button class="btn btn-primary btn-lg">Open in Cursor</button>
+                <button class="btn btn-lg">Reveal in Finder</button>
+                <button class="btn btn-lg">Open in Terminal</button>
+                <button class="btn btn-danger btn-lg">Remove worktree</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- billing -->
+          <div data-detail-for="wt-billing">
+            <header class="detail-header">
+              <p class="detail-eyebrow">Worktree · hengjian-core</p>
+              <h1 class="detail-title">exp/new-billing-prototype</h1>
+              <p class="detail-subtitle">spike — not for review</p>
+            </header>
+            <dl class="meta-grid">
+              <dt>Path</dt><dd>~/dev/wt/hengjian-core/exp-new-billing-prototype</dd>
+              <dt>Branch</dt><dd>exp/new-billing-prototype <span class="text-muted">(no upstream)</span></dd>
+              <dt>Head</dt><dd>9810acd · throw out attempt #3, restart from invoice graph</dd>
+              <dt>Updated</dt><dd>yesterday · 38 commits, untracked</dd>
+              <dt>Disk usage</dt><dd>240 MB · build artefacts</dd>
+              <dt>Type</dt><dd class="body"><span class="pill pill-warn"><span class="dot"></span>Experimental · no upstream</span></dd>
+            </dl>
+            <div class="section-block">
+              <p class="section-label">Actions</p>
+              <div class="btn-row">
+                <button class="btn btn-primary btn-lg">Open in Cursor</button>
+                <button class="btn btn-lg">Push to origin</button>
+                <button class="btn btn-lg">Reveal in Finder</button>
+                <button class="btn btn-danger btn-lg">Remove worktree</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="shared/shell.js"></script>
+</body>
+</html>

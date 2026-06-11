@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · Worktree · feat/payment-webhook</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="tl-close"></span><span class="tl-min"></span><span class="tl-zoom"></span>
+      </div>
+      <div class="titlebar-title">GWorkbench · feat/payment-webhook</div>
+      <div class="titlebar-right"><span class="theme-tag" data-theme-tag>Light</span></div>
+    </div>
+
+    <div class="shell shell-detail-only">
+      <aside class="sidebar">
+        <div class="sidebar-section-label">Workspace</div>
+        <div class="sidebar-item" aria-selected="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.5a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4.5Z"/></svg>
+          Worktrees <span class="count">12</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="4" cy="3.5" r="1.5"/><circle cx="4" cy="12.5" r="1.5"/><circle cx="12" cy="8" r="1.5"/><path d="M4 5v6M5.5 12.5h2.5a2 2 0 0 0 2-2V8.5"/></svg>
+          Merge Requests <span class="count">7</span>
+        </div>
+        <div class="sidebar-item">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2"/><path d="M8 1v2M8 13v2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M1 8h2M13 8h2M3.5 12.5l1.5-1.5M11 5l1.5-1.5"/></svg>
+          Settings
+        </div>
+      </aside>
+
+      <section class="detail-pane">
+        <div class="detail-toolbar">
+          <a href="worktrees-overview.html" class="btn btn-ghost"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 4l-4 4 4 4"/></svg>Worktrees</a>
+          <span class="diag-arrow">/</span>
+          <span class="path-text">feat/payment-webhook</span>
+          <span class="spacer"></span>
+          <button class="btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13 3v3h-3M3 13v-3h3"/><path d="M13 6a5 5 0 0 0-9-1M3 10a5 5 0 0 0 9 1"/></svg>Refresh</button>
+          <button class="btn">Push</button>
+          <button class="btn btn-primary"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M7 3H4a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V9M10 2h4v4M14 2L8 8"/></svg>Open in Cursor</button>
+        </div>
+
+        <div class="detail-scroll" style="max-width:920px;">
+          <header class="detail-header">
+            <p class="detail-eyebrow">Worktree · hengjian-core · created 3 days ago by you</p>
+            <h1 class="detail-title">feat/payment-webhook</h1>
+            <p class="detail-subtitle">Stripe webhook retry · idempotency keys · prep for !1284</p>
+          </header>
+
+          <!-- summary chips -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;">
+            <span class="pill pill-ok"><span class="dot"></span>14 ahead</span>
+            <span class="pill pill-mute">0 behind develop</span>
+            <span class="pill"><span class="dot"></span>clean working tree</span>
+            <span class="pill pill-info">remote tracked</span>
+          </div>
+
+          <dl class="meta-grid">
+            <dt>Worktree path</dt><dd>~/dev/wt/hengjian-core/feat-payment-webhook</dd>
+            <dt>Branch</dt><dd>feat/payment-webhook → origin/develop</dd>
+            <dt>Forked from</dt><dd>develop @ 7b1d8f4 · 3 days ago</dd>
+            <dt>Head commit</dt><dd>e7c2a09 · 3m ago · Yi Lin</dd>
+            <dt>Last fetch</dt><dd>4m ago · origin in sync</dd>
+            <dt>Disk usage</dt><dd>62 MB · 4 MB target · 58 MB node_modules</dd>
+            <dt>MR status</dt><dd class="body">
+              <span class="pill pill-info"><span class="dot"></span>Draft MR !1284 open</span>
+              <a href="mr-overview.html" style="color:var(--accent);margin-left:8px;font-size:12px;">View →</a>
+            </dd>
+          </dl>
+
+          <!-- two-column section -->
+          <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:28px;align-items:start;">
+            <div class="section-block">
+              <p class="section-label">Commits ahead of develop · 14</p>
+              <table class="data-table">
+                <thead><tr><th class="mono" style="width:88px;">SHA</th><th>Message</th><th style="width:50px;"></th><th class="mono" style="width:60px;">When</th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">e7c2a09</td><td>add retry-after parsing for 429s</td><td><span class="avatar sm av-bg-3">YL</span></td><td class="mono">3m</td></tr>
+                  <tr><td class="mono">b491d22</td><td>idempotency key index migration</td><td><span class="avatar sm av-bg-3">YL</span></td><td class="mono">2h</td></tr>
+                  <tr><td class="mono">7f2c10e</td><td>extract webhook signature verifier</td><td><span class="avatar sm av-bg-1">MS</span></td><td class="mono">1d</td></tr>
+                  <tr><td class="mono">3a8e1b7</td><td>scaffold retry queue table</td><td><span class="avatar sm av-bg-3">YL</span></td><td class="mono">3d</td></tr>
+                  <tr><td class="mono">cd92f01</td><td>add stripe_event_id unique constraint</td><td><span class="avatar sm av-bg-3">YL</span></td><td class="mono">3d</td></tr>
+                  <tr><td class="mono">…</td><td class="text-muted">9 earlier commits</td><td></td><td class="mono"></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="section-block">
+              <p class="section-label">Changed files · 18</p>
+              <div style="border:1px solid var(--border);border-radius:7px;overflow:hidden;">
+                <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:8px 12px;font-family:var(--font-mono);font-size:12px;border-bottom:1px solid var(--border);">
+                  <span>src/billing/webhook.rs</span><span class="text-mono" style="color:var(--ok);">+124</span><span class="text-mono" style="color:var(--danger);">-12</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:8px 12px;font-family:var(--font-mono);font-size:12px;border-bottom:1px solid var(--border);">
+                  <span>src/billing/retry.rs</span><span class="text-mono" style="color:var(--ok);">+208</span><span class="text-mono" style="color:var(--muted);">·</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:8px 12px;font-family:var(--font-mono);font-size:12px;border-bottom:1px solid var(--border);">
+                  <span>migrations/202604_retry_queue.sql</span><span class="text-mono" style="color:var(--ok);">+46</span><span class="text-mono" style="color:var(--muted);">·</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:8px 12px;font-family:var(--font-mono);font-size:12px;border-bottom:1px solid var(--border);">
+                  <span>tests/billing/webhook_test.rs</span><span class="text-mono" style="color:var(--ok);">+312</span><span class="text-mono" style="color:var(--danger);">-4</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:8px 12px;font-family:var(--font-mono);font-size:12px;border-bottom:1px solid var(--border);">
+                  <span>Cargo.toml</span><span class="text-mono" style="color:var(--ok);">+2</span><span class="text-mono" style="color:var(--danger);">-1</span>
+                </div>
+                <div style="padding:8px 12px;font-family:var(--font-mono);font-size:12px;color:var(--muted);">
+                  + 13 more files
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-block">
+            <p class="section-label">Cleanup</p>
+            <div style="border:1px solid var(--border);border-radius:7px;padding:14px 16px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+                <div>
+                  <div style="font-size:13px;color:var(--fg);font-weight:500;">Remove this worktree</div>
+                  <div style="font-size:12px;color:var(--muted);margin-top:3px;">Deletes the working directory only. The branch stays unless you tick the boxes below.</div>
+                </div>
+                <button class="btn btn-danger btn-lg">Remove worktree</button>
+              </div>
+              <hr style="margin:14px 0;" />
+              <label class="checkbox-row">
+                <input type="checkbox" />
+                <div>
+                  <span class="cb-label">Also remove local branch <span class="text-mono">feat/payment-webhook</span></span>
+                  <span class="cb-help">Refuses if unmerged into develop or main.</span>
+                </div>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" />
+                <div>
+                  <span class="cb-label">Also delete remote branch <span class="text-mono">origin/feat/payment-webhook</span></span>
+                  <span class="cb-help">Requires a confirmation step. Closes draft MR !1284 if checked.</span>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="shared/shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "app-shell.html",
+  "entry": "app-shell.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-10T16:17:58.637Z",
+  "updatedAt": "2026-06-10T16:17:58.637Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

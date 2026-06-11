@@ -1,0 +1,164 @@
+
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GWorkbench · Design Launcher</title>
+  <link rel="stylesheet" href="shared/tokens.css" />
+  <style>
+    body { overflow: auto; background: var(--bg); }
+    .launcher { max-width: 1320px; margin: 0 auto; padding: 56px 40px 80px; }
+    .launcher-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; padding-bottom: 28px; margin-bottom: 40px; border-bottom: 1px solid var(--border); }
+    .launcher-head h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 8px; color: var(--fg); font-weight: 600; }
+    .launcher-head .lede { max-width: 60ch; font-size: 14px; line-height: 1.6; color: var(--muted); margin: 0; }
+    .launcher-meta { display: flex; gap: 16px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 14px; }
+    .launcher-meta span { display: flex; gap: 6px; align-items: center; }
+    .launcher-tools { display: flex; gap: 8px; }
+    .screen-grid { display: grid; grid-template-columns: 1fr; gap: 64px; }
+    .screen-card { display: grid; grid-template-columns: 220px 1fr; gap: 32px; align-items: start; }
+    @media (max-width: 1000px) { .screen-card { grid-template-columns: 1fr; } }
+    .screen-info { padding-top: 4px; }
+    .screen-num { font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px; }
+    .screen-info h2 { font-size: 17px; font-weight: 600; margin: 0 0 8px; color: var(--fg); letter-spacing: -0.005em; }
+    .screen-info p { font-size: 13px; color: var(--muted); margin: 0 0 14px; line-height: 1.6; }
+    .screen-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .screen-links { display: flex; gap: 6px; flex-direction: column; }
+    .screen-links a { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--accent); }
+    .screen-links a:hover { text-decoration: underline; text-underline-offset: 3px; }
+    .frame-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 760px) { .frame-pair { grid-template-columns: 1fr; } }
+    .frame { position: relative; width: 100%; aspect-ratio: 1280 / 800; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-2); container-type: inline-size; }
+    .frame iframe { position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0; transform-origin: top left; transform: scale(calc(100cqi / 1280px)); }
+    .frame-label { position: absolute; top: 8px; left: 8px; font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 7px; border-radius: 4px; background: color-mix(in oklch, var(--bg) 88%, transparent); backdrop-filter: blur(8px); color: var(--muted); z-index: 2; pointer-events: none; }
+    .frame.dark { background: oklch(17% 0.008 250); }
+    .frame.dark .frame-label { background: color-mix(in oklch, oklch(20% 0.008 250) 88%, transparent); color: oklch(64% 0.012 250); }
+  </style>
+</head>
+<body>
+  <div class="launcher">
+    <header class="launcher-head">
+      <div>
+        <p class="screen-num" style="margin-bottom:6px;">GWorkbench · macOS native developer workbench</p>
+        <h1>UI prototype — 8 screens, light + dark</h1>
+        <p class="lede">Worktree creation and GitLab merge-request operations in one calm desktop tool. Three-pane shell, restrained Linear/Vercel blue-purple accent at <span class="text-mono">oklch(58% 0.18 255)</span>. Every screen is below in both light and dark; click <strong>Open</strong> to load full-window.</p>
+        <div class="launcher-meta">
+          <span><span class="dot" style="background:var(--accent);"></span>9 files</span>
+          <span><span class="dot" style="background:var(--ok);"></span>real selection linkage</span>
+          <span><span class="dot" style="background:var(--info);"></span>dual theme via <span class="text-mono" style="text-transform:none;">?theme=dark</span></span>
+        </div>
+      </div>
+      <div class="launcher-tools">
+        <a href="app-shell.html" class="btn">App shell</a>
+        <a href="https://gitlab.hengjian.io" class="btn btn-primary">Project docs</a>
+      </div>
+    </header>
+    <div class="screen-grid">
+      <article class="screen-card">
+        <div class="screen-info">
+          <p class="screen-num">01 · Foundation</p>
+          <h2>App shell</h2>
+          <p>Window chrome + sidebar + empty list / detail panes. The baseline every screen inherits.</p>
+          <div class="screen-tags"><span class="tag">sidebar</span><span class="tag">titlebar</span></div>
+          <div class="screen-links"><a href="app-shell.html">Open light →</a><a href="app-shell.html?theme=dark">Open dark →</a></div>
+        </div>
+        <div class="frame-pair">
+          <div class="frame"><span class="frame-label">Light</span><iframe src="app-shell.html" loading="lazy" title="app-shell light"></iframe></div>
+          <div class="frame dark"><span class="frame-label">Dark</span><iframe src="app-shell.html?theme=dark" loading="lazy" title="app-shell dark"></iframe></div>
+        </div>
+      </article>
+      <article class="screen-card">
+        <div class="screen-info">
+          <p class="screen-num">02 · Worktrees</p>
+          <h2>Worktrees overview</h2>
+          <p>Project switcher, dense worktree list, inspector with metadata, recent commits, primary actions, and a destructive cleanup group. <strong>Click rows</strong> — the right panel really switches.</p>
+          <div class="screen-tags"><span class="tag">three-pane</span><span class="tag">real linkage</span><span class="tag">↑/↓ keyboard</span></div>
+          <div class="screen-links"><a href="worktrees-overview.html">Open light →</a><a href="worktrees-overview.html?theme=dark">Open dark →</a></div>
+        </div>
+        <div class="frame-pair">
+          <div class="frame"><span class="frame-label">Light</span><iframe src="worktrees-overview.html" loading="lazy" title="worktrees light"></iframe></div>
+          <div class="frame dark"><span class="frame-label">Dark</span><iframe src="worktrees-overview.html?theme=dark" loading="lazy" title="worktrees dark"></iframe></div>
+        </div>
+      </article>
+      <article class="screen-card">
+        <div class="screen-info">
+          <p class="screen-num">03 · Worktrees</p>
+          <h2>Create worktree (sheet)</h2>
+          <p>Lightweight sheet over the dim worktrees background. Base branch, branch name, optional description, IDE auto-open, optional install.</p>
+          <div class="screen-tags"><span class="tag">sheet</span><span class="tag">⌘↵</span></div>
+          <div class="screen-links"><a href="create-worktree-sheet.html">Open light →</a><a href="create-worktree-sheet.html?theme=dark">Open dark →</a></div>
+        </div>
+        <div class="frame-pair">
+          <div class="frame"><span class="frame-label">Light</span><iframe src="create-worktree-sheet.html" loading="lazy" title="create wt light"></iframe></div>
+          <div class="frame dark"><span class="frame-label">Dark</span><iframe src="create-worktree-sheet.html?theme=dark" loading="lazy" title="create wt dark"></iframe></div>
+        </div>
+      </article>
+      <article class="screen-card">
+        <div class="screen-info">
+          <p class="screen-num">04 · Worktrees</p>
+          <h2>Worktree detail inspector</h2>
+          <p>Single-worktree deep view: status pills, full metadata, commits-ahead table, changed files, and a clearly-labelled cleanup group.</p>
+          <div class="screen-tags"><span class="tag">inspector</span><span class="tag">commit graph</span></div>
+          <div class="screen-links"><a href="worktree-detail.html">Open light →</a><a href="worktree-detail.html?theme=dark">Open dark →</a></div>
+        </div>
+        <div class="frame-pair">
+          <div class="frame"><span class="frame-label">Light</span><iframe src="worktree-detail.html" loading="lazy" title="wt detail light"></iframe></div>
+          <div class="frame dark"><span class="frame-label">Dark</span><iframe src="worktree-detail.html?theme=dark" loading="lazy" title="wt detail dark"></iframe></div>
+        </div>
+      </article>
+      <article class="screen-card">
+        <div class="screen-info">
+          <p class="screen-num">05 · Merge Requests</p>
+          <h2>MR overview</h2>
+          <p>GitLab project switcher, MR queue with IID, source→target, author, approval state, status pill. Right inspector with approvals breakdown and recent activity. Selection linkage is live.</p>
+          <div class="screen-tags"><span class="tag">three-pane</span><span class="tag">approval state</span><span class="tag">real linkage</span></div>
+          <div class="screen-links"><a href="mr-overview.html">Open light →</a><a href="mr-overview.html?theme=dark">Open dark →</a></div>
+        </div>
+        <div class="frame-pair">
+          <div class="frame"><span class="frame-label">Light</span><iframe src="mr-overview.html" loading="lazy" title="mr overview light"></iframe></div>
+          <div class="frame dark"><span class="frame-label">Dark</span><iframe src="mr-overview.html?theme=dark" loading="lazy" title="mr overview dark"></iframe></div>
+        </div>
+      </article>
+      <article class="screen-card">
+        <div class="screen-info">
+          <p class="screen-num">06 · Merge Requests</p>
+          <h2>Create MR (sheet)</h2>
+          <p>Wide sheet: source/target selects, protected-target warning, title and description with markdown shape, labels, reviewers, draft / delete-source / squash toggles.</p>
+          <div class="screen-tags"><span class="tag">sheet</span><span class="tag">protected guard</span></div>
+          <div class="screen-links"><a href="create-mr.html">Open light →</a><a href="create-mr.html?theme=dark">Open dark →</a></div>
+        </div>
+        <div class="frame-pair">
+          <div class="frame"><span class="frame-label">Light</span><iframe src="create-mr.html" loading="lazy" title="create mr light"></iframe></div>
+          <div class="frame dark"><span class="frame-label">Dark</span><iframe src="create-mr.html?theme=dark" loading="lazy" title="create mr dark"></iframe></div>
+        </div>
+      </article>
+      <article class="screen-card">
+        <div class="screen-info">
+          <p class="screen-num">07 · Merge Requests</p>
+          <h2>Batch MR review</h2>
+          <p>10-row mapping preview from <span class="text-mono">hotfix/*</span> and <span class="text-mono">fix/*</span> patterns. Per-row checkbox, protected/normal target, CI state, ready/skip. Sticky bottom action bar with progress.</p>
+          <div class="screen-tags"><span class="tag">batch table</span><span class="tag">protected aware</span></div>
+          <div class="screen-links"><a href="batch-mr.html">Open light →</a><a href="batch-mr.html?theme=dark">Open dark →</a></div>
+        </div>
+        <div class="frame-pair">
+          <div class="frame"><span class="frame-label">Light</span><iframe src="batch-mr.html" loading="lazy" title="batch mr light"></iframe></div>
+          <div class="frame dark"><span class="frame-label">Dark</span><iframe src="batch-mr.html?theme=dark" loading="lazy" title="batch mr dark"></iframe></div>
+        </div>
+      </article>
+      <article class="screen-card">
+        <div class="screen-info">
+          <p class="screen-num">08 · Settings</p>
+          <h2>Settings</h2>
+          <p>macOS Preferences feel: left anchor nav, grouped sections for Local Paths, IDE, GitLab, Merge Policy, Environment Branches, Branch Mappings, Keyboard, Diagnostics. Toggles, segmented controls, real form fields.</p>
+          <div class="screen-tags"><span class="tag">preferences</span><span class="tag">grouped</span><span class="tag">anchor nav</span></div>
+          <div class="screen-links"><a href="settings.html">Open light →</a><a href="settings.html?theme=dark">Open dark →</a></div>
+        </div>
+        <div class="frame-pair">
+          <div class="frame"><span class="frame-label">Light</span><iframe src="settings.html" loading="lazy" title="settings light"></iframe></div>
+          <div class="frame dark"><span class="frame-label">Dark</span><iframe src="settings.html?theme=dark" loading="lazy" title="settings dark"></iframe></div>
+        </div>
+      </article>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "batch-mr.html",
+  "entry": "batch-mr.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-06-10T16:22:33.403Z",
+  "updatedAt": "2026-06-10T16:22:33.403Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

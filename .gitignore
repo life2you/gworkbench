@@ -1,0 +1,7 @@
+.build/
+.build-x86/
+DerivedData/
+.swiftpm/
+.DS_Store
+rust-core/target/
+dist/
