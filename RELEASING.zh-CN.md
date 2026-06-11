@@ -50,3 +50,10 @@ git tag -a v<version> -m "v<version>"
 
 每次发布都要同时补英文和简体中文说明。  
 如果本次更新涉及发布流程、升级流程或 Homebrew 安装体验，也要在 Release 页面里明确写出来。
+
+## 签名与公证
+
+参考文档：
+
+- [`NOTARIZATION.md`](NOTARIZATION.md)
+- [`NOTARIZATION.zh-CN.md`](NOTARIZATION.zh-CN.md)

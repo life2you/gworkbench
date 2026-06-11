@@ -49,3 +49,10 @@ Generate a cask file after the GitHub Release assets are public:
 ## Release notes
 
 Every release should include highlights in both English and Simplified Chinese, especially when new release-flow or upgrade-flow capabilities were added.
+
+## Signing and notarization
+
+Reference:
+
+- [`NOTARIZATION.md`](NOTARIZATION.md)
+- [`NOTARIZATION.zh-CN.md`](NOTARIZATION.zh-CN.md)
