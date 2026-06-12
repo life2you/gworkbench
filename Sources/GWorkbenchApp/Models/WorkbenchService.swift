@@ -109,6 +109,12 @@ private struct LocalBranchExecutionResult {
     let message: String
 }
 
+struct CreateWorktreeResult: Sendable {
+    let path: String
+    let logs: [String]
+    let successMessage: String
+}
+
 private struct WorktreeMetadataStore: Decodable {
     let descriptions: [WorktreeDescription]
 }
@@ -341,11 +347,19 @@ final class WorkbenchService: @unchecked Sendable {
         project: LocalProject,
         draft: CreateWorktreeDraft,
         onProgress: @escaping @Sendable (OperationProgress) -> Void
-    ) async throws -> String {
+    ) async throws -> CreateWorktreeResult {
         try await Task.detached(priority: .userInitiated) {
             let baseBranch = draft.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
             let newBranch = draft.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
             let targetPath = self.expandPath(draft.path)
+            let shouldPushRemote = draft.mode == .newBranch
+            let totalSteps = 4 + (shouldPushRemote ? 1 : 0) + (draft.installDependencies ? 1 : 0)
+            var currentStep = 0
+            var logs: [String] = [
+                "项目: \(project.displayName)",
+                "分支: \(newBranch)",
+                "路径: \(targetPath)"
+            ]
 
             guard !baseBranch.isEmpty else {
                 throw WorkbenchError.message("请选择基线分支")
@@ -360,7 +374,8 @@ final class WorkbenchService: @unchecked Sendable {
             let progressDetail = draft.mode == .existingBranch
                 ? "使用已有分支 \(newBranch)"
                 : "\(newBranch) <- \(baseBranch)"
-            onProgress(.init(title: "准备创建工作树", detail: progressDetail, current: 1, total: 4))
+            currentStep += 1
+            onProgress(.init(title: "准备创建工作树", detail: progressDetail, current: currentStep, total: totalSteps))
             let targetURL = URL(fileURLWithPath: targetPath)
             if FileManager.default.fileExists(atPath: targetPath) {
                 throw WorkbenchError.message("目标路径已存在: \(targetPath)")
@@ -370,7 +385,15 @@ final class WorkbenchService: @unchecked Sendable {
                 withIntermediateDirectories: true
             )
 
-            onProgress(.init(title: "创建 Git Worktree", detail: "正在执行 git worktree add", current: 2, total: 4))
+            currentStep += 1
+            onProgress(.init(title: "同步远程信息", detail: "正在执行 git fetch origin", current: currentStep, total: totalSteps))
+            _ = try self.runCommand(
+                "git",
+                arguments: ["-C", project.path, "fetch", "origin"]
+            )
+
+            currentStep += 1
+            onProgress(.init(title: "创建 Git Worktree", detail: "正在执行 git worktree add", current: currentStep, total: totalSteps))
             if draft.mode == .existingBranch {
                 let localExists = try self.localBranchExistsSync(projectPath: project.path, branch: newBranch)
                 let remoteExists = try self.remoteBranchExistsSync(projectPath: project.path, branch: newBranch)
@@ -391,27 +414,53 @@ final class WorkbenchService: @unchecked Sendable {
             } else {
                 _ = try self.runCommand(
                     "git",
-                    arguments: ["-C", project.path, "worktree", "add", "-b", newBranch, targetPath, baseBranch]
+                    arguments: ["-C", project.path, "worktree", "add", "-b", newBranch, targetPath, "origin/\(baseBranch)"]
                 )
+                logs.append("已基于 origin/\(baseBranch) 创建本地分支")
             }
 
             let description = draft.description.trimmingCharacters(in: .whitespacesAndNewlines)
+            currentStep += 1
             if !description.isEmpty {
-                onProgress(.init(title: "写入功能描述", detail: "同步到 gwtm 元数据", current: 3, total: 4))
+                onProgress(.init(title: "写入功能描述", detail: "同步到 gwtm 元数据", current: currentStep, total: totalSteps))
                 try self.saveWorktreeDescriptionSync(
                     metadataPath: config.metadataPath,
                     projectPath: project.path,
                     branch: newBranch,
                     description: description
                 )
+                logs.append("功能描述已保存: \(description)")
+            } else {
+                onProgress(.init(title: "写入功能描述", detail: "未填写，跳过保存", current: currentStep, total: totalSteps))
+                logs.append("未填写功能描述")
+            }
+
+            if shouldPushRemote {
+                currentStep += 1
+                onProgress(.init(title: "推送远程分支", detail: "正在执行 git push -u origin \(newBranch)", current: currentStep, total: totalSteps))
+                do {
+                    _ = try self.runCommand(
+                        "git",
+                        arguments: ["-C", targetPath, "push", "-u", "origin", newBranch]
+                    )
+                    logs.append("远程分支已创建并建立跟踪: origin/\(newBranch)")
+                } catch {
+                    logs.append("警告: Worktree 已创建，但远程分支推送失败: \(error.localizedDescription)")
+                }
             }
 
             if draft.installDependencies {
-                onProgress(.init(title: "安装依赖", detail: "根据项目类型自动选择安装命令", current: 4, total: 4))
+                currentStep += 1
+                onProgress(.init(title: "安装依赖", detail: "根据项目类型自动选择安装命令", current: currentStep, total: totalSteps))
                 try self.installDependenciesSync(at: targetPath)
+                logs.append("依赖安装已完成")
             }
 
-            return targetPath
+            return CreateWorktreeResult(
+                path: targetPath,
+                logs: logs,
+                successMessage: shouldPushRemote ? "工作树和远程分支已创建" : "工作树创建成功"
+            )
         }.value
     }
 

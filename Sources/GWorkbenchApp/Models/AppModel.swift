@@ -819,7 +819,7 @@ final class AppModel {
         worktreeOperation = OperationState(isRunning: true, title: "创建工作树", detail: "准备执行")
 
         do {
-            let createdPath = try await service.createWorktree(config: config, project: project, draft: createWorktreeDraft) { [weak self] progress in
+            let result = try await service.createWorktree(config: config, project: project, draft: createWorktreeDraft) { [weak self] progress in
                 Task { @MainActor in
                     self?.worktreeOperation = OperationState(
                         isRunning: true,
@@ -831,14 +831,14 @@ final class AppModel {
             }
 
             if createWorktreeDraft.openInIDE {
-                try service.openInIDE(config: config, path: createdPath)
+                try service.openInIDE(config: config, path: result.path)
             }
 
             showingCreateWorktreeSheet = false
             await refreshWorktrees()
-            selectedWorktreeID = worktrees.first(where: { $0.path == createdPath })?.id
-            worktreeOperation.successMessage = "工作树创建成功"
-            worktreeOperation.logs = ["创建完成: \(createdPath)"]
+            selectedWorktreeID = worktrees.first(where: { $0.path == result.path })?.id
+            worktreeOperation.successMessage = result.successMessage
+            worktreeOperation.logs = result.logs
         } catch {
             worktreeOperation = OperationState(
                 isRunning: false,
