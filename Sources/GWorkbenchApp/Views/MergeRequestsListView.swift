@@ -41,6 +41,9 @@ struct MergeRequestsListView: View {
         .sheet(isPresented: mergeSheetBinding) {
             CreateMRSheetView()
         }
+        .sheet(isPresented: batchMergeSheetBinding) {
+            BatchCreateMRSheetView()
+        }
     }
 
     private var header: some View {
@@ -123,9 +126,7 @@ struct MergeRequestsListView: View {
 
     private var batchCreateButton: some View {
         Button("批量创建") {
-            Task {
-                await appModel.createBatchMergeRequests()
-            }
+            appModel.prepareBatchMergeRequests()
         }
     }
 
@@ -163,6 +164,13 @@ struct MergeRequestsListView: View {
         Binding(
             get: { appModel.showingCreateMRSheet },
             set: { appModel.showingCreateMRSheet = $0 }
+        )
+    }
+
+    private var batchMergeSheetBinding: Binding<Bool> {
+        Binding(
+            get: { appModel.showingBatchCreateMRSheet },
+            set: { appModel.showingBatchCreateMRSheet = $0 }
         )
     }
 

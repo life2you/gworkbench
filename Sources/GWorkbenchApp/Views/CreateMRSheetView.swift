@@ -50,7 +50,7 @@ struct CreateMRSheetView: View {
             InlineOperationView(state: appModel.mrOperation)
 
             HStack {
-                Text("当前先按 gmux 配置创建 MR，审批与合并仍在列表页执行。")
+                Text("单个 MR 会按你当前选择的源分支和目标分支创建，审批与合并仍在列表页执行。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()

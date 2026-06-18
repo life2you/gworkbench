@@ -266,8 +266,10 @@ final class AppModel {
 
     var showingCreateWorktreeSheet = false
     var showingCreateMRSheet = false
+    var showingBatchCreateMRSheet = false
     var createWorktreeDraft = CreateWorktreeDraft()
     var createMRDraft = CreateMRDraft()
+    var selectedBatchMRMappingIDs = Set<String>()
     var worktreeDescriptionDraft = ""
     var worktreeDescriptionLoadedForID: String?
     var localOperationMode: LocalBranchOperationMode = .syncEnvironments
@@ -381,6 +383,18 @@ final class AppModel {
 
     var availableMRMappings: [BranchMapping] {
         currentMergeProject?.branchMappings ?? []
+    }
+
+    var availableBatchMRMappings: [BranchMapping] {
+        availableMRMappings.filter { !$0.protectedTarget }
+    }
+
+    var selectedBatchMRMappings: [BranchMapping] {
+        availableBatchMRMappings.filter { selectedBatchMRMappingIDs.contains($0.id) }
+    }
+
+    var canCreateSelectedBatchMRs: Bool {
+        !mrOperation.isRunning && !selectedBatchMRMappings.isEmpty
     }
 
     var canBatchApproveAndMergeVisibleMRs: Bool {
@@ -1049,6 +1063,11 @@ final class AppModel {
         showingCreateMRSheet = true
     }
 
+    func prepareBatchMergeRequests() {
+        selectedBatchMRMappingIDs = Set(availableBatchMRMappings.map(\.id))
+        showingBatchCreateMRSheet = true
+    }
+
     func createMergeRequest() async {
         guard let context = gmuxContext, let project = currentMergeProject else { return }
         mrOperation = OperationState(isRunning: true, title: "创建 MR", detail: "\(createMRDraft.sourceBranch) -> \(createMRDraft.targetBranch)")
@@ -1075,10 +1094,20 @@ final class AppModel {
 
     func createBatchMergeRequests() async {
         guard let context = gmuxContext, let project = currentMergeProject else { return }
+        let mappings = selectedBatchMRMappings
+        guard !mappings.isEmpty else {
+            mrOperation = OperationState(
+                isRunning: false,
+                title: "批量创建 MR",
+                detail: "请至少选择一组分支映射",
+                errorMessage: "请至少选择一组分支映射"
+            )
+            return
+        }
         mrOperation = OperationState(isRunning: true, title: "批量创建 MR", detail: "准备执行")
 
         do {
-            let messages = try await service.createBatchMergeRequests(context: context, project: project) { [weak self] progress in
+            let messages = try await service.createBatchMergeRequests(context: context, project: project, mappings: mappings) { [weak self] progress in
                 Task { @MainActor in
                     self?.mrOperation = OperationState(
                         isRunning: true,
@@ -1088,9 +1117,10 @@ final class AppModel {
                     )
                 }
             }
+            showingBatchCreateMRSheet = false
             await refreshMergeRequests()
             mrOperation.logs = messages
-            mrOperation.successMessage = "批量创建完成"
+            mrOperation.successMessage = "已创建 \(mappings.count) 组映射对应的 MR"
         } catch {
             mrOperation = OperationState(
                 isRunning: false,

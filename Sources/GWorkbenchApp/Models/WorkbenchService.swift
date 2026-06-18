@@ -907,9 +907,9 @@ final class WorkbenchService: @unchecked Sendable {
     func createBatchMergeRequests(
         context: GmuxContext,
         project: MergeProject,
+        mappings: [BranchMapping],
         onProgress: @escaping @Sendable (OperationProgress) -> Void
     ) async throws -> [String] {
-        let mappings = project.branchMappings.filter { !$0.protectedTarget }
         guard !mappings.isEmpty else {
             return ["没有可批量创建的非保护分支映射"]
         }
