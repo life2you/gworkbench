@@ -206,6 +206,7 @@ struct MergeRequestItem: Identifiable, Hashable, Sendable {
     let protectedTarget: Bool
     let approvals: [ApprovalEntry]
     let activity: [ActivityEntry]
+    let commits: [CommitEntry]
     let webURL: String
 
     var iidLabel: String { "!\(iid)" }

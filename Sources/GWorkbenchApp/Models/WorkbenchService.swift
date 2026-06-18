@@ -235,6 +235,15 @@ private struct GitLabApprovalResponse: Decodable {
     let approved_by: [ApprovedByEntry]
 }
 
+private struct GitLabMergeRequestCommitResponse: Decodable {
+    let id: String
+    let short_id: String?
+    let title: String
+    let message: String
+    let author_name: String
+    let created_at: String?
+}
+
 final class WorkbenchService: @unchecked Sendable {
     private let jsonDecoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -676,14 +685,23 @@ final class WorkbenchService: @unchecked Sendable {
         let items = try await withThrowingTaskGroup(of: MergeRequestItem.self) { group in
             for mr in mergeRequests {
                 group.addTask {
-                    let approvals: GitLabApprovalResponse = try await service.request(
+                    async let approvalsRequest: GitLabApprovalResponse = service.request(
                         host: context.config.host,
                         token: context.config.token,
                         path: "/projects/\(projectID)/merge_requests/\(mr.iid)/approvals",
                         method: "GET",
                         body: nil
                     )
+                    async let commitsRequest: [GitLabMergeRequestCommitResponse] = service.request(
+                        host: context.config.host,
+                        token: context.config.token,
+                        path: "/projects/\(projectID)/merge_requests/\(mr.iid)/commits",
+                        method: "GET",
+                        body: nil
+                    )
 
+                    let approvals = try await approvalsRequest
+                    let commitResponses = try await commitsRequest
                     let approvedUsers = approvals.approved_by.map(\.user)
                     let approvedByMe = approvedUsers.contains(where: { $0.username == currentUsername })
                     let approvalEntries = service.makeApprovalEntries(
@@ -691,6 +709,14 @@ final class WorkbenchService: @unchecked Sendable {
                         currentUsername: currentUsername,
                         approvedByMe: approvedByMe
                     )
+                    let commitEntries = commitResponses.map { commit in
+                        CommitEntry(
+                            sha: commit.short_id ?? String(commit.id.prefix(8)),
+                            message: commit.title,
+                            author: commit.author_name,
+                            relativeTime: service.relativeDateString(fromISO8601: commit.created_at)
+                        )
+                    }
 
                     return MergeRequestItem(
                         id: "\(projectID)-\(mr.iid)",
@@ -717,6 +743,7 @@ final class WorkbenchService: @unchecked Sendable {
                             ActivityEntry(actor: mr.author.name, summary: "创建了这条 MR", relativeTime: service.relativeDateString(fromISO8601: mr.updated_at)),
                             ActivityEntry(actor: "GitLab", summary: mr.web_url, relativeTime: "链接")
                         ],
+                        commits: commitEntries,
                         webURL: mr.web_url
                     )
                 }
@@ -900,6 +927,7 @@ final class WorkbenchService: @unchecked Sendable {
             protectedTarget: context.config.protectedTargets.contains(mr.target_branch),
             approvals: [ApprovalEntry(reviewer: "我", detail: "刚创建，尚未审批", approved: false)],
             activity: [ActivityEntry(actor: "我", summary: "创建了这条 MR", relativeTime: "刚刚")],
+            commits: [],
             webURL: mr.web_url
         )
     }

@@ -47,6 +47,36 @@ struct MergeRequestDetailView: View {
                             }
                         }
 
+                        SectionCard(title: "本次提交") {
+                            if mr.commits.isEmpty {
+                                Text("当前没有读取到 commit 列表")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    ForEach(mr.commits) { commit in
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                                Text(commit.message)
+                                                    .font(.subheadline.weight(.medium))
+                                                Spacer()
+                                                Text(commit.sha)
+                                                    .font(.caption.monospaced())
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            HStack(spacing: 8) {
+                                                Text(commit.author)
+                                                Text("·")
+                                                Text(commit.relativeTime)
+                                            }
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         SectionCard(title: "最近活动") {
                             VStack(alignment: .leading, spacing: 12) {
                                 ForEach(mr.activity) { activity in
