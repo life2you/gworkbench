@@ -68,6 +68,7 @@ struct MergeProject: Identifiable, Hashable, Sendable {
     let currentBranch: String
     let gitLabProjectID: Int?
     let branchMappings: [BranchMapping]
+    let remoteBranches: [String]
     let localBranches: [String]
 }
 
@@ -570,6 +571,7 @@ final class WorkbenchService: @unchecked Sendable {
         let projects = try await withThrowingTaskGroup(of: MergeProject.self) { group in
             for project in localProjects {
                 group.addTask {
+                    let remoteBranches = try self.remoteBranchesSync(projectPath: project.path)
                     let localBranches = try self.localBranchesSync(projectPath: project.path)
                     return MergeProject(
                         id: project.id,
@@ -580,6 +582,7 @@ final class WorkbenchService: @unchecked Sendable {
                         currentBranch: project.currentBranch,
                         gitLabProjectID: nil,
                         branchMappings: mappings,
+                        remoteBranches: remoteBranches,
                         localBranches: localBranches
                     )
                 }
@@ -633,6 +636,7 @@ final class WorkbenchService: @unchecked Sendable {
         let mergeProjects = try await withThrowingTaskGroup(of: MergeProject.self) { group in
             for project in localProjects {
                 group.addTask {
+                    let remoteBranches = try self.remoteBranchesSync(projectPath: project.path)
                     let localBranches = try self.localBranchesSync(projectPath: project.path)
                     return MergeProject(
                         id: project.id,
@@ -643,6 +647,7 @@ final class WorkbenchService: @unchecked Sendable {
                         currentBranch: project.currentBranch,
                         gitLabProjectID: remoteByName[project.name],
                         branchMappings: mappings,
+                        remoteBranches: remoteBranches,
                         localBranches: localBranches
                     )
                 }

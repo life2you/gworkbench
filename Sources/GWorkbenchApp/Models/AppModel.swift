@@ -386,6 +386,15 @@ final class AppModel {
         currentMergeProject?.branchMappings ?? []
     }
 
+    var availableMRSourceBranches: [String] {
+        currentMergeProject?.remoteBranches.nonEmptyArray ?? []
+    }
+
+    var availableMRTargetBranches: [String] {
+        let targets = availableMRMappings.map(\.target)
+        return Array(NSOrderedSet(array: targets)) as? [String] ?? targets
+    }
+
     var availableBatchMRMappings: [BranchMapping] {
         availableMRMappings.filter { !$0.protectedTarget }
     }
@@ -1057,10 +1066,15 @@ final class AppModel {
     }
 
     func prepareCreateMergeRequest() {
-        if let mapping = availableMRMappings.first {
-            createMRDraft.sourceBranch = mapping.source
-            createMRDraft.targetBranch = mapping.target
-        }
+        let defaultSourceBranch = availableMRMappings
+            .map(\.source)
+            .first { availableMRSourceBranches.contains($0) }
+            ?? availableMRSourceBranches.first
+            ?? ""
+        let defaultTargetBranch = availableMRTargetBranches.first ?? ""
+
+        createMRDraft.sourceBranch = defaultSourceBranch
+        createMRDraft.targetBranch = defaultTargetBranch
         showingCreateMRSheet = true
     }
 

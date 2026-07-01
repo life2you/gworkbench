@@ -73,15 +73,12 @@ struct CreateMRSheetView: View {
     }
 
     private var sourceBranchOptions: [String] {
-        let fromMappings = appModel.availableMRMappings.map(\.source)
-        let fromLocal = appModel.currentMergeProject?.localBranches ?? []
-        let combined = fromMappings + fromLocal
-        let ordered = Array(NSOrderedSet(array: combined)) as? [String] ?? combined
-        return ordered.isEmpty ? [""] : ordered
+        let remoteBranches = appModel.availableMRSourceBranches
+        return remoteBranches.isEmpty ? [""] : remoteBranches
     }
 
     private var targetBranchOptions: [String] {
-        let ordered = Array(NSOrderedSet(array: appModel.availableMRMappings.map(\.target))) as? [String]
-        return ordered?.isEmpty == false ? ordered! : [""]
+        let targets = appModel.availableMRTargetBranches
+        return targets.isEmpty ? [""] : targets
     }
 }
