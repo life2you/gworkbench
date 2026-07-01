@@ -3,6 +3,8 @@ import SwiftUI
 struct CreateMRSheetView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
+    @State private var sourceBranchSearchText = ""
+    @State private var targetBranchSearchText = ""
 
     var body: some View {
         @Bindable var appModel = appModel
@@ -16,15 +18,39 @@ struct CreateMRSheetView: View {
             }
 
             Form {
-                Picker("来源分支", selection: $appModel.createMRDraft.sourceBranch) {
-                    ForEach(sourceBranchOptions, id: \.self) { branch in
-                        Text(branch).tag(branch)
+                Section("来源分支") {
+                    TextField("搜索远程 origin 分支", text: $sourceBranchSearchText)
+                        .textFieldStyle(.roundedBorder)
+
+                    if filteredSourceBranchOptions.isEmpty {
+                        Text("没有匹配的远程来源分支")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("来源分支", selection: $appModel.createMRDraft.sourceBranch) {
+                            ForEach(filteredSourceBranchOptions, id: \.self) { branch in
+                                Text(branch).tag(branch)
+                            }
+                        }
+                        .labelsHidden()
                     }
                 }
 
-                Picker("目标分支", selection: $appModel.createMRDraft.targetBranch) {
-                    ForEach(targetBranchOptions, id: \.self) { branch in
-                        Text(branch).tag(branch)
+                Section("目标分支") {
+                    TextField("搜索目标分支", text: $targetBranchSearchText)
+                        .textFieldStyle(.roundedBorder)
+
+                    if filteredTargetBranchOptions.isEmpty {
+                        Text("没有匹配的目标分支")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("目标分支", selection: $appModel.createMRDraft.targetBranch) {
+                            ForEach(filteredTargetBranchOptions, id: \.self) { branch in
+                                Text(branch).tag(branch)
+                            }
+                        }
+                        .labelsHidden()
                     }
                 }
             }
@@ -70,15 +96,57 @@ struct CreateMRSheetView: View {
         }
         .padding(24)
         .frame(minWidth: 560, minHeight: 420)
+        .onAppear {
+            syncBranchSelections()
+        }
+        .onChange(of: sourceBranchSearchText) { _, _ in
+            syncSourceBranchSelection()
+        }
+        .onChange(of: targetBranchSearchText) { _, _ in
+            syncTargetBranchSelection()
+        }
     }
 
     private var sourceBranchOptions: [String] {
-        let remoteBranches = appModel.availableMRSourceBranches
-        return remoteBranches.isEmpty ? [""] : remoteBranches
+        appModel.availableMRSourceBranches
+    }
+
+    private var filteredSourceBranchOptions: [String] {
+        filterBranches(sourceBranchOptions, query: sourceBranchSearchText)
     }
 
     private var targetBranchOptions: [String] {
-        let targets = appModel.availableMRTargetBranches
-        return targets.isEmpty ? [""] : targets
+        appModel.availableMRTargetBranches
+    }
+
+    private var filteredTargetBranchOptions: [String] {
+        filterBranches(targetBranchOptions, query: targetBranchSearchText)
+    }
+
+    private func filterBranches(_ branches: [String], query: String) -> [String] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedQuery.isEmpty else {
+            return branches
+        }
+        return branches.filter { $0.localizedCaseInsensitiveContains(normalizedQuery) }
+    }
+
+    private func syncBranchSelections() {
+        syncSourceBranchSelection()
+        syncTargetBranchSelection()
+    }
+
+    private func syncSourceBranchSelection() {
+        if filteredSourceBranchOptions.contains(appModel.createMRDraft.sourceBranch) {
+            return
+        }
+        appModel.createMRDraft.sourceBranch = filteredSourceBranchOptions.first ?? ""
+    }
+
+    private func syncTargetBranchSelection() {
+        if filteredTargetBranchOptions.contains(appModel.createMRDraft.targetBranch) {
+            return
+        }
+        appModel.createMRDraft.targetBranch = filteredTargetBranchOptions.first ?? ""
     }
 }
