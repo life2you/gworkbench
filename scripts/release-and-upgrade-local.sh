@@ -76,7 +76,7 @@ cat > "$RELEASE_NOTES_FILE" <<EOF
 - Native macOS desktop app for Git worktrees, local branch sync, and GitLab merge requests
 - Branch sync now shares the same project roots as worktree management
 - Worktree descriptions can be added and edited later from the app
-- MR queue supports pending-list browsing, approve-and-merge, close, and one-click batch approve/merge
+- MR queue supports checkbox selection so batch approve-and-merge only processes explicitly selected requests
 - Settings now explain directory scope, merge policy, and branch mapping semantics directly in the UI
 - Homebrew Cask release assets are included for both Apple Silicon and Intel macOS
 
@@ -85,7 +85,7 @@ cat > "$RELEASE_NOTES_FILE" <<EOF
 - 原生 macOS 桌面应用，整合 Git worktree、本地分支同步和 GitLab MR 管理
 - 分支同步现在和工作树共用同一批项目根目录
 - 工作树描述支持后续补充和编辑
-- MR 列表支持待处理查看、审批合并、关闭，以及一键批量审批合并
+- MR 列表支持勾选后批量审批合并，只处理明确选中的请求
 - 设置页直接写清目录作用域、自动合并策略和分支映射语义
 - 本次发布附带 Apple Silicon 和 Intel 两套 Homebrew Cask 安装资产
 EOF

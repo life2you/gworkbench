@@ -271,6 +271,7 @@ final class AppModel {
     var createWorktreeDraft = CreateWorktreeDraft()
     var createMRDraft = CreateMRDraft()
     var selectedBatchMRMappingIDs = Set<String>()
+    var selectedBatchApproveMRIDs = Set<String>()
     var worktreeDescriptionDraft = ""
     var worktreeDescriptionLoadedForID: String?
     var localOperationMode: LocalBranchOperationMode = .syncEnvironments
@@ -407,8 +408,8 @@ final class AppModel {
         !mrOperation.isRunning && !selectedBatchMRMappings.isEmpty
     }
 
-    var canBatchApproveAndMergeVisibleMRs: Bool {
-        !mrOperation.isRunning && !visibleOpenMergeRequests.isEmpty
+    var canBatchApproveSelectedMRs: Bool {
+        !mrOperation.isRunning && !selectedBatchApproveMRs.isEmpty
     }
 
     var filteredLocalBranches: [String] {
@@ -489,6 +490,19 @@ final class AppModel {
 
     var visibleOpenMergeRequests: [MergeRequestItem] {
         filteredMergeRequests.filter { [.open, .ready, .blocked, .draft].contains($0.status) }
+    }
+
+    var selectedBatchApproveMRs: [MergeRequestItem] {
+        mergeRequests.filter {
+            selectedBatchApproveMRIDs.contains($0.id) &&
+            [.open, .ready, .blocked, .draft].contains($0.status)
+        }
+    }
+
+    var areAllVisibleOpenMergeRequestsSelected: Bool {
+        !visibleOpenMergeRequests.isEmpty && visibleOpenMergeRequests.allSatisfy {
+            selectedBatchApproveMRIDs.contains($0.id)
+        }
     }
 
     var canExecuteLocalOperation: Bool {
@@ -692,6 +706,7 @@ final class AppModel {
             }
 
             mergeRequests = items
+            selectedBatchApproveMRIDs.formIntersection(items.map(\.id))
             if selectedMergeRequestID == nil || !filteredMergeRequests.contains(where: { $0.id == selectedMergeRequestID }) {
                 selectedMergeRequestID = filteredMergeRequests.first?.id
             }
@@ -730,6 +745,7 @@ final class AppModel {
 
     func selectMergeProject(_ projectID: String) {
         selectedMergeProjectID = projectID
+        selectedBatchApproveMRIDs.removeAll()
         createMRDraft = CreateMRDraft()
         Task {
             await refreshMergeRequests()
@@ -1083,6 +1099,22 @@ final class AppModel {
         showingBatchCreateMRSheet = true
     }
 
+    func toggleBatchApproveMR(_ mrID: String) {
+        if selectedBatchApproveMRIDs.contains(mrID) {
+            selectedBatchApproveMRIDs.remove(mrID)
+        } else {
+            selectedBatchApproveMRIDs.insert(mrID)
+        }
+    }
+
+    func selectAllVisibleOpenMergeRequests() {
+        selectedBatchApproveMRIDs.formUnion(visibleOpenMergeRequests.map(\.id))
+    }
+
+    func clearBatchApproveSelection() {
+        selectedBatchApproveMRIDs.removeAll()
+    }
+
     func createMergeRequest() async {
         guard let context = gmuxContext, let project = currentMergeProject else { return }
         mrOperation = OperationState(isRunning: true, title: "创建 MR", detail: "\(createMRDraft.sourceBranch) -> \(createMRDraft.targetBranch)")
@@ -1146,14 +1178,14 @@ final class AppModel {
         }
     }
 
-    func approveAndMergeVisibleMRs() async {
+    func approveAndMergeSelectedBatchMRs() async {
         guard let context = gmuxContext else { return }
-        let items = visibleOpenMergeRequests
+        let items = selectedBatchApproveMRs
         guard !items.isEmpty else {
             mrOperation = OperationState(
                 isRunning: false,
                 title: "没有可处理的 MR",
-                detail: "当前筛选结果里没有可审批并合并的 MR",
+                detail: "请先勾选要审批并合并的 MR",
                 successMessage: "无需处理"
             )
             return
@@ -1161,7 +1193,7 @@ final class AppModel {
 
         mrOperation = OperationState(
             isRunning: true,
-            title: "一键审批并合并",
+            title: "批量审批并合并",
             detail: "准备处理 \(items.count) 条 MR"
         )
 
@@ -1179,7 +1211,7 @@ final class AppModel {
             await refreshMergeRequests()
             mrOperation = OperationState(
                 isRunning: false,
-                title: "一键审批并合并完成",
+                title: "批量审批并合并完成",
                 detail: "共处理 \(items.count) 条 MR",
                 fractionCompleted: 1,
                 logs: logs,

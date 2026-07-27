@@ -12,24 +12,34 @@ struct MergeRequestsListView: View {
                 ContentUnavailableView("未检测到 gmux 项目", systemImage: "arrow.triangle.merge")
             } else {
                 List(appModel.filteredMergeRequests, selection: $appModel.selectedMergeRequestID) { item in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text("\(item.iidLabel) · \(item.title)")
-                                .font(.headline)
-                            Spacer()
-                            approvalPill(item)
+                    HStack(alignment: .top, spacing: 10) {
+                        if isBatchSelectable(item) {
+                            Toggle("选择 \(item.iidLabel)", isOn: batchSelectionBinding(for: item.id))
+                                .labelsHidden()
+                                .toggleStyle(.checkbox)
+                                .disabled(appModel.mrOperation.isRunning)
+                                .padding(.top, 2)
                         }
-                        Text("\(item.sourceBranch) → \(item.targetBranch)")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        HStack {
-                            Text(item.author)
-                                .font(.caption)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text("\(item.iidLabel) · \(item.title)")
+                                    .font(.headline)
+                                Spacer()
+                                approvalPill(item)
+                            }
+                            Text("\(item.sourceBranch) → \(item.targetBranch)")
+                                .font(.subheadline)
                                 .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(item.updatedAt)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            HStack {
+                                Text(item.author)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(item.updatedAt)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .padding(.vertical, 6)
@@ -53,6 +63,8 @@ struct MergeRequestsListView: View {
                 compactHeader
             }
 
+            batchSelectionBar
+
             InlineOperationView(state: appModel.mrOperation)
         }
         .padding(20)
@@ -68,7 +80,7 @@ struct MergeRequestsListView: View {
             searchField
                 .frame(width: 260)
             refreshButton
-            approveAllButton
+            approveSelectedButton
             batchCreateButton
             createButton
         }
@@ -83,7 +95,7 @@ struct MergeRequestsListView: View {
                     .frame(minWidth: 220, maxWidth: 280)
                 Spacer(minLength: 0)
                 refreshButton
-                approveAllButton
+                approveSelectedButton
                 batchCreateButton
                 createButton
             }
@@ -130,13 +142,32 @@ struct MergeRequestsListView: View {
         }
     }
 
-    private var approveAllButton: some View {
-        Button("一键审批合并") {
+    private var approveSelectedButton: some View {
+        Button("审批合并已选（\(appModel.selectedBatchApproveMRs.count)）") {
             Task {
-                await appModel.approveAndMergeVisibleMRs()
+                await appModel.approveAndMergeSelectedBatchMRs()
             }
         }
-        .disabled(!appModel.canBatchApproveAndMergeVisibleMRs)
+        .disabled(!appModel.canBatchApproveSelectedMRs)
+    }
+
+    private var batchSelectionBar: some View {
+        HStack(spacing: 12) {
+            Text("已选择 \(appModel.selectedBatchApproveMRs.count) 条 MR")
+                .font(.subheadline.weight(.medium))
+            Text("仅勾选项会被审批并合并")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("全选当前结果") {
+                appModel.selectAllVisibleOpenMergeRequests()
+            }
+            .disabled(appModel.visibleOpenMergeRequests.isEmpty || appModel.areAllVisibleOpenMergeRequestsSelected || appModel.mrOperation.isRunning)
+            Button("清空选择") {
+                appModel.clearBatchApproveSelection()
+            }
+            .disabled(appModel.selectedBatchApproveMRIDs.isEmpty || appModel.mrOperation.isRunning)
+        }
     }
 
     private var createButton: some View {
@@ -172,6 +203,22 @@ struct MergeRequestsListView: View {
             get: { appModel.showingBatchCreateMRSheet },
             set: { appModel.showingBatchCreateMRSheet = $0 }
         )
+    }
+
+    private func batchSelectionBinding(for mrID: String) -> Binding<Bool> {
+        Binding(
+            get: { appModel.selectedBatchApproveMRIDs.contains(mrID) },
+            set: { isSelected in
+                let currentlySelected = appModel.selectedBatchApproveMRIDs.contains(mrID)
+                if isSelected != currentlySelected {
+                    appModel.toggleBatchApproveMR(mrID)
+                }
+            }
+        )
+    }
+
+    private func isBatchSelectable(_ item: MergeRequestItem) -> Bool {
+        [.open, .ready, .blocked, .draft].contains(item.status)
     }
 
     private func approvalPill(_ item: MergeRequestItem) -> some View {
