@@ -103,6 +103,47 @@ private struct ShellResult {
     let status: Int32
 }
 
+private final class CommandOutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private let maxBytes: Int
+    private var data = Data()
+    private var truncatedByteCount = 0
+
+    init(maxBytes: Int = 1_048_576) {
+        self.maxBytes = maxBytes
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else {
+            return
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        let remainingBytes = max(maxBytes - data.count, 0)
+        if remainingBytes > 0 {
+            data.append(contentsOf: chunk.prefix(remainingBytes))
+        }
+        if chunk.count > remainingBytes {
+            truncatedByteCount += chunk.count - remainingBytes
+        }
+    }
+
+    func stringValue() -> String {
+        lock.lock()
+        let capturedData = data
+        let omittedBytes = truncatedByteCount
+        lock.unlock()
+
+        var value = String(decoding: capturedData, as: UTF8.self)
+        if omittedBytes > 0 {
+            value += "\n… output truncated (\(omittedBytes) bytes omitted)"
+        }
+        return value
+    }
+}
+
 private struct LocalBranchExecutionResult {
     let sourceBranch: String
     let targetBranch: String
@@ -1992,14 +2033,27 @@ final class WorkbenchService: @unchecked Sendable {
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+        let stdoutBuffer = CommandOutputBuffer()
+        let stderrBuffer = CommandOutputBuffer()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            stdoutBuffer.append(handle.availableData)
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            stderrBuffer.append(handle.availableData)
+        }
 
         try process.run()
         process.waitUntilExit()
 
-        let stdout = String(decoding: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        let stderr = String(decoding: stderrPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        stdoutBuffer.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
+        stderrBuffer.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+
+        let stdout = stdoutBuffer.stringValue()
+        let stderr = stderrBuffer.stringValue()
         let result = ShellResult(stdout: stdout, stderr: stderr, status: process.terminationStatus)
 
         if !allowFailure && result.status != 0 {
