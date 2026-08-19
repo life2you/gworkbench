@@ -342,6 +342,12 @@ final class WorkbenchService: @unchecked Sendable {
 
                 let entries = try self.parseWorktreeListSync(projectPath: project.path)
                 for entry in entries {
+                    var isDirectory: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: entry.path, isDirectory: &isDirectory),
+                          isDirectory.boolValue else {
+                        continue
+                    }
+
                     let branch = entry.branch ?? "(detached)"
                     let description = entry.branch.flatMap {
                         metadataMap["\(self.normalizePath(project.path))#\($0)"]
