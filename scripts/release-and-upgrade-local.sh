@@ -73,25 +73,17 @@ cat > "$RELEASE_NOTES_FILE" <<EOF
 
 ## English
 
-- Native macOS desktop app for Git worktrees, local branch sync, and GitLab merge requests
-- Branch sync now shares the same project roots as worktree management
-- Worktree descriptions can be added and edited later from the app
-- Git commands now drain stdout and stderr while running to avoid stalls when merge output is large
-- Missing worktree directories are skipped during refresh so stale Git metadata no longer blocks the entire list
-- MR queue supports checkbox selection so batch approve-and-merge only processes explicitly selected requests
-- Settings now explain directory scope, merge policy, and branch mapping semantics directly in the UI
-- Homebrew Cask release assets are included for both Apple Silicon and Intel macOS
+- Redesigned application icon following native macOS HIG Squircle guidelines with clean, two-tone minimalist topology (Royal Blue for worktrees/branching, Emerald Green for merging)
+- Fixed icon visual defects: removed double nested black container and resolved the clipped node caused by the overlay capsule
+- Enhanced build scripts with automatic fallback to \`uv run\` for reliable PIL asset generation
+- Updated Homebrew Cask distribution assets for macOS Sequoia (15+) on Apple Silicon and Intel
 
 ## 简体中文
 
-- 原生 macOS 桌面应用，整合 Git worktree、本地分支同步和 GitLab MR 管理
-- 分支同步现在和工作树共用同一批项目根目录
-- 工作树描述支持后续补充和编辑
-- Git 命令现在会在运行期间持续读取 stdout 和 stderr，避免 merge 输出较多时卡住
-- 刷新时会跳过已不存在的工作树目录，残留 Git 元数据不再阻塞整个列表
-- MR 列表支持勾选后批量审批合并，只处理明确选中的请求
-- 设置页直接写清目录作用域、自动合并策略和分支映射语义
-- 本次发布附带 Apple Silicon 和 Intel 两套 Homebrew Cask 安装资产
+- 全新重构 macOS 原生 Squircle 规范应用图标，采用双色极简拓扑设计（专业蓝代表工作树与分支流，翡翠绿代表合并流）
+- 修复图标视觉缺陷：移除双层嵌套黑框，解决原版本遮挡胶囊导致的节点残缺问题
+- 构建脚本增强：自动适配 \`uv run\` 工具链，保证无系统 PIL 环境下也能稳定构建图标资产
+- 同步更新 Apple Silicon 与 Intel 平台的 Homebrew Cask 发布资产（支持 macOS 15+）
 EOF
 
 if [[ "$SKIP_PUSH" != "1" ]]; then
@@ -113,6 +105,8 @@ gh release create "$TAG" \
 
 git -C "/Users/life2you/vibeCodes/github/homebrew-tap" pull --ff-only
 "$SCRIPT_DIR/update-homebrew-cask.sh" "$VERSION" --output "$TAP_TMP_DIR/gworkbench.rb"
+mkdir -p "$REPO_ROOT/packaging/homebrew-tap/Casks"
+cp "$TAP_TMP_DIR/gworkbench.rb" "$REPO_ROOT/packaging/homebrew-tap/Casks/gworkbench.rb"
 mkdir -p "/Users/life2you/vibeCodes/github/homebrew-tap/Casks"
 cp "$TAP_TMP_DIR/gworkbench.rb" "/Users/life2you/vibeCodes/github/homebrew-tap/Casks/gworkbench.rb"
 git -C "/Users/life2you/vibeCodes/github/homebrew-tap" add Casks/gworkbench.rb

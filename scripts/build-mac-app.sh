@@ -36,7 +36,15 @@ chmod +x "$MACOS_DIR/$EXECUTABLE_NAME"
 
 if [[ -f "$ICON_SCRIPT" ]]; then
   echo "==> Generating app icon"
-  python3 "$ICON_SCRIPT"
+  if command -v uv >/dev/null 2>&1; then
+    uv run "$ICON_SCRIPT"
+  elif python3 -c "import PIL" >/dev/null 2>&1; then
+    python3 "$ICON_SCRIPT"
+  elif [[ -f "$ICON_FILE" ]]; then
+    echo "PIL not found in python3; reusing existing $ICON_FILE"
+  else
+    python3 "$ICON_SCRIPT"
+  fi
 fi
 
 if [[ -f "$ICON_FILE" ]]; then

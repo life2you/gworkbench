@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+# /// script
+# dependencies = ["pillow"]
+# ///
 from __future__ import annotations
 
-import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,102 +18,168 @@ ICONSET_DIR = ASSET_DIR / "AppIcon.iconset"
 ICNS_PATH = ASSET_DIR / "AppIcon.icns"
 
 
-def rounded_rect_mask(size: int, radius: int) -> Image.Image:
-    mask = Image.new("L", (size, size), 0)
+def make_squircle_mask(size: int, radius: int) -> Image.Image:
+    """Create a pristine antialiased squircle mask using 2x supersampling."""
+    scale = 2
+    big_size = size * scale
+    mask = Image.new("L", (big_size, big_size), 0)
     draw = ImageDraw.Draw(mask)
-    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=255)
-    return mask
+    draw.rounded_rectangle(
+        (0, 0, big_size - 1, big_size - 1),
+        radius=radius * scale,
+        fill=255,
+    )
+    return mask.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def lerp(a: float, b: float, t: float) -> float:
-    return a + (b - a) * t
+def draw_capsule_line(
+    draw: ImageDraw.ImageDraw,
+    p1: tuple[float, float],
+    p2: tuple[float, float],
+    width: float,
+    fill: tuple[int, int, int, int],
+) -> None:
+    """Draw a smooth line segment with rounded capsule ends."""
+    draw.line([p1, p2], fill=fill, width=int(width))
+    r = width / 2.0
+    draw.ellipse((p1[0] - r, p1[1] - r, p1[0] + r, p1[1] + r), fill=fill)
+    draw.ellipse((p2[0] - r, p2[1] - r, p2[0] + r, p2[1] + r), fill=fill)
 
 
-def gradient_background(size: int) -> Image.Image:
-    image = Image.new("RGBA", (size, size))
-    pixels = image.load()
+def render_base_card(canvas_size: int = 1024) -> Image.Image:
+    """Render macOS HIG compliant squircle card with subtle ambient shadow."""
+    image = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    card_x0, card_y0 = 96, 96
+    card_x1, card_y1 = 928, 928
+    card_w = card_x1 - card_x0
+    card_h = card_y1 - card_y0
+    card_radius = 186
 
-    top = (23, 29, 41)
-    bottom = (13, 16, 25)
-    glow = (39, 196, 164)
+    # 1. Natural ambient drop shadow
+    shadow = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+    sdraw = ImageDraw.Draw(shadow)
+    sdraw.rounded_rectangle(
+        (card_x0, card_y0 + 24, card_x1, card_y1 + 24),
+        radius=card_radius,
+        fill=(15, 23, 42, 40),
+    )
+    sdraw.rounded_rectangle(
+        (card_x0, card_y0 + 8, card_x1, card_y1 + 8),
+        radius=card_radius,
+        fill=(15, 23, 42, 35),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(28))
+    image.alpha_composite(shadow)
 
-    for y in range(size):
-        for x in range(size):
-            ty = y / (size - 1)
-            tx = x / (size - 1)
-            r = int(lerp(top[0], bottom[0], ty))
-            g = int(lerp(top[1], bottom[1], ty))
-            b = int(lerp(top[2], bottom[2], ty))
+    # 2. Main card background (Light, ultra clean minimal gradient)
+    card = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
+    cpixels = card.load()
+    top_color = (255, 255, 255)
+    bottom_color = (244, 246, 250)
 
-            dx = tx - 0.72
-            dy = ty - 0.22
-            dist = math.sqrt(dx * dx + dy * dy)
-            boost = max(0.0, 1.0 - dist * 2.2)
-            r = min(255, int(r + glow[0] * boost * 0.15))
-            g = min(255, int(g + glow[1] * boost * 0.18))
-            b = min(255, int(b + glow[2] * boost * 0.12))
-            pixels[x, y] = (r, g, b, 255)
+    for y in range(card_h):
+        t = y / (card_h - 1)
+        r = int(top_color[0] + (bottom_color[0] - top_color[0]) * t)
+        g = int(top_color[1] + (bottom_color[1] - top_color[1]) * t)
+        b = int(top_color[2] + (bottom_color[2] - top_color[2]) * t)
+        for x in range(card_w):
+            cpixels[x, y] = (r, g, b, 255)
 
+    card_mask = make_squircle_mask(card_w, card_radius)
+    card_cut = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
+    card_cut.paste(card, (0, 0), card_mask)
+
+    # Crisp card border
+    cdraw = ImageDraw.Draw(card_cut)
+    cdraw.rounded_rectangle(
+        (0, 0, card_w - 1, card_h - 1),
+        radius=card_radius,
+        outline=(210, 218, 228, 210),
+        width=2,
+    )
+
+    image.paste(card_cut, (card_x0, card_y0), card_cut)
     return image
 
 
 def build_master_icon() -> Image.Image:
-    size = 1024
-    image = gradient_background(size)
+    """Build the 1024x1024 master icon using the C-2 two-tone minimal geometry."""
+    base = render_base_card()
 
-    # soft bloom
-    bloom = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    bloom_draw = ImageDraw.Draw(bloom)
-    bloom_draw.ellipse((540, 90, 980, 530), fill=(48, 218, 179, 80))
-    bloom_draw.ellipse((60, 500, 520, 980), fill=(55, 115, 255, 45))
-    bloom = bloom.filter(ImageFilter.GaussianBlur(80))
-    image.alpha_composite(bloom)
+    scale = 2
+    render_size = 1024 * scale
+    canvas = Image.new("RGBA", (render_size, render_size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
 
-    draw = ImageDraw.Draw(image)
+    cx, cy = 512 * scale, 512 * scale
+    span_x = 230 * scale
+    span_y = 180 * scale
 
-    # glass panel
-    draw.rounded_rectangle((120, 150, 904, 874), radius=180, fill=(255, 255, 255, 26), outline=(255, 255, 255, 42), width=2)
+    p_left = (cx - span_x, cy)
+    p_top = (cx, cy - span_y)
+    p_bottom = (cx, cy + span_y)
+    p_right = (cx + span_x, cy)
 
-    # symbol geometry
-    accent_a = (59, 130, 246, 255)
-    accent_b = (46, 204, 164, 255)
-    accent_c = (240, 248, 255, 255)
+    stroke_width = 46 * scale
 
-    stroke = 54
-    nodes = {
-        "left": (268, 512),
-        "top": (488, 318),
-        "bottom": (488, 706),
-        "right": (760, 512),
-    }
+    # Two-tone palette: Royal Blue (Branching/Worktrees) and Emerald (Merged/Ready)
+    c_blue = (37, 99, 235, 255)   # #2563EB
+    c_green = (16, 185, 129, 255)  # #10B981
 
-    # connection strokes with shadow
-    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    sdraw = ImageDraw.Draw(shadow)
-    for start, end in (("left", "top"), ("left", "bottom"), ("top", "right"), ("bottom", "right")):
-        sdraw.line((nodes[start], nodes[end]), fill=(0, 0, 0, 150), width=stroke + 18, joint="curve")
-    shadow = shadow.filter(ImageFilter.GaussianBlur(22))
-    image.alpha_composite(shadow)
+    # 1. Subtle soft shadow under connecting tracks
+    shadow_layer = Image.new("RGBA", (render_size, render_size), (0, 0, 0, 0))
+    sdraw = ImageDraw.Draw(shadow_layer)
+    s_fill = (15, 23, 42, 45)
+    for p1, p2 in [(p_left, p_top), (p_left, p_bottom), (p_top, p_right), (p_bottom, p_right)]:
+        sdraw.line(
+            [p1, (p2[0], p2[1] + 6 * scale)],
+            fill=s_fill,
+            width=int(stroke_width + 8 * scale),
+            joint="curve",
+        )
+    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(12 * scale))
+    canvas.alpha_composite(shadow_layer)
 
-    draw.line((nodes["left"], nodes["top"]), fill=accent_a, width=stroke, joint="curve")
-    draw.line((nodes["left"], nodes["bottom"]), fill=accent_a, width=stroke, joint="curve")
-    draw.line((nodes["top"], nodes["right"]), fill=accent_b, width=stroke, joint="curve")
-    draw.line((nodes["bottom"], nodes["right"]), fill=accent_b, width=stroke, joint="curve")
+    # 2. Connecting lines: Left half is Blue (split), Right half is Emerald (merge)
+    draw_capsule_line(draw, p_left, p_top, stroke_width, c_blue)
+    draw_capsule_line(draw, p_left, p_bottom, stroke_width, c_blue)
+    draw_capsule_line(draw, p_top, p_right, stroke_width, c_green)
+    draw_capsule_line(draw, p_bottom, p_right, stroke_width, c_green)
 
-    # node rings
-    for key, color in (("left", accent_c), ("top", accent_c), ("bottom", accent_c), ("right", accent_c)):
-        x, y = nodes[key]
-        draw.ellipse((x - 58, y - 58, x + 58, y + 58), fill=(11, 17, 26, 235))
-        draw.ellipse((x - 46, y - 46, x + 46, y + 46), fill=color)
+    nodes = [
+        (p_left, c_blue),
+        (p_top, c_blue),
+        (p_bottom, c_blue),
+        (p_right, c_green),
+    ]
 
-    # subtle merge arrow cue
-    draw.rounded_rectangle((668, 458, 840, 566), radius=54, fill=(255, 255, 255, 24))
-    draw.polygon([(718, 512), (780, 468), (780, 495), (824, 495), (824, 529), (780, 529), (780, 556)], fill=(255, 255, 255, 210))
+    outer_r = 54 * scale
+    inner_r = 28 * scale
 
-    mask = rounded_rect_mask(size, 230)
-    output = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    output.paste(image, (0, 0), mask)
-    return output
+    # 3. Node drop shadows
+    n_shadow = Image.new("RGBA", (render_size, render_size), (0, 0, 0, 0))
+    ns_draw = ImageDraw.Draw(n_shadow)
+    for pt, _ in nodes:
+        x, y = pt
+        ns_draw.ellipse(
+            (x - outer_r, y - outer_r + 8 * scale, x + outer_r, y + outer_r + 8 * scale),
+            fill=(15, 23, 42, 60),
+        )
+    n_shadow = n_shadow.filter(ImageFilter.GaussianBlur(8 * scale))
+    canvas.alpha_composite(n_shadow)
+
+    # 4. Node discs (outer color ring + inner crisp white center)
+    for pt, col in nodes:
+        x, y = pt
+        draw.ellipse((x - outer_r, y - outer_r, x + outer_r, y + outer_r), fill=col)
+        draw.ellipse(
+            (x - inner_r, y - inner_r, x + inner_r, y + inner_r),
+            fill=(255, 255, 255, 255),
+        )
+
+    scaled_art = canvas.resize((1024, 1024), Image.Resampling.LANCZOS)
+    base.alpha_composite(scaled_art)
+    return base
 
 
 def ensure_iconset(master: Image.Image) -> None:
@@ -150,7 +218,8 @@ def main() -> None:
     master.save(MASTER_PNG)
     ensure_iconset(master)
     build_icns()
-    print(ICNS_PATH)
+    print(f"Generated master PNG: {MASTER_PNG}")
+    print(f"Generated ICNS: {ICNS_PATH}")
 
 
 if __name__ == "__main__":
