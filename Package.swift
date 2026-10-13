@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "gworkbench",
     platforms: [
-        .macOS(.v15),
+        .macOS(.v14),
     ],
     products: [
         .executable(
@@ -12,9 +12,15 @@ let package = Package(
             targets: ["GWorkbenchApp"]
         ),
     ],
+    dependencies: [
+        .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
+    ],
     targets: [
         .executableTarget(
             name: "GWorkbenchApp",
+            dependencies: [
+                .product(name: "TOMLKit", package: "TOMLKit"),
+            ],
             path: "Sources/GWorkbenchApp"
         ),
     ]

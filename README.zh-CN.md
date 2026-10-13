@@ -2,7 +2,7 @@
 
 # GWorkbench
 
-`GWorkbench` 是一个原生 macOS 桌面应用，把 `gwtm` 风格的工作树管理和 `gmux` 风格的 GitLab MR 工作流放进同一个界面里。
+`GWorkbench` 是一个原生 macOS 桌面应用，把 Git 工作树管理、多目标分支同步和 GitLab 合并请求（MR）工作流整合在同一个现代化桌面界面中。
 
 ## 功能
 
@@ -26,10 +26,9 @@
 
 ## 依赖
 
-- macOS 15 或更新版本
+- macOS 14 或更新版本
 - Xcode / Swift 工具链
 - Git
-- Python 3 + `tomli`
 
 ## 运行
 

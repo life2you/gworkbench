@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 D：分支拓扑全景图 (全交互体验) - GWorkbench</title>
+<style>
+  :root {
+    --bg-window: #0c0d11;
+    --bg-panel: rgba(18, 20, 26, 0.88);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --text-primary: #f0f2f5;
+    --text-secondary: #8c92a4;
+    --text-muted: #575c6e;
+    --accent: #38bdf8;
+    --purple: #a855f7;
+    --green: #22c55e;
+    --amber: #f59e0b;
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background-color: var(--bg-window);
+    background-image: 
+      radial-gradient(circle at 10% 20%, rgba(56, 189, 248, 0.08) 0%, transparent 45%),
+      radial-gradient(circle at 90% 80%, rgba(168, 85, 247, 0.08) 0%, transparent 45%),
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 32px 32px, 32px 32px;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 悬浮顶部控制岛 */
+  .floating-toolbar {
+    position: absolute;
+    top: 16px;
+    left: 20px;
+    right: 20px;
+    height: 48px;
+    background: var(--bg-panel);
+    backdrop-filter: blur(24px);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 16px;
+    z-index: 100;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  }
+  .traffic-lights { display: flex; gap: 7px; margin-right: 4px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot-red { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #27c93f; }
+
+  .selector-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 5px 12px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+  }
+  .selector-chip:hover { background: rgba(255, 255, 255, 0.08); }
+
+  .view-switch {
+    display: flex;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: 7px;
+    padding: 2px;
+    gap: 2px;
+    border: 1px solid var(--border-color);
+  }
+  .view-btn {
+    padding: 4px 11px;
+    font-size: 12px;
+    border-radius: 5px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    transition: 0.15s;
+  }
+  .view-btn.active {
+    background: rgba(255, 255, 255, 0.14);
+    color: white;
+  }
+
+  .right-controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .btn-action {
+    background: var(--accent);
+    color: #0c0d11;
+    font-weight: 600;
+    font-size: 12.5px;
+    padding: 6px 14px;
+    border-radius: 7px;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.3);
+    transition: 0.15s;
+  }
+  .btn-action:hover {
+    background: #7dd3fc;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.5);
+  }
+
+  /* 画布区 */
+  .topology-canvas {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    margin-top: 70px;
+  }
+  svg.network-lines {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+  }
+
+  /* 节点卡片 */
+  .node {
+    position: absolute;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 16px 18px;
+    width: 290px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+    transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .node:hover {
+    transform: translateY(-3px) scale(1.02);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.6);
+  }
+  .node.active-focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 12px 35px rgba(56, 189, 248, 0.25);
+  }
+  .node.root-main {
+    border-color: #3b82f6;
+    background: linear-gradient(145deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9));
+  }
+  .node.removing {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+
+  .node-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .node-title {
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .node-badge {
+    font-size: 10.5px;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .node-body {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 12px;
+  }
+
+  .node-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    font-size: 11px;
+  }
+  .ahead-behind {
+    font-family: var(--font-mono);
+    display: flex;
+    gap: 6px;
+  }
+  .tag-ahead { color: var(--green); }
+  .tag-behind { color: var(--amber); }
+
+  .node-quick-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    border-radius: 5px;
+    padding: 4px 8px;
+    color: white;
+    font-size: 11px;
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  .node-quick-btn:hover { background: var(--accent); color: #000; }
+
+  /* 悬浮属性面板 (HUD Inspector) */
+  .hud-inspector {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    width: 330px;
+    background: rgba(18, 20, 26, 0.94);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 18px;
+    backdrop-filter: blur(28px);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+    transition: 0.2s;
+  }
+  .hud-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .hud-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .hud-stat-item {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .hud-stat-num {
+    font-size: 16px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+  }
+  .hud-stat-desc {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  /* 悬浮 Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(22, 24, 32, 0.95);
+    border: 1px solid var(--accent);
+    color: white;
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    transition: all 0.2s;
+    pointer-events: none;
+    z-index: 1000;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- 顶部悬浮控制岛 -->
+<div class="floating-toolbar">
+  <div class="traffic-lights">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+  </div>
+
+  <div class="selector-chip" onclick="showToast('仓库拓扑: vibeCodes / frontend-portal')">
+    <span>🌐 仓库拓扑: <b>frontend-portal</b></span>
+    <span style="font-size: 10px; color: var(--text-muted);">▼</span>
+  </div>
+
+  <div class="view-switch">
+    <button class="view-btn active" onclick="switchViewMode(this, '拓扑图谱')">🌿 拓扑图谱 (Topology)</button>
+    <button class="view-btn" onclick="switchViewMode(this, '提交树图谱')">📊 提交树 (Log Graph)</button>
+    <button class="view-btn" onclick="switchViewMode(this, '冲突雷达')">⚡️ 冲突雷达</button>
+  </div>
+
+  <div class="right-controls">
+    <span style="font-size: 12px; color: var(--text-secondary);" id="topStatusText">4 个并发分支 · 点击节点查看遥测</span>
+    <button class="btn-action" onclick="createForkNode()">+ 分叉新建工作树</button>
+  </div>
+</div>
+
+<!-- 画布 -->
+<div class="topology-canvas" id="canvasArea">
+
+  <!-- SVG 动态拓扑连线 -->
+  <svg class="network-lines" id="svgLines">
+    <defs>
+      <linearGradient id="grad-main" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.8"/>
+        <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.8"/>
+      </linearGradient>
+      <linearGradient id="grad-active" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#a855f7" stop-opacity="0.8"/>
+      </linearGradient>
+    </defs>
+    
+    <path id="line-1" d="M 370 240 C 480 240, 520 150, 620 150" fill="none" stroke="url(#grad-main)" stroke-width="2.5" stroke-dasharray="6,4" />
+    <path id="line-2" d="M 370 240 C 480 240, 520 340, 620 340" fill="none" stroke="#22c55e" stroke-width="2" />
+    <path id="line-3" d="M 370 240 C 480 240, 520 500, 620 500" fill="none" stroke="#a855f7" stroke-width="2" />
+  </svg>
+
+  <!-- 节点 1: Main 主干基准 -->
+  <div class="node root-main" id="node-main" style="top: 180px; left: 80px;" onclick="focusNode('main', this)">
+    <div class="node-header">
+      <div class="node-title">🌿 main (主仓库)</div>
+      <span class="node-badge" style="background: rgba(59, 130, 246, 0.25); color: #93c5fd;">Base</span>
+    </div>
+    <div class="node-body">
+      生产主流向 · 当前 HEAD: <code>f81c9a0</code><br>
+      最后同步于 10 分钟前
+    </div>
+    <div class="node-footer">
+      <span style="color: #60a5fa;">● 基线纯净 (0 Dirty)</span>
+      <button class="node-quick-btn" onclick="openIDE('main', event)">⚡️ 唤起 IDE</button>
+    </div>
+  </div>
+
+  <!-- 节点 2: feat/pay-retry-v2 -->
+  <div class="node active-focus" id="node-pay" style="top: 90px; left: 620px;" onclick="focusNode('feat/pay-retry-v2', this)">
+    <div class="node-header">
+      <div class="node-title" style="color: #38bdf8;">🌿 feat/pay-retry-v2</div>
+      <span class="node-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8;">Active</span>
+    </div>
+    <div class="node-body">
+      结算重试队列算法改造，已绑定 Cursor。<br>
+      <span style="color: #fbbf24;">⚠️ 3 个未暂存文件修改</span>
+    </div>
+    <div class="node-footer">
+      <div class="ahead-behind">
+        <span class="tag-ahead">↑ 2 ahead</span>
+        <span class="tag-behind">↓ 1 behind</span>
+      </div>
+      <button class="node-quick-btn" style="background: #38bdf8; color: #000; font-weight: 600;" onclick="openIDE('feat/pay-retry-v2', event)">⚡️ 打开</button>
+    </div>
+  </div>
+
+  <!-- 节点 3: fix/oauth-refresh -->
+  <div class="node" id="node-oauth" style="top: 280px; left: 620px;" onclick="focusNode('fix/oauth-refresh', this)">
+    <div class="node-header">
+      <div class="node-title">🌿 fix/oauth-refresh</div>
+      <span class="node-badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80;">Clean</span>
+    </div>
+    <div class="node-body">
+      修复拦截器死循环重试。已推送远程。<br>
+      准备创建 Merge Request。
+    </div>
+    <div class="node-footer">
+      <div class="ahead-behind">
+        <span class="tag-ahead">↑ 1 ahead</span>
+        <span style="color: var(--text-muted);">已对齐 main</span>
+      </div>
+      <button class="node-quick-btn" onclick="createMR('fix/oauth-refresh', event)">🔀 发起 MR</button>
+    </div>
+  </div>
+
+  <!-- 节点 4: feat/dark-tokens -->
+  <div class="node" id="node-dark" style="top: 440px; left: 620px; opacity: 0.85;" onclick="focusNode('feat/dark-tokens', this)">
+    <div class="node-header">
+      <div class="node-title" style="color: var(--text-muted); text-decoration: line-through;">🌿 feat/dark-tokens</div>
+      <span class="node-badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc;">Merged</span>
+    </div>
+    <div class="node-body">
+      已成功并在生产部署，本地工作树仍挂载。<br>
+      占用空间: 48.2 MB。
+    </div>
+    <div class="node-footer">
+      <span style="color: #f87171;">可安全释放</span>
+      <button class="node-quick-btn" style="color: #f87171;" onclick="destroyNode('node-dark', 'feat/dark-tokens', 'line-3', event)">🗑 销毁释放</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- 悬浮属性遥测面板 (HUD Inspector) -->
+<div class="hud-inspector" id="hudPanel">
+  <div class="hud-title">
+    <span>节点遥测属性</span>
+    <span style="color: var(--accent);" id="hudNodeTitle">feat/pay-retry-v2</span>
+  </div>
+
+  <div class="hud-stat-grid">
+    <div class="hud-stat-item">
+      <div class="hud-stat-num" id="hudDirty">3</div>
+      <div class="hud-stat-desc">Dirty Files (待提交)</div>
+    </div>
+    <div class="hud-stat-item">
+      <div class="hud-stat-num" id="hudSize">38.4 MB</div>
+      <div class="hud-stat-desc">工作树物理大小</div>
+    </div>
+  </div>
+
+  <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.6;" id="hudPathText">
+    📁 <code>~/worktrees/portal-pay-retry</code><br>
+    🔗 关联上游: <code>origin/feat/pay-retry-v2</code>
+  </div>
+
+  <div style="margin-top: 14px; display: flex; gap: 8px;">
+    <button style="flex: 1; padding: 7px; background: rgba(255,255,255,0.08); border: none; border-radius: 6px; color: white; font-size: 12px; cursor: pointer;" onclick="rebaseMain()">🔀 一键 Rebase main</button>
+    <button style="flex: 1; padding: 7px; background: rgba(56, 189, 248, 0.2); border: none; border-radius: 6px; color: #38bdf8; font-size: 12px; cursor: pointer;" onclick="openIDE(currentFocusedNode, event)">⚡️ 切换进 IDE</button>
+  </div>
+</div>
+
+<div class="toast" id="toast">拓扑更新</div>
+
+<script>
+  let currentFocusedNode = 'feat/pay-retry-v2';
+
+  const nodeStats = {
+    'main': {
+      title: 'main (Base)',
+      dirty: '0',
+      size: '118 MB',
+      path: '~/vibeCodes/portal',
+      upstream: 'origin/main (基准)'
+    },
+    'feat/pay-retry-v2': {
+      title: 'feat/pay-retry-v2',
+      dirty: '3',
+      size: '38.4 MB',
+      path: '~/worktrees/portal-pay-retry',
+      upstream: 'origin/feat/pay-retry'
+    },
+    'fix/oauth-refresh': {
+      title: 'fix/oauth-refresh',
+      dirty: '0',
+      size: '34.1 MB',
+      path: '~/worktrees/portal-auth',
+      upstream: 'origin/fix/oauth-refresh'
+    },
+    'feat/dark-tokens': {
+      title: 'feat/dark-tokens',
+      dirty: '0',
+      size: '48.2 MB',
+      path: '~/worktrees/portal-dark',
+      upstream: '已合并至生产 (可删除)'
+    }
+  };
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._topTimer);
+    window._topTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function focusNode(key, el) {
+    document.querySelectorAll('.node').forEach(n => n.classList.remove('active-focus'));
+    el.classList.add('active-focus');
+    currentFocusedNode = key;
+
+    const data = nodeStats[key];
+    if (data) {
+      document.getElementById('hudNodeTitle').innerText = data.title;
+      document.getElementById('hudDirty').innerText = data.dirty;
+      document.getElementById('hudSize').innerText = data.size;
+      document.getElementById('hudPathText').innerHTML = `📁 <code>${data.path}</code><br>🔗 关联上游: <code>${data.upstream}</code>`;
+    }
+    showToast(`🌐 聚焦拓扑节点: ${key}`);
+  }
+
+  function openIDE(branch, e) {
+    if (e) e.stopPropagation();
+    showToast(`🚀 已在 Cursor 唤起拓扑节点 [${branch}]`);
+  }
+
+  function createMR(branch, e) {
+    if (e) e.stopPropagation();
+    showToast(`🔀 正在将节点 [${branch}] 提交至 GitLab 创建 MR...`);
+  }
+
+  function rebaseMain() {
+    showToast(`⚡️ 正在将 ${currentFocusedNode} 自动 Rebase 至 main 最新提交...`);
+  }
+
+  function destroyNode(nodeId, branch, lineId, e) {
+    if (e) e.stopPropagation();
+    if (!confirm(`确定销毁拓扑节点 [${branch}] 吗？将释放磁盘空间。`)) return;
+    const n = document.getElementById(nodeId);
+    const l = document.getElementById(lineId);
+    n.classList.add('removing');
+    if (l) l.style.display = 'none';
+    setTimeout(() => {
+      n.remove();
+      showToast(`🗑 拓扑节点 [${branch}] 已销毁释放！`);
+    }, 220);
+  }
+
+  function switchViewMode(btn, name) {
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    showToast(`视图切换至: ${name}`);
+  }
+
+  function createForkNode() {
+    const branch = prompt('从 main 分叉创建新工作树，请输入分支名称:', 'feat/realtime-radar');
+    if (!branch) return;
+
+    nodeStats[branch] = {
+      title: branch,
+      dirty: '0',
+      size: '24.5 MB',
+      path: `~/worktrees/${branch.replace('/', '-')}`,
+      upstream: '新建本地分支'
+    };
+
+    const canvas = document.getElementById('canvasArea');
+    const newNode = document.createElement('div');
+    newNode.className = 'node';
+    newNode.style.top = '200px';
+    newNode.style.left = '960px';
+    newNode.onclick = function() { focusNode(branch, this); };
+    newNode.innerHTML = `
+      <div class="node-header">
+        <div class="node-title" style="color: #a855f7;">🌿 ${branch}</div>
+        <span class="node-badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc;">New</span>
+      </div>
+      <div class="node-body">刚刚创建的分叉节点。<br>已自动检出对应 worktree。</div>
+      <div class="node-footer">
+        <span style="color: var(--green);">● 0 dirty</span>
+        <button class="node-quick-btn" onclick="openIDE('${branch}', event)">⚡️ 打开</button>
+      </div>
+    `;
+    canvas.appendChild(newNode);
+
+    // 动态在 SVG 画连线
+    const svg = document.getElementById('svgLines');
+    const newPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    newPath.setAttribute('d', 'M 370 240 C 650 240, 750 240, 960 240');
+    newPath.setAttribute('fill', 'none');
+    newPath.setAttribute('stroke', '#a855f7');
+    newPath.setAttribute('stroke-width', '2');
+    newPath.setAttribute('stroke-dasharray', '4,4');
+    svg.appendChild(newPath);
+
+    newNode.click();
+    showToast(`✨ 分叉节点 [${branch}] 创建成功！`);
+  }
+</script>
+
+</body>
+</html>

@@ -27,11 +27,19 @@ struct GWorkbenchConfig: Sendable, Hashable {
     let metadataPath: String
     let worktreeProjectsRootDirs: [String]
     let worktreesRootDir: String
+    let worktreePathTemplate: String
     let ideMode: String
     let ideCommand: String
     let ideLabel: String
+    let terminalApp: String
+    let terminalBundleID: String
+    let terminalLaunchHookMode: String
+    let terminalLaunchCommand: String
     let gitlabHost: String
     let gitlabToken: String
+    let githubToken: String
+    let activeWorkflowPreset: String
+    let githubDefaultTargetBranch: String
     let mergeRootDirs: [String]
     let mergeBranchMiddle: String
     let envBranches: [String]
@@ -40,8 +48,8 @@ struct GWorkbenchConfig: Sendable, Hashable {
     let autoMergeDelaySeconds: Int
     let autoMergeRetryCount: Int
 
-    func asGwtmConfig() -> GwtmConfig {
-        GwtmConfig(
+    func asWorktreeConfig() -> WorktreeConfig {
+        WorktreeConfig(
             configPath: configPath,
             metadataPath: metadataPath,
             projectsRootDirs: worktreeProjectsRootDirs,
@@ -52,8 +60,8 @@ struct GWorkbenchConfig: Sendable, Hashable {
         )
     }
 
-    func asGmuxConfig() -> GmuxConfig {
-        GmuxConfig(
+    func asMergeWorkflowConfig() -> MergeWorkflowConfig {
+        MergeWorkflowConfig(
             configPath: configPath,
             host: gitlabHost,
             token: gitlabToken,
@@ -73,11 +81,19 @@ struct SettingsDraft: Sendable {
     var metadataPath: String = ""
     var worktreeProjectsRootDirs: [PathEntryDraft] = []
     var worktreesRootDir: String = ""
+    var worktreePathTemplate: String = "${rootDir}/${project}/${branch}"
     var ideMode: String = "app"
     var ideCommand: String = ""
     var ideLabel: String = ""
+    var terminalApp: String = "Terminal"
+    var terminalBundleID: String = "com.apple.Terminal"
+    var terminalLaunchHookMode: String = "none"
+    var terminalLaunchCommand: String = "git status"
     var gitlabHost: String = ""
     var gitlabToken: String = ""
+    var githubToken: String = ""
+    var activeWorkflowPreset: String = "env_flow"
+    var githubDefaultTargetBranch: String = "main"
     var mergeRootDirs: [PathEntryDraft] = []
     var mergeBranchMiddle: String = ""
     var envBranchesText: String = ""
@@ -93,11 +109,19 @@ struct SettingsDraft: Sendable {
         metadataPath = config.metadataPath
         worktreeProjectsRootDirs = config.worktreeProjectsRootDirs.map { PathEntryDraft(path: $0) }
         worktreesRootDir = config.worktreesRootDir
+        worktreePathTemplate = config.worktreePathTemplate.isEmpty ? "${rootDir}/${project}/${branch}" : config.worktreePathTemplate
         ideMode = config.ideMode
         ideCommand = config.ideCommand
         ideLabel = config.ideLabel
+        terminalApp = config.terminalApp
+        terminalBundleID = config.terminalBundleID
+        terminalLaunchHookMode = config.terminalLaunchHookMode.isEmpty ? "none" : config.terminalLaunchHookMode
+        terminalLaunchCommand = config.terminalLaunchCommand.isEmpty ? "git status" : config.terminalLaunchCommand
         gitlabHost = config.gitlabHost
         gitlabToken = config.gitlabToken
+        githubToken = config.githubToken
+        activeWorkflowPreset = config.activeWorkflowPreset.isEmpty ? "env_flow" : config.activeWorkflowPreset
+        githubDefaultTargetBranch = config.githubDefaultTargetBranch.isEmpty ? "main" : config.githubDefaultTargetBranch
         mergeRootDirs = config.mergeRootDirs.map { PathEntryDraft(path: $0) }
         mergeBranchMiddle = config.mergeBranchMiddle
         envBranchesText = config.envBranches.joined(separator: ", ")

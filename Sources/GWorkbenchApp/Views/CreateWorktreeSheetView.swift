@@ -11,7 +11,7 @@ struct CreateWorktreeSheetView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("新建工作树")
                     .font(.title2.weight(.semibold))
-                Text("项目：\(appModel.currentWorktreeProject?.displayName ?? "未选择") · 工作树根目录：\(appModel.gwtmConfig?.worktreesRootDir ?? "未配置")")
+                Text("项目：\(appModel.currentWorktreeProject?.displayName ?? "未选择") · 工作树根目录：\(appModel.effectiveWorktreeConfig?.worktreesRootDir ?? "未配置")")
                     .foregroundStyle(.secondary)
             }
 
@@ -70,7 +70,7 @@ struct CreateWorktreeSheetView: View {
             InlineOperationView(state: appModel.worktreeOperation)
 
             HStack {
-                Text("当前直接复用 gwtm 的配置约定与 git worktree 命令。")
+                Text("使用标准 Git worktree 命令与配置约定。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()

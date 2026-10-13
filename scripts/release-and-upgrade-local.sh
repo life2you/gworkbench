@@ -73,17 +73,33 @@ cat > "$RELEASE_NOTES_FILE" <<EOF
 
 ## English
 
-- Redesigned application icon following native macOS HIG Squircle guidelines with clean, two-tone minimalist topology (Royal Blue for worktrees/branching, Emerald Green for merging)
-- Fixed icon visual defects: removed double nested black container and resolved the clipped node caused by the overlay capsule
-- Enhanced build scripts with automatic fallback to \`uv run\` for reliable PIL asset generation
-- Updated Homebrew Cask distribution assets for macOS Sequoia (15+) on Apple Silicon and Intel
+- **100% Pure Native macOS Desktop App**: Completely removed legacy CLI (gwtm/gmux) and rust-core runtime dependencies; the app is now a self-contained, lightweight, high-performance SwiftUI/AppKit macOS desktop application (~5.5MB).
+- **Comprehensive UI Overhaul**:
+  - **Worktrees**: Upgraded to a high-density native Table with column sorting, live telemetry pills, and an integrated bottom console drawer.
+  - **Branch Sync**: Redesigned pipeline topology flow, clean mode picker (sync environments, merge all, custom targets), and execution logs.
+  - **Merge Requests**: High-density Table with approval pills, CI status, sticky batch approve-and-merge bar, and detailed inspector.
+  - **Settings**: Streamlined 3-tab architecture (Local & Worktrees, Connection Pool, Presets) with runtime health radar diagnostics.
+- **Multi-Platform Classification & Auto-Routing**: Automatic detection of GitHub vs private GitLab repositories based on Git Remote URL with clean collapsible sidebar grouping.
+- **Terminal & IDE Integration**:
+  - Auto-detection for installed terminals (Otty, Ghostty, Terminal, iTerm2) with customizable startup hook commands.
+  - Auto-detection for installed IDEs (Zed, IntelliJ IDEA, Sublime Text, VS Code, Cursor) with instant test-launching.
+- **Customizable Path Templates**: Wildcard template engine (\`\${rootDir}/\${project}/\${branch}\`) with real-time physical path preview.
+- **Branch Mappings Sync**: Two-way integration between environment branches and branch mappings table with one-click auto-generation.
 
 ## 简体中文
 
-- 全新重构 macOS 原生 Squircle 规范应用图标，采用双色极简拓扑设计（专业蓝代表工作树与分支流，翡翠绿代表合并流）
-- 修复图标视觉缺陷：移除双层嵌套黑框，解决原版本遮挡胶囊导致的节点残缺问题
-- 构建脚本增强：自动适配 \`uv run\` 工具链，保证无系统 PIL 环境下也能稳定构建图标资产
-- 同步更新 Apple Silicon 与 Intel 平台的 Homebrew Cask 发布资产（支持 macOS 15+）
+- **100% 纯正 macOS 原生应用**：彻底移除对外部历史 CLI（gwtm/gmux）及 rust-core 的依赖，蜕变为完全独立自包含、超轻量（仅 ~5.5MB）、高性能的纯原生 SwiftUI/AppKit 桌面端。
+- **全局界面现代化重构**：
+  - **工作树 (Worktrees)**：升级为 Apple 原生高密度数据表格，支持列头排序、实时状态胶囊与底部可折叠控制台。
+  - **分支同步 (Branch Sync)**：全新流向拓扑管道、精简三大执行模式（同步环境、合并全部、自定义目标）与实时日志抽屉。
+  - **合并请求 (MR)**：高密度原生表格、审批与 CI 状态胶囊、吸顶式批量审批合并操作条及深度检查器。
+  - **系统设置 (Settings)**：全新 3 Tab 架构（本地与工作树、平台凭据池、发布策略模板），集成运行健康诊断雷达。
+- **多托管平台智能归类与自动路由**：自动根据 Git Remote 区分 GitHub 与私有 GitLab 仓库，侧边栏支持整洁的折叠分组。
+- **终端与 IDE 深度集成**：
+  - 本地终端自动探测（已原生支持 Otty、Ghostty、Terminal 等），并支持进入目录后自动执行命令钩子（Startup Hook）。
+  - 本地 IDE 自动探测（新增 Zed、IntelliJ IDEA、Sublime 等支持），支持一键测试唤起。
+- **工作树存储路径通配符模板**：支持 \`\${rootDir}/\${project}/\${branch}\` 通配符定制与实时落盘物理路径高亮预览。
+- **环境分支与映射表深度复用**：环境分支与分支映射表实现双向联动，支持一键基于环境分支生成标准合流映射。
 EOF
 
 if [[ "$SKIP_PUSH" != "1" ]]; then

@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GWorkbench 全局灵活配置升级方案 (1, 2, 4, 5 原型演示)</title>
+<style>
+  :root {
+    --bg-window: #1e1e20;
+    --bg-sidebar: #18181a;
+    --bg-toolbar: #26262a;
+    --bg-card: rgba(255, 255, 255, 0.045);
+    --bg-card-hover: rgba(255, 255, 255, 0.075);
+    --bg-input: rgba(0, 0, 0, 0.35);
+    --border-color: rgba(255, 255, 255, 0.09);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --text-primary: #f0f0f2;
+    --text-secondary: #9a9ba4;
+    --text-tertiary: #686973;
+    --accent: #0a84ff;
+    --accent-hover: #0071e3;
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --purple: #bf5af2;
+    --red: #ff453a;
+    --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+    --radius-sm: 5px;
+    --radius-md: 8px;
+    --radius-lg: 11px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111113;
+    color: var(--text-primary);
+    font-family: var(--font-system);
+    font-size: 12.5px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 顶部全局提示条 */
+  .meta-topbar {
+    background: #0d0d0f;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    z-index: 100;
+  }
+  .meta-topbar strong { color: #fff; font-weight: 600; }
+  .badge-pills { display: flex; gap: 6px; align-items: center; }
+  .badge-tag {
+    background: rgba(10, 132, 255, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(10, 132, 255, 0.3);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .window-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-window);
+    overflow: hidden;
+  }
+
+  /* 顶部 Toolbar */
+  .toolbar {
+    height: 44px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .traffic-lights { display: flex; gap: 7px; margin-right: 6px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot-red { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #27c93f; }
+
+  /* Tab 分段选择器 */
+  .segmented-control {
+    display: inline-flex;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .segment-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 4px 12px;
+    font-size: 11.5px;
+    font-weight: 500;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .segment-btn:hover { color: #fff; }
+  .segment-btn.active {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn {
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 4px 11px;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: 0.15s;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary {
+    background: var(--accent);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+
+  /* 三栏布局 */
+  .main-split {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* 1. 左侧 Sidebar 模拟 */
+  .sidebar {
+    width: 220px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-section {
+    padding: 12px 10px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin: 1px 6px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: 0.12s;
+  }
+  .sidebar-item:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
+  .sidebar-item.active {
+    background: rgba(10, 132, 255, 0.18);
+    color: #fff;
+    font-weight: 500;
+  }
+  .sidebar-badge {
+    margin-left: auto;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-tertiary);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 5px;
+    border-radius: 10px;
+  }
+
+  /* 2. 中间主舞台表单 */
+  .workspace-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-window);
+    overflow-y: auto;
+    padding: 20px 28px;
+    gap: 18px;
+  }
+
+  .settings-section-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+  .sec-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 10px;
+  }
+  .sec-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sec-desc {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .form-label {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #e4e4e7;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .form-hint {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    line-height: 1.4;
+  }
+  .form-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 12px;
+    color: #fff;
+    font-family: var(--font-system);
+    outline: none;
+    transition: 0.15s;
+    width: 100%;
+  }
+  .form-input.mono { font-family: var(--font-mono); font-size: 11.5px; }
+  .form-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.2);
+  }
+
+  .input-with-button {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* 平台卡片池 (局限性 1) */
+  .provider-cards-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .provider-card {
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: 0.15s;
+  }
+  .provider-card:hover { border-color: rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.04); }
+  .provider-icon-circle {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .icon-gitlab { background: rgba(255, 159, 10, 0.15); border: 1px solid rgba(255, 159, 10, 0.3); color: #fbbf24; }
+  .icon-github { background: rgba(191, 90, 242, 0.15); border: 1px solid rgba(191, 90, 242, 0.3); color: #c084fc; }
+
+  .provider-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .provider-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .provider-meta {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+  }
+
+  .pill {
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .pill-green { background: rgba(48, 209, 88, 0.15); color: #34d399; border: 1px solid rgba(48, 209, 88, 0.25); }
+  .pill-orange { background: rgba(255, 159, 10, 0.15); color: #fbbf24; border: 1px solid rgba(255, 159, 10, 0.25); }
+  .pill-purple { background: rgba(191, 90, 242, 0.15); color: #c084fc; border: 1px solid rgba(191, 90, 242, 0.25); }
+
+  /* 路径通配符预览框 (局限性 5) */
+  .template-preview-box {
+    background: rgba(10, 132, 255, 0.08);
+    border: 1px dashed rgba(10, 132, 255, 0.35);
+    border-radius: 6px;
+    padding: 9px 12px;
+    font-size: 11.5px;
+    color: #93c5fd;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+  }
+
+  /* 策略模板卡片 (局限性 2) */
+  .preset-tabs {
+    display: flex;
+    gap: 8px;
+  }
+  .preset-card-tab {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  .preset-card-tab:hover { background: rgba(255,255,255,0.05); }
+  .preset-card-tab.active {
+    background: rgba(10, 132, 255, 0.12);
+    border-color: rgba(10, 132, 255, 0.4);
+  }
+  .preset-tab-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 2px;
+  }
+  .preset-tab-desc {
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    line-height: 1.35;
+  }
+
+  /* 3. 右侧 Inspector 检查器 */
+  .inspector {
+    width: 320px;
+    background: var(--bg-sidebar);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 16px;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+
+  .inspector-card {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 11px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .inspector-card-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .property-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11.5px;
+  }
+  .property-label {
+    width: 72px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .property-val {
+    flex: 1;
+    color: var(--text-primary);
+    word-break: break-all;
+  }
+  .property-val.mono { font-family: var(--font-mono); font-size: 11px; }
+
+  .diag-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+  }
+  .diag-badge {
+    font-size: 10.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .diag-ok { background: rgba(48, 209, 88, 0.15); color: #34d399; border: 1px solid rgba(48, 209, 88, 0.25); }
+
+  .toast {
+    position: fixed;
+    bottom: 35px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 999;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-5px); }
+</style>
+</head>
+<body>
+
+<!-- 顶部全局提示条 -->
+<div class="meta-topbar">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <strong>GWorkbench 全局灵活定制升级方案预览</strong>
+    <span class="badge-tag">点 1、2、4、5 完整落地</span>
+    <span style="font-size:11px; color:#a1a1aa;">💡 点击上方分段体验各模块的新增定制能力</span>
+  </div>
+  <div class="badge-pills">
+    <button class="btn btn-primary" onclick="showToast('🎉 设置已成功模拟保存！')" style="padding:2px 10px; font-size:11px;">💾 保存配置草稿</button>
+  </div>
+</div>
+
+<div class="window-container">
+
+  <!-- 顶部 macOS Toolbar -->
+  <header class="toolbar">
+    <div class="traffic-lights">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+    </div>
+
+    <!-- 顶部分段选择器：精简为 3 大核心模块 -->
+    <div class="segmented-control" id="settings-tabs">
+      <button class="segment-btn active" data-tab="tab-worktree" onclick="switchSettingsTab('tab-worktree')">
+        <span>📁</span> 本地与工作树 (点 4、5)
+      </button>
+      <button class="segment-btn" data-tab="tab-accounts" onclick="switchSettingsTab('tab-accounts')">
+        <span>🌐</span> 平台凭据连接池 (点 1)
+      </button>
+      <button class="segment-btn" data-tab="tab-presets" onclick="switchSettingsTab('tab-presets')">
+        <span>🌿</span> 发布与合流策略模板 (点 2 · 含分支映射)
+      </button>
+    </div>
+
+    <div class="toolbar-actions">
+      <button class="btn" onclick="showToast('已重新从磁盘加载配置')">
+        <span>↻</span> 重新加载
+      </button>
+      <button class="btn btn-primary" onclick="showToast('🎉 设置已成功写回 ~/.config/gworkbench/config.toml')">
+        <span>💾</span> 保存设置
+      </button>
+    </div>
+  </header>
+
+  <div class="main-split">
+
+    <!-- 1. 模拟左侧侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-section">工作区</div>
+      <div class="sidebar-item">
+        <span>🗂️</span> 工作树
+        <span class="sidebar-badge">11</span>
+      </div>
+      <div class="sidebar-item">
+        <span>🔄</span> 分支同步
+        <span class="sidebar-badge">14</span>
+      </div>
+      <div class="sidebar-item">
+        <span>🔀</span> 合并请求
+      </div>
+      <div class="sidebar-item active">
+        <span>⚙️</span> 设置
+      </div>
+
+      <div class="sidebar-section" style="margin-top:10px;">私有 GITLAB (14)</div>
+      <div class="sidebar-item" style="padding-left:16px;">📁 bizark-report</div>
+      <div class="sidebar-item" style="padding-left:16px;">📁 bizark_boss</div>
+      <div class="sidebar-item" style="padding-left:16px;">📁 bizark_fin <span class="sidebar-badge">10</span></div>
+
+      <div class="sidebar-section" style="margin-top:6px;">GITHUB (18)</div>
+      <div class="sidebar-item" style="padding-left:16px;">📁 AgentFloat</div>
+      <div class="sidebar-item" style="padding-left:16px;">📁 gworkbench</div>
+      <div class="sidebar-item" style="padding-left:16px;">📁 gwtm</div>
+    </aside>
+
+    <!-- 2. 中间主舞台表单 -->
+    <main class="workspace-center">
+
+      <!-- ================= Tab 1: 本地与工作树 (涵盖 点 4、点 5) ================= -->
+      <div id="tab-worktree" class="tab-content">
+
+        <!-- 卡片 1: 路径与通配符模板 (局限性 5) -->
+        <section class="settings-section-card">
+          <div class="sec-header">
+            <div>
+              <div class="sec-title">
+                <span>📁</span> 工作树存储路径与命名模板 (Path Format Template)
+                <span class="badge-tag" style="font-size:10px;">解决局限性 5</span>
+              </div>
+              <div class="sec-desc">决定新建 worktree 时在磁盘上落盘的目录结构与命名规则，支持通配符定制</div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">工作树默认根目录 (Worktrees Root Dir)</label>
+            <div class="input-with-button">
+              <input class="form-input mono" type="text" id="root-dir-input" value="/Users/life2you/vibeCodes/worktrees" oninput="updateTemplatePreview()">
+              <button class="btn" onclick="showToast('打开文件夹选取器')">选择目录</button>
+            </div>
+          </div>
+
+          <!-- 通配符模板选择与自定义 -->
+          <div style="display:grid; grid-template-columns: 220px 1fr; gap:12px;">
+            <div class="form-group">
+              <label class="form-label">路径生成模式 (Preset)</label>
+              <select class="form-input" id="path-pattern-select" onchange="changePathPattern(this.value)">
+                <option value="${rootDir}/${project}/${branch}">分层目录: ${project}/${branch}</option>
+                <option value="${rootDir}/${project}_${branch}">扁平带前缀: ${project}_${branch}</option>
+                <option value="${rootDir}/${branch}">纯分支扁平: ${branch}</option>
+                <option value="custom">自定义模板格式...</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">通配符格式表达式 (Template Expression)</label>
+              <input class="form-input mono" type="text" id="template-input" value="${rootDir}/${project}/${branch}" oninput="updateTemplatePreview()">
+              <span class="form-hint">支持变量: <code>${rootDir}</code>, <code>${project}</code>, <code>${branch}</code>, <code>${date}</code></span>
+            </div>
+          </div>
+
+          <!-- 实时效果预览气泡 -->
+          <div class="template-preview-box">
+            <span>💡 实际落盘预览:</span>
+            <strong id="template-preview-text">/Users/life2you/vibeCodes/worktrees/bizark_fin/feat-pay-retry</strong>
+          </div>
+        </section>
+
+        <!-- 卡片 2: 终端集成与启动命令钩子 (局限性 4) -->
+        <section class="settings-section-card">
+          <div class="sec-header">
+            <div>
+              <div class="sec-title">
+                <span>⚡️</span> 终端集成与启动动作 (Terminal Launch Actions)
+                <span class="badge-tag" style="font-size:10px;">解决局限性 4</span>
+              </div>
+              <div class="sec-desc">选择要唤起的终端模拟器，并定制点击“在终端打开”后的自动化行为与初始化命令</div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="btn" style="padding:2px 8px; font-size:11px;" onclick="showToast('已扫描到本地终端: Otty, Ghostty, Terminal')">↻ 重新扫描</button>
+              <button class="btn btn-primary" style="padding:2px 8px; font-size:11px;" onclick="showToast('⚡️ 已调起终端并执行启动命令！')">▶ 测试打开当前终端</button>
+            </div>
+          </div>
+
+          <!-- 终端应用选择 -->
+          <div style="display:grid; grid-template-columns: 200px 1fr 1fr; gap:10px;">
+            <div class="form-group">
+              <label class="form-label">默认终端模拟器</label>
+              <select class="form-input" id="terminal-select" onchange="updateTerminal(this.value)">
+                <option value="Otty" selected>Otty (● 已安装)</option>
+                <option value="Ghostty">Ghostty (● 已安装)</option>
+                <option value="Terminal">Terminal (系统自带)</option>
+                <option value="iTerm">iTerm2 (○ 未安装)</option>
+                <option value="Warp">Warp (○ 未安装)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">终端 App 名称 / 命令</label>
+              <input class="form-input" type="text" id="term-name-input" value="Otty">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Bundle Identifier</label>
+              <input class="form-input mono" type="text" id="term-bid-input" value="io.appmakes.otty">
+            </div>
+          </div>
+
+          <!-- 终端启动动作 (局限性 4 的核心) -->
+          <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:12px; display:flex; flex-direction:column; gap:10px;">
+            <label class="form-label">唤起终端时的初始动作 (Startup Hook)</label>
+
+            <div style="display:grid; grid-template-columns: 180px 1fr; gap:12px;">
+              <select class="form-input" id="hook-mode-select" onchange="toggleHookMode(this.value)">
+                <option value="none">仅进入目录 (cd)</option>
+                <option value="command" selected>进入目录后执行命令</option>
+                <option value="auto">按技术栈智能推断</option>
+              </select>
+
+              <div id="hook-command-box">
+                <input class="form-input mono" type="text" id="hook-cmd-input" value="git status && pnpm dev" placeholder="输入进入终端后自动执行的命令，如 git status 或 pnpm dev">
+                <span class="form-hint">每次在 GWorkbench 点击“在终端打开”时，将在新终端窗口中自动运行该命令。</span>
+              </div>
+            </div>
+
+            <!-- 智能推断说明 -->
+            <div style="display:flex; gap:14px; font-size:11px; color:var(--text-secondary); margin-top:4px;">
+              <span>• Node 仓库: 自动检测 pnpm/npm dev</span>
+              <span>• Python 仓库: 自动 source .venv/bin/activate</span>
+              <span>• Java 仓库: 自动保留原生环境</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 卡片 3: IDE 编辑器外部集成 (含 Zed) -->
+        <section class="settings-section-card">
+          <div class="sec-header">
+            <div>
+              <div class="sec-title">
+                <span>💻</span> IDE 编辑器外部集成 (IDE Integration)
+                <span class="badge-tag" style="font-size:10px;">支持 Zed / IDEA / VS Code</span>
+              </div>
+              <div class="sec-desc">配置点击“在 IDE 打开”时调用的代码编辑器，已自动探测到本地 Zed、IntelliJ IDEA 等</div>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button class="btn" style="padding:2px 8px; font-size:11px;" onclick="showToast('已扫描到已安装编辑器: Zed, IntelliJ IDEA, Sublime Text')">↻ 重新扫描</button>
+              <button class="btn btn-primary" style="padding:2px 8px; font-size:11px;" onclick="showToast('⚡️ 已成功调起 Zed 并打开项目！')">▶ 测试打开当前 IDE</button>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 200px 140px 1fr 1fr; gap:10px;">
+            <div class="form-group">
+              <label class="form-label">预设编辑器</label>
+              <select class="form-input" id="ide-select" onchange="updateIDE(this.value)">
+                <option value="Zed" selected>Zed (● 已安装)</option>
+                <option value="IntelliJ IDEA">IntelliJ IDEA (● 已安装)</option>
+                <option value="Sublime Text">Sublime Text (● 已安装)</option>
+                <option value="Visual Studio Code">VS Code (○ 未安装)</option>
+                <option value="Cursor">Cursor (○ 未安装)</option>
+                <option value="Xcode">Xcode (○ 未安装)</option>
+                <option value="Custom">自定义...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">打开模式</label>
+              <select class="form-input">
+                <option value="app" selected>app (应用)</option>
+                <option value="system">system (系统默认)</option>
+                <option value="custom">custom (自定义命令)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">App 名称 / 命令</label>
+              <input class="form-input" type="text" id="ide-cmd-input" value="Zed">
+            </div>
+            <div class="form-group">
+              <label class="form-label">显示标签</label>
+              <input class="form-input" type="text" id="ide-label-input" value="Zed">
+            </div>
+          </div>
+
+          <div style="font-size:10.5px; color:#34d399; display:flex; align-items:center; gap:5px; margin-top:2px;" id="ide-path-hint">
+            <span>●</span> 已在本地检测到安装: /Applications/Zed.app
+          </div>
+        </section>
+
+      </div>
+
+      <!-- ================= Tab 2: 平台凭据连接池 (局限性 1) ================= -->
+      <div id="tab-accounts" class="tab-content" style="display:none;">
+
+        <section class="settings-section-card">
+          <div class="sec-header">
+            <div>
+              <div class="sec-title">
+                <span>🌐</span> 托管平台凭据连接池 (Accounts & Connections Pool)
+                <span class="badge-tag" style="font-size:10px;">解决局限性 1</span>
+              </div>
+              <div class="sec-desc">统一管理多个私有 GitLab、GitHub 或企业版凭据，根据仓库 Remote URL 自动路由，不再局限于单个 Host</div>
+            </div>
+            <button class="btn btn-primary" onclick="showToast('已弹出添加新平台实例连接窗口')">+ 添加平台连接实例</button>
+          </div>
+
+          <!-- 实例卡片池列表 -->
+          <div class="provider-cards-grid">
+
+            <!-- 实例 1: 私有 GitLab -->
+            <div class="provider-card">
+              <div class="provider-icon-circle icon-gitlab">🦊</div>
+              <div class="provider-info">
+                <div class="provider-title">
+                  <span>公司私有 GitLab 实例</span>
+                  <span class="pill pill-orange">私有 GitLab</span>
+                  <span class="pill pill-green">● HTTP 200 已连接</span>
+                </div>
+                <div class="provider-meta">
+                  Host: <code>http://172.16.12.246:8099</code> • Token: <code>glpat-SAMPLE_DUMMY_TOKEN_XXXXXXXX</code> • 匹配: <code>*.172.16.12.246</code>
+                </div>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="btn" onclick="showToast('✅ GitLab API 联通测试成功 (200 OK)')">测试连接</button>
+                <button class="btn" onclick="showToast('编辑此连接')">编辑</button>
+              </div>
+            </div>
+
+            <!-- 实例 2: GitHub 官方 -->
+            <div class="provider-card">
+              <div class="provider-icon-circle icon-github">🐙</div>
+              <div class="provider-info">
+                <div class="provider-title">
+                  <span>GitHub 个人与开源工作区</span>
+                  <span class="pill pill-purple">GitHub</span>
+                  <span class="pill pill-green">● Token 已授权 (gh CLI 继承)</span>
+                </div>
+                <div class="provider-meta">
+                  Host: <code>https://github.com</code> • 用户: <code>@life2you</code> • 匹配: <code>github.com/*</code>
+                </div>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="btn" onclick="showToast('✅ GitHub REST API 握手成功 (@life2you)')">测试连接</button>
+                <button class="btn" onclick="showToast('编辑此连接')">编辑</button>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="form-hint" style="background:rgba(255,255,255,0.03); padding:8px 12px; border-radius:6px;">
+            💡 <strong>智能路由机制</strong>：当您打开仓库时，系统自动提取 <code>git remote get-url origin</code> 的域名。若匹配 <code>github.com</code> 自动调用 GitHub 凭据；若匹配 <code>172.16.12.246</code> 自动调用私有 GitLab 凭据，完全无需手动为每个项目切换！
+          </div>
+        </section>
+
+      </div>
+
+      <!-- ================= Tab 3: 发布策略模板 (局限性 2) ================= -->
+      <div id="tab-presets" class="tab-content" style="display:none;">
+
+        <section class="settings-section-card">
+          <div class="sec-header">
+            <div>
+              <div class="sec-title">
+                <span>🌿</span> 分支发布与合并策略模板 (Workflow Presets)
+                <span class="badge-tag" style="font-size:10px;">解决局限性 2</span>
+              </div>
+              <div class="sec-desc">按平台或项目制定不同的分支流向规则，私有 GitLab 走环境集成流，GitHub 走标准主干/PR 流</div>
+            </div>
+            <button class="btn" onclick="showToast('新建自定义策略模板')">+ 新增策略模板</button>
+          </div>
+
+          <!-- 模板切换选卡 -->
+          <div class="preset-tabs">
+            <div class="preset-card-tab active" onclick="switchPresetTab('preset-gmux', this)">
+              <div class="preset-tab-title">🦊 模板 A：公司环境合流流 (企业模式)</div>
+              <div class="preset-tab-desc">适用于公司业务服务，包含中间段与 uat/test/stage/pre_prod 多级环境分支。</div>
+            </div>
+            <div class="preset-card-tab" onclick="switchPresetTab('preset-github', this)">
+              <div class="preset-tab-title">🐙 模板 B：标准 GitHub 主干/PR 流</div>
+              <div class="preset-tab-desc">适用于开源库与日常工具，无中间段，feature 分支直接合入 main。</div>
+            </div>
+          </div>
+
+          <!-- 模板 A 详情表单 -->
+          <div id="preset-gmux" class="preset-detail-box" style="display:flex; flex-direction:column; gap:12px; margin-top:4px;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px;">
+              <div class="form-group">
+                <label class="form-label">中间段 (merge_middle)</label>
+                <input class="form-input mono" type="text" value="henry">
+                <span class="form-hint">生成 uat_henry_meger</span>
+              </div>
+              <div class="form-group">
+                <label class="form-label">环境分支序列</label>
+                <input class="form-input" type="text" value="uat, test, stage, pre_prod">
+                <span class="form-hint">多级联调发布环境</span>
+              </div>
+              <div class="form-group">
+                <label class="form-label">保护目标分支</label>
+                <input class="form-input" type="text" value="master">
+                <span class="form-hint">高风险严控合入</span>
+              </div>
+            </div>
+
+            <!-- 内嵌归属在公司环境流下的分支合并映射 -->
+            <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:14px; display:flex; flex-direction:column; gap:10px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <label class="form-label" style="font-size:12px;">🔀 环境分支合并映射表 (Branch Mappings)</label>
+                  <span class="form-hint">基于上述中间段与环境分支自动生成，批量创建 MR 和分支同步流向直接以此表为准</span>
+                </div>
+                <button class="btn" onclick="showToast('已在末尾新增一条自定义例外映射')">+ 新增例外映射</button>
+              </div>
+
+              <div style="background:rgba(0,0,0,0.22); border:1px solid var(--border-color); border-radius:6px; padding:10px 14px; font-family:var(--font-mono); font-size:11.5px; display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex; justify-content:space-between; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.06);">
+                  <span>pre_prod_henry_meger <span style="color:var(--text-tertiary);">➔</span> pre_prod</span>
+                  <span style="color:#34d399; font-size:10.5px;">✓ 自动映射</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.06);">
+                  <span>stage_henry_meger <span style="color:var(--text-tertiary);">➔</span> stage</span>
+                  <span style="color:#34d399; font-size:10.5px;">✓ 自动映射</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.06);">
+                  <span>test_henry_meger <span style="color:var(--text-tertiary);">➔</span> test</span>
+                  <span style="color:#34d399; font-size:10.5px;">✓ 自动映射</span>
+                </div>
+                <div style="display:flex; justify-content:space-between;">
+                  <span>uat_henry_meger <span style="color:var(--text-tertiary);">➔</span> uat</span>
+                  <span style="color:#34d399; font-size:10.5px;">✓ 自动映射</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 模板 B 详情表单 (GitHub) -->
+          <div id="preset-github" class="preset-detail-box" style="display:none; flex-direction:column; gap:12px; margin-top:4px;">
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+              <div class="form-group">
+                <label class="form-label">默认集成目标分支 (Target Branch)</label>
+                <input class="form-input mono" type="text" value="main">
+                <span class="form-hint">日常 PR 或合流的目标主干分支</span>
+              </div>
+              <div class="form-group">
+                <label class="form-label">保护分支列表</label>
+                <input class="form-input" type="text" value="main, release/*">
+                <span class="form-hint">禁止直接强制 push</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">默认应用范围</label>
+              <span class="form-hint">所有 <strong>GitHub</strong> 下的项目默认自动采用此模板（无需中间段）。</span>
+            </div>
+          </div>
+
+        </section>
+
+      </div>
+
+    </main>
+
+    <!-- 3. 右侧诊断检查器 -->
+    <aside class="inspector">
+      <div class="inspector-header">
+        <div class="inspector-title">配置与运行诊断</div>
+        <div class="inspector-subtitle">实时监控多平台凭据与模板规则</div>
+      </div>
+
+      <div class="inspector-card">
+        <div class="inspector-card-title">
+          <span>🩺</span>
+          <span>全局服务雷达</span>
+        </div>
+        <div class="diag-item">
+          <span>私有 GitLab (172.16)</span>
+          <span class="diag-badge diag-ok">已连接 (14 仓库)</span>
+        </div>
+        <div class="diag-item">
+          <span>GitHub (github.com)</span>
+          <span class="diag-badge diag-ok">已连接 (18 仓库)</span>
+        </div>
+        <div class="diag-item">
+          <span>默认终端</span>
+          <span class="diag-badge diag-ok">Otty (已就绪)</span>
+        </div>
+        <div class="diag-item">
+          <span>策略模板池</span>
+          <span class="diag-badge diag-ok">2 组模板生效</span>
+        </div>
+      </div>
+
+      <div class="inspector-card">
+        <div class="inspector-card-title">
+          <span>📄</span>
+          <span>持久化配置文件</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">主配置</span>
+          <span class="property-val mono">~/.config/gworkbench/config.toml</span>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<div class="toast" id="toast">已操作</div>
+
+<script>
+  function switchSettingsTab(tabId) {
+    document.querySelectorAll('.segment-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tabId);
+    });
+    document.querySelectorAll('.tab-content').forEach(c => {
+      c.style.display = 'none';
+    });
+    const target = document.getElementById(tabId);
+    if (target) target.style.display = 'block';
+  }
+
+  function changePathPattern(val) {
+    const root = document.getElementById('root-dir-input').value.trim();
+    const input = document.getElementById('template-input');
+    if (val !== 'custom') {
+      input.value = val;
+    }
+    updateTemplatePreview();
+  }
+
+  function updateTemplatePreview() {
+    const root = document.getElementById('root-dir-input').value.trim();
+    const tpl = document.getElementById('template-input').value.trim();
+    const preview = tpl
+      .replace('${rootDir}', root)
+      .replace('${project}', 'bizark_fin')
+      .replace('${branch}', 'feat-pay-retry')
+      .replace('${date}', '20261013');
+    document.getElementById('template-preview-text').innerText = preview;
+  }
+
+  function switchPresetTab(id, el) {
+    document.querySelectorAll('.preset-card-tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('preset-gmux').style.display = id === 'preset-gmux' ? 'flex' : 'none';
+    document.getElementById('preset-github').style.display = id === 'preset-github' ? 'flex' : 'none';
+  }
+
+  function toggleHookMode(val) {
+    const box = document.getElementById('hook-command-box');
+    box.style.display = val === 'command' ? 'block' : 'none';
+  }
+
+  function updateTerminal(val) {
+    document.getElementById('term-name-input').value = val;
+    if (val === 'Otty') document.getElementById('term-bid-input').value = 'io.appmakes.otty';
+    if (val === 'Ghostty') document.getElementById('term-bid-input').value = 'com.mitchellh.ghostty';
+    if (val === 'Terminal') document.getElementById('term-bid-input').value = 'com.apple.Terminal';
+    showToast(`已切换默认终端为: ${val}`);
+  }
+
+  function updateIDE(val) {
+    document.getElementById('ide-cmd-input').value = val;
+    document.getElementById('ide-label-input').value = val;
+    const hint = document.getElementById('ide-path-hint');
+    if (val === 'Zed') hint.innerHTML = '<span>●</span> 已在本地检测到安装: /Applications/Zed.app';
+    else if (val === 'IntelliJ IDEA') hint.innerHTML = '<span>●</span> 已在本地检测到安装: /Applications/IntelliJ IDEA.app';
+    else if (val === 'Sublime Text') hint.innerHTML = '<span>●</span> 已在本地检测到安装: /Applications/Sublime Text.app';
+    else hint.innerHTML = '<span>○</span> 未在标准路径检测到此应用';
+    showToast(`已切换默认 IDE 为: ${val}`);
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+      t.classList.remove('show');
+    }, 2200);
+  }
+</script>
+
+</body>
+</html>

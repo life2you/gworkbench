@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GWorkbench 合并请求 (Merge Requests) 现代 macOS 交互原型</title>
+<style>
+  :root {
+    --bg-window: #1e1e20;
+    --bg-sidebar: #18181a;
+    --bg-toolbar: #26262a;
+    --bg-table-header: #242428;
+    --bg-table-row: #1c1c1f;
+    --bg-table-alt: #1a1a1d;
+    --bg-table-selected: #0a4c8a;
+    --bg-card: rgba(255, 255, 255, 0.045);
+    --bg-card-hover: rgba(255, 255, 255, 0.075);
+    --bg-input: rgba(0, 0, 0, 0.35);
+    --border-color: rgba(255, 255, 255, 0.09);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --text-primary: #f0f0f2;
+    --text-secondary: #9a9ba4;
+    --text-tertiary: #686973;
+    --accent: #0a84ff;
+    --accent-hover: #0071e3;
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --purple: #bf5af2;
+    --red: #ff453a;
+    --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+    --radius-sm: 5px;
+    --radius-md: 8px;
+    --radius-lg: 11px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111113;
+    color: var(--text-primary);
+    font-family: var(--font-system);
+    font-size: 12.5px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 顶部全局提示条 */
+  .meta-topbar {
+    background: #0d0d0f;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 7px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    z-index: 100;
+  }
+  .meta-topbar strong { color: #fff; font-weight: 600; }
+  .meta-badge {
+    background: rgba(10, 132, 255, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(10, 132, 255, 0.3);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* 主应用容器窗口 */
+  .window-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-window);
+    overflow: hidden;
+  }
+
+  /* 顶部 Toolbar */
+  .toolbar {
+    height: 44px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .traffic-lights { display: flex; gap: 7px; margin-right: 6px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot-red { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #27c93f; }
+
+  .toolbar-divider { width: 1px; height: 18px; background: var(--border-color); }
+
+  .nav-picker {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 4px 9px;
+    font-size: 11.5px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .nav-picker:hover { border-color: rgba(255,255,255,0.2); }
+
+  .search-box {
+    position: relative;
+    width: 240px;
+  }
+  .search-box input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 4px 8px 4px 26px;
+    font-size: 11.5px;
+    color: #fff;
+    outline: none;
+    transition: 0.15s;
+  }
+  .search-box input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.2);
+  }
+  .search-box::before {
+    content: "⌕";
+    position: absolute;
+    left: 8px;
+    top: 4px;
+    font-size: 13px;
+    color: var(--text-tertiary);
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn {
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 4px 11px;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: 0.15s;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary {
+    background: var(--accent);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+
+  /* 3 栏主体 */
+  .main-split {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* 1. 左侧 Sidebar */
+  .sidebar {
+    width: 220px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-section {
+    padding: 12px 10px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin: 1px 6px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: 0.12s;
+  }
+  .sidebar-item:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
+  .sidebar-item.active {
+    background: rgba(10, 132, 255, 0.18);
+    color: #fff;
+    font-weight: 500;
+  }
+  .sidebar-badge {
+    margin-left: auto;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-tertiary);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 5px;
+    border-radius: 10px;
+  }
+  .sidebar-item.active .sidebar-badge {
+    background: rgba(10, 132, 255, 0.3);
+    color: #93c5fd;
+  }
+
+  /* 2. 中间工作区：MergeRequestsListView */
+  .workspace-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-window);
+    overflow: hidden;
+  }
+
+  /* 批量操作浮条 */
+  .batch-bar {
+    height: 34px;
+    background: rgba(10, 132, 255, 0.08);
+    border-bottom: 1px solid rgba(10, 132, 255, 0.2);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 12px;
+    font-size: 11.5px;
+  }
+  .batch-bar strong { color: #93c5fd; }
+  .batch-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* 原生 Table 表格 */
+  .table-container {
+    flex: 1;
+    overflow-y: auto;
+    background: #18181b;
+  }
+  .mr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    text-align: left;
+  }
+  .mr-table thead th {
+    background: var(--bg-table-header);
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .mr-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .mr-table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+  .mr-table tbody tr.selected { background: var(--bg-table-selected); color: #fff; }
+  .mr-table td {
+    padding: 9px 10px;
+    vertical-align: middle;
+  }
+
+  .mr-checkbox {
+    width: 15px;
+    height: 15px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 11px;
+    color: transparent;
+  }
+  .mr-checkbox.checked {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .iid-tag {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: #60a5fa;
+    margin-right: 6px;
+  }
+  .mr-title-text {
+    font-weight: 500;
+    color: #f4f4f5;
+  }
+  tr.selected .mr-title-text { color: #fff; }
+
+  .branch-flow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+  .branch-src { color: #a1a1aa; }
+  .branch-arrow { color: var(--text-tertiary); font-size: 10px; }
+  .branch-dst { color: #e4e4e7; font-weight: 500; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 500;
+  }
+  .pill-green { background: rgba(48, 209, 88, 0.15); color: #34d399; border: 1px solid rgba(48, 209, 88, 0.25); }
+  .pill-orange { background: rgba(255, 159, 10, 0.15); color: #fbbf24; border: 1px solid rgba(255, 159, 10, 0.25); }
+  .pill-red { background: rgba(255, 69, 58, 0.15); color: #f87171; border: 1px solid rgba(255, 69, 58, 0.25); }
+  .pill-gray { background: rgba(255, 255, 255, 0.08); color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.15); }
+
+  .author-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .author-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    color: #e4e4e7;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+  }
+
+  /* 底部状态栏 */
+  .status-bar {
+    height: 24px;
+    background: #121214;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    gap: 14px;
+  }
+  .status-item { display: flex; align-items: center; gap: 4px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+  /* 3. 右侧详情检查器：MergeRequestDetailView */
+  .inspector {
+    width: 340px;
+    background: var(--bg-sidebar);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 16px;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+
+  .inspector-header {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .inspector-breadcrumb {
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+  }
+  .inspector-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    line-height: 1.35;
+  }
+  .inspector-subtitle {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .pills-row {
+    display: flex;
+    gap: 5px;
+    margin-top: 2px;
+    flex-wrap: wrap;
+  }
+
+  /* 快捷动作按钮组 */
+  .quick-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .quick-act-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    font-size: 11px;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: 0.12s;
+  }
+  .quick-act-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+
+  /* 检查器卡片 */
+  .inspector-card {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 11px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .inspector-card-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .inspector-card-title .icon { font-size: 12px; color: var(--accent); }
+
+  .property-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11.5px;
+  }
+  .property-label {
+    width: 68px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .property-val {
+    flex: 1;
+    color: var(--text-primary);
+    word-break: break-all;
+  }
+  .property-val.mono { font-family: var(--font-mono); font-size: 11px; }
+
+  /* 审批人名单 */
+  .reviewer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .reviewer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+  }
+  .reviewer-info {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  /* 提交记录列表 */
+  .commit-list {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .commit-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .commit-msg {
+    font-size: 11.5px;
+    color: #e4e4e7;
+    font-weight: 500;
+  }
+  .commit-meta {
+    display: flex;
+    gap: 6px;
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+  }
+
+  /* 底部审批合并主按钮 */
+  .approve-action-box {
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .btn-approve-huge {
+    background: #059669;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: 0.15s;
+  }
+  .btn-approve-huge:hover { background: #10b981; }
+
+  .toast {
+    position: fixed;
+    bottom: 35px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 999;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-5px); }
+</style>
+</head>
+<body>
+
+<div class="meta-topbar">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <strong>GWorkbench 合并请求 (MR) UI 原型设计</strong>
+    <span class="meta-badge">macOS Native Table 规范</span>
+    <span style="font-size:11px; color:#a1a1aa;">💡 点击表格行切换选中、勾选复选框体验批量审批合并、双击在 GitLab 打开</span>
+  </div>
+  <div>
+    <button class="btn btn-primary" onclick="simulateBatchApprove()" style="padding:2px 10px; font-size:11px;">⚡ 模拟一键批量审批合并</button>
+  </div>
+</div>
+
+<div class="window-container">
+
+  <!-- 顶部 macOS Toolbar -->
+  <header class="toolbar">
+    <div class="traffic-lights">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+    </div>
+
+    <!-- 项目快速切换 -->
+    <div class="nav-picker" title="切换当前 GitLab 项目">
+      <span style="color:var(--text-tertiary);">📁</span>
+      <strong>bizark_boss</strong>
+      <span style="font-size:9px; color:var(--text-tertiary);">▼</span>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <!-- 搜索栏 -->
+    <div class="search-box">
+      <input type="text" id="mr-search" placeholder="筛选 IID、标题、分支或作者..." oninput="filterMRs(this.value)">
+    </div>
+
+    <!-- 右侧操作栏 -->
+    <div class="toolbar-actions">
+      <button class="btn" onclick="showToast('已拉取 GitLab 最新 MR 队列')">
+        <span>↻</span> 刷新
+      </button>
+      <button class="btn" onclick="showToast('已弹出按环境映射批量创建 MR 窗口')">
+        <span>📑</span> 批量创建
+      </button>
+      <button class="btn btn-primary" onclick="showToast('已弹出新建 MR 窗口')">
+        <span>+</span> 新建 MR
+      </button>
+    </div>
+  </header>
+
+  <div class="main-split">
+
+    <!-- 1. 侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-section">工作区</div>
+      <div class="sidebar-item">
+        <span>🗂️</span> 工作树
+        <span class="sidebar-badge">6</span>
+      </div>
+      <div class="sidebar-item">
+        <span>🔄</span> 分支同步
+        <span class="sidebar-badge">3</span>
+      </div>
+      <div class="sidebar-item active">
+        <span>🔀</span> 合并请求 (MR)
+        <span class="sidebar-badge">7</span>
+      </div>
+      <div class="sidebar-item">
+        <span>⚙️</span> 设置
+      </div>
+
+      <div class="sidebar-section" style="margin-top:10px;">状态筛选</div>
+      <div class="sidebar-item active" onclick="filterByTab('all', this)">
+        <span>📋</span> 全部
+        <span class="sidebar-badge">7</span>
+      </div>
+      <div class="sidebar-item" onclick="filterByTab('needMyApproval', this)">
+        <span>⏳</span> 待我审批
+        <span class="sidebar-badge">3</span>
+      </div>
+      <div class="sidebar-item" onclick="filterByTab('createdByMe', this)">
+        <span>👤</span> 我创建的
+        <span class="sidebar-badge">2</span>
+      </div>
+      <div class="sidebar-item" onclick="filterByTab('readyToMerge', this)">
+        <span>✅</span> 可合并
+        <span class="sidebar-badge">4</span>
+      </div>
+      <div class="sidebar-item" onclick="filterByTab('merged', this)">
+        <span>🟣</span> 已合并
+        <span class="sidebar-badge">28</span>
+      </div>
+    </aside>
+
+    <!-- 2. 中间工作区 -->
+    <main class="workspace-center">
+
+      <!-- 批量操作吸顶栏 -->
+      <div class="batch-bar" id="batch-bar">
+        <span>已勾选 <strong id="batch-count">2</strong> 条合并请求</span>
+        <span style="color:var(--text-tertiary);">•</span>
+        <span style="color:var(--text-secondary); font-size:11px;">一键完成评审通过并合入目标分支</span>
+        <div class="batch-actions">
+          <span style="color:var(--accent); cursor:pointer;" onclick="selectAllBatch(true)">全选可合并</span>
+          <span style="color:var(--text-tertiary);">|</span>
+          <span style="color:var(--accent); cursor:pointer;" onclick="selectAllBatch(false)">清空</span>
+          <button class="btn btn-primary" id="btn-batch-approve" onclick="simulateBatchApprove()" style="padding:2px 9px;">
+            <span>✓</span> 审批并合并已选 (2)
+          </button>
+        </div>
+      </div>
+
+      <!-- MR 数据表格 -->
+      <div class="table-container">
+        <table class="mr-table">
+          <thead>
+            <tr>
+              <th style="width:36px; text-align:center;">
+                <input type="checkbox" id="check-all" onchange="toggleSelectAllRows(this.checked)">
+              </th>
+              <th style="min-width:240px;">IID & 标题</th>
+              <th style="min-width:200px;">分支流向</th>
+              <th style="width:110px;">审批状态</th>
+              <th style="width:90px;">流水线</th>
+              <th style="width:110px;">作者</th>
+              <th style="width:100px;">更新时间</th>
+            </tr>
+          </thead>
+          <tbody id="mr-table-body">
+            <!-- Row 1 -->
+            <tr class="selected" data-id="204" onclick="selectRow(this)" ondblclick="openGitLab(204)">
+              <td style="text-align:center;" onclick="event.stopPropagation()">
+                <div class="mr-checkbox checked" onclick="toggleRowCheck(this, event)">✓</div>
+              </td>
+              <td>
+                <span class="iid-tag">!204</span>
+                <span class="mr-title-text">重构订单超时自动取消与库存回滚机制</span>
+              </td>
+              <td>
+                <div class="branch-flow">
+                  <span class="branch-src">feat/order-timeout</span>
+                  <span class="branch-arrow">➔</span>
+                  <span class="branch-dst">uat_henry_meger</span>
+                </div>
+              </td>
+              <td><span class="pill pill-green">✓ 2/2 通过</span></td>
+              <td><span class="pill pill-green">● passed</span></td>
+              <td>
+                <div class="author-box">
+                  <div class="author-avatar">张</div>
+                  <span>张伟 (@zhangw)</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary); font-size:11px;">10 分钟前</td>
+            </tr>
+
+            <!-- Row 2 -->
+            <tr data-id="203" onclick="selectRow(this)" ondblclick="openGitLab(203)">
+              <td style="text-align:center;" onclick="event.stopPropagation()">
+                <div class="mr-checkbox checked" onclick="toggleRowCheck(this, event)">✓</div>
+              </td>
+              <td>
+                <span class="iid-tag">!203</span>
+                <span class="mr-title-text">修复退款回调重复扣除手续费的边界 Bug</span>
+              </td>
+              <td>
+                <div class="branch-flow">
+                  <span class="branch-src">fix/refund-fee</span>
+                  <span class="branch-arrow">➔</span>
+                  <span class="branch-dst">uat_henry_meger</span>
+                </div>
+              </td>
+              <td><span class="pill pill-green">✓ 1/1 通过</span></td>
+              <td><span class="pill pill-green">● passed</span></td>
+              <td>
+                <div class="author-box">
+                  <div class="author-avatar">李</div>
+                  <span>李明 (@lim)</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary); font-size:11px;">35 分钟前</td>
+            </tr>
+
+            <!-- Row 3 -->
+            <tr data-id="202" onclick="selectRow(this)" ondblclick="openGitLab(202)">
+              <td style="text-align:center;" onclick="event.stopPropagation()">
+                <div class="mr-checkbox" onclick="toggleRowCheck(this, event)"></div>
+              </td>
+              <td>
+                <span class="iid-tag">!202</span>
+                <span class="mr-title-text">升级第三方支付网关 v3 协议适配层</span>
+              </td>
+              <td>
+                <div class="branch-flow">
+                  <span class="branch-src">feat/pay-v3</span>
+                  <span class="branch-arrow">➔</span>
+                  <span class="branch-dst">test_henry_meger</span>
+                </div>
+              </td>
+              <td><span class="pill pill-orange">⏳ 0/1 待审</span></td>
+              <td><span class="pill pill-orange">● running</span></td>
+              <td>
+                <div class="author-box">
+                  <div class="author-avatar">王</div>
+                  <span>王芳 (@wangf)</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary); font-size:11px;">1 小时前</td>
+            </tr>
+
+            <!-- Row 4 -->
+            <tr data-id="201" onclick="selectRow(this)" ondblclick="openGitLab(201)">
+              <td style="text-align:center;" onclick="event.stopPropagation()">
+                <div class="mr-checkbox" onclick="toggleRowCheck(this, event)"></div>
+              </td>
+              <td>
+                <span class="iid-tag">!201</span>
+                <span class="mr-title-text">优化高并发下批量发票导出的内存占用</span>
+              </td>
+              <td>
+                <div class="branch-flow">
+                  <span class="branch-src">perf/invoice-export</span>
+                  <span class="branch-arrow">➔</span>
+                  <span class="branch-dst">stage_henry_meger</span>
+                </div>
+              </td>
+              <td><span class="pill pill-orange">⏳ 0/2 待审</span></td>
+              <td><span class="pill pill-green">● passed</span></td>
+              <td>
+                <div class="author-box">
+                  <div class="author-avatar">刘</div>
+                  <span>刘洋 (@liuy)</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary); font-size:11px;">2 小时前</td>
+            </tr>
+
+            <!-- Row 5 -->
+            <tr data-id="199" onclick="selectRow(this)" ondblclick="openGitLab(199)">
+              <td style="text-align:center;" onclick="event.stopPropagation()">
+                <div class="mr-checkbox" onclick="toggleRowCheck(this, event)"></div>
+              </td>
+              <td>
+                <span class="iid-tag">!199</span>
+                <span class="mr-title-text">WIP: 探索灰度切流至新服务集群的健康检查</span>
+              </td>
+              <td>
+                <div class="branch-flow">
+                  <span class="branch-src">draft/canary-check</span>
+                  <span class="branch-arrow">➔</span>
+                  <span class="branch-dst">pre_prod</span>
+                </div>
+              </td>
+              <td><span class="pill pill-gray">草稿 (Draft)</span></td>
+              <td><span class="pill pill-red">✕ failed</span></td>
+              <td>
+                <div class="author-box">
+                  <div class="author-avatar">陈</div>
+                  <span>陈强 (@chenq)</span>
+                </div>
+              </td>
+              <td style="color:var(--text-secondary); font-size:11px;">昨天</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 底部状态栏 -->
+      <footer class="status-bar">
+        <div class="status-item">
+          <span class="status-dot"></span>
+          <span>GitLab (172.16.12.246) 已连接</span>
+        </div>
+        <span>•</span>
+        <div class="status-item">
+          <span>当前项目: <strong style="color:#fff;">bizark_boss</strong></span>
+        </div>
+        <span>•</span>
+        <div class="status-item">
+          <span>待办审批: <strong style="color:#fbbf24;">3 个</strong></span>
+        </div>
+        <span>•</span>
+        <div class="status-item">
+          <span>可合并: <strong style="color:#34d399;">2 个</strong></span>
+        </div>
+        <span style="margin-left:auto;">GWorkbench v0.1.9 • MR Queue</span>
+      </footer>
+    </main>
+
+    <!-- 3. 右侧详情检查器 (MergeRequestDetailView) -->
+    <aside class="inspector">
+      <div class="inspector-header">
+        <div class="inspector-breadcrumb">合并请求 · 可合并 (Open)</div>
+        <div class="inspector-title" id="insp-title">!204 · 重构订单超时自动取消与库存回滚机制</div>
+        <div class="inspector-subtitle" id="insp-subtitle">feat/order-timeout ➔ uat_henry_meger</div>
+        <div class="pills-row">
+          <span class="pill pill-green" id="insp-pill-app">2/2 通过</span>
+          <span class="pill pill-green" id="insp-pill-ci">CI passed</span>
+          <span class="pill pill-orange">保护目标分支</span>
+        </div>
+      </div>
+
+      <!-- 快捷操作按钮组 -->
+      <div class="quick-actions">
+        <button class="quick-act-btn" onclick="openGitLab(204)">
+          <span>↗</span> 打开 GitLab
+        </button>
+        <button class="quick-act-btn" onclick="showToast('已复制 MR 网页链接')">
+          <span>🔗</span> 复制链接
+        </button>
+        <button class="quick-act-btn" onclick="showToast('已复制源分支名: feat/order-timeout')">
+          <span>🌿</span> 复制源分支
+        </button>
+        <button class="quick-act-btn" onclick="showToast('已刷新该 MR 状态')">
+          <span>↻</span> 刷新
+        </button>
+      </div>
+
+      <!-- 审批合并主按钮 -->
+      <div class="approve-action-box">
+        <button class="btn-approve-huge" onclick="approveCurrentMR()">
+          <span>✓</span> 审批并合并此 MR
+        </button>
+        <button class="quick-act-btn" style="color:#f87171; border-color:rgba(255,69,58,0.25);" onclick="showToast('已关闭该 MR')">
+          <span>✕</span> 关闭该 MR
+        </button>
+      </div>
+
+      <!-- 检查器卡片 1：属性概览 -->
+      <div class="inspector-card">
+        <div class="inspector-card-title">
+          <span class="icon">ℹ️</span>
+          <span>属性概览</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">创建作者</span>
+          <span class="property-val" id="insp-author">张伟 (@zhangw)</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">源分支</span>
+          <span class="property-val mono" id="insp-src">feat/order-timeout</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">目标分支</span>
+          <span class="property-val mono" id="insp-dst">uat_henry_meger</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">更新时间</span>
+          <span class="property-val" id="insp-time">10 分钟前</span>
+        </div>
+      </div>
+
+      <!-- 检查器卡片 2：审批人列表 -->
+      <div class="inspector-card">
+        <div class="inspector-card-title">
+          <span class="icon">👥</span>
+          <span>审批名单 (2/2)</span>
+        </div>
+        <div class="reviewer-list">
+          <div class="reviewer-row">
+            <div class="reviewer-info">
+              <span style="color:#34d399;">✓</span>
+              <span>架构组 (@arch-team)</span>
+            </div>
+            <span style="color:var(--text-tertiary); font-size:11px;">已审批</span>
+          </div>
+          <div class="reviewer-row">
+            <div class="reviewer-info">
+              <span style="color:#34d399;">✓</span>
+              <span>负责人 (@tech-lead)</span>
+            </div>
+            <span style="color:var(--text-tertiary); font-size:11px;">已审批</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 检查器卡片 3：本次提交 Commits -->
+      <div class="inspector-card">
+        <div class="inspector-card-title">
+          <span class="icon">📦</span>
+          <span>包含提交 (Commits)</span>
+        </div>
+        <div class="commit-list">
+          <div class="commit-item">
+            <div class="commit-msg">fix: 修复订单超时任务在 Redis 断连时的恢复逻辑</div>
+            <div class="commit-meta">
+              <span class="property-val mono">7a8b9c1</span> • <span>张伟</span> • <span>20分钟前</span>
+            </div>
+          </div>
+          <div class="commit-item" style="border-top:1px solid rgba(255,255,255,0.05); padding-top:6px;">
+            <div class="commit-msg">feat: 补充分布式锁与幂等校验切面</div>
+            <div class="commit-meta">
+              <span class="property-val mono">3f2e1a9</span> • <span>张伟</span> • <span>1小时前</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<div class="toast" id="toast">已操作</div>
+
+<script>
+  const mrData = {
+    204: {
+      title: "!204 · 重构订单超时自动取消与库存回滚机制",
+      src: "feat/order-timeout",
+      dst: "uat_henry_meger",
+      author: "张伟 (@zhangw)",
+      time: "10 分钟前",
+      appPill: "2/2 通过",
+      ciPill: "CI passed"
+    },
+    203: {
+      title: "!203 · 修复退款回调重复扣除手续费的边界 Bug",
+      src: "fix/refund-fee",
+      dst: "uat_henry_meger",
+      author: "李明 (@lim)",
+      time: "35 分钟前",
+      appPill: "1/1 通过",
+      ciPill: "CI passed"
+    },
+    202: {
+      title: "!202 · 升级第三方支付网关 v3 协议适配层",
+      src: "feat/pay-v3",
+      dst: "test_henry_meger",
+      author: "王芳 (@wangf)",
+      time: "1 小时前",
+      appPill: "0/1 待审",
+      ciPill: "CI running"
+    },
+    201: {
+      title: "!201 · 优化高并发下批量发票导出的内存占用",
+      src: "perf/invoice-export",
+      dst: "stage_henry_meger",
+      author: "刘洋 (@liuy)",
+      time: "2 小时前",
+      appPill: "0/2 待审",
+      ciPill: "CI passed"
+    },
+    199: {
+      title: "!199 · WIP: 探索灰度切流至新服务集群的健康检查",
+      src: "draft/canary-check",
+      dst: "pre_prod",
+      author: "陈强 (@chenq)",
+      time: "昨天",
+      appPill: "草稿 (Draft)",
+      ciPill: "CI failed"
+    }
+  };
+
+  function selectRow(tr) {
+    document.querySelectorAll('.mr-table tbody tr').forEach(r => r.classList.remove('selected'));
+    tr.classList.add('selected');
+    const id = tr.dataset.id;
+    const data = mrData[id];
+    if (data) {
+      document.getElementById('insp-title').innerText = data.title;
+      document.getElementById('insp-subtitle').innerText = `${data.src} ➔ ${data.dst}`;
+      document.getElementById('insp-author').innerText = data.author;
+      document.getElementById('insp-src').innerText = data.src;
+      document.getElementById('insp-dst').innerText = data.dst;
+      document.getElementById('insp-time').innerText = data.time;
+      document.getElementById('insp-pill-app').innerText = data.appPill;
+      document.getElementById('insp-pill-ci').innerText = data.ciPill;
+    }
+  }
+
+  function toggleRowCheck(box, event) {
+    event.stopPropagation();
+    box.classList.toggle('checked');
+    box.innerText = box.classList.contains('checked') ? '✓' : '';
+    updateBatchCount();
+  }
+
+  function updateBatchCount() {
+    const checked = document.querySelectorAll('.mr-checkbox.checked').length;
+    document.getElementById('batch-count').innerText = checked;
+    document.getElementById('btn-batch-approve').innerText = `✓ 审批并合并已选 (${checked})`;
+  }
+
+  function toggleSelectAllRows(checked) {
+    document.querySelectorAll('.mr-checkbox').forEach(box => {
+      box.classList.toggle('checked', checked);
+      box.innerText = checked ? '✓' : '';
+    });
+    updateBatchCount();
+  }
+
+  function selectAllBatch(val) {
+    toggleSelectAllRows(val);
+    document.getElementById('check-all').checked = val;
+  }
+
+  function filterMRs(val) {
+    const rows = document.querySelectorAll('.mr-table tbody tr');
+    val = val.toLowerCase().trim();
+    rows.forEach(r => {
+      const text = r.innerText.toLowerCase();
+      r.style.display = text.includes(val) ? '' : 'none';
+    });
+  }
+
+  function filterByTab(tab, element) {
+    document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active'));
+    element.classList.add('active');
+    showToast(`已按「${element.innerText.trim()}」筛选`);
+  }
+
+  function openGitLab(id) {
+    showToast(`已在浏览器中打开 GitLab MR !${id}`);
+  }
+
+  function approveCurrentMR() {
+    showToast('🎉 审批通过！正在自动合并该 MR 到目标分支...');
+  }
+
+  function simulateBatchApprove() {
+    const count = document.querySelectorAll('.mr-checkbox.checked').length;
+    if (count === 0) {
+      showToast('⚠️ 请先勾选要批量审批的 MR');
+      return;
+    }
+    showToast(`🚀 正在批量审批并合并 ${count} 个 MR...`);
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+      t.classList.remove('show');
+    }, 2200);
+  }
+</script>
+
+</body>
+</html>

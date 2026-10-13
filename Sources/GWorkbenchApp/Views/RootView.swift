@@ -4,6 +4,13 @@ struct RootView: View {
     @Environment(AppModel.self) private var appModel
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
+    @State private var isWorktreeGitLabExpanded: Bool = true
+    @State private var isWorktreeGitHubExpanded: Bool = true
+    @State private var isWorktreeLocalExpanded: Bool = true
+
+    @State private var isSyncGitLabExpanded: Bool = true
+    @State private var isSyncOtherExpanded: Bool = true
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             List {
@@ -17,38 +24,118 @@ struct RootView: View {
                         ) {
                             appModel.selectedSection = section
                         }
-                        .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                        .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
                     }
                 }
 
                 if appModel.selectedSection == .worktrees {
-                    Section("项目") {
-                        ForEach(appModel.worktreeProjects) { project in
-                            SidebarRowButton(
-                                title: project.displayName,
-                                subtitle: "当前分支: \(project.currentBranch)",
-                                badge: "\(appModel.worktreeCountByProject[project.displayName, default: 0])",
-                                isSelected: appModel.selectedProjectID == project.id
-                            ) {
-                                appModel.selectProject(project.id)
+                    let gitlabProjects = appModel.worktreeProjects.filter { $0.platform == .gitlab }
+                    if !gitlabProjects.isEmpty {
+                        collapsibleSection(
+                            title: "私有 GitLab",
+                            count: gitlabProjects.count,
+                            isExpanded: $isWorktreeGitLabExpanded
+                        ) {
+                            ForEach(gitlabProjects) { project in
+                                let count = appModel.worktreeCountByProject[project.displayName, default: 0]
+                                SidebarRowButton(
+                                    title: project.displayName,
+                                    systemImage: "folder",
+                                    badge: count > 0 ? "\(count)" : nil,
+                                    isSelected: appModel.selectedProjectID == project.id
+                                ) {
+                                    appModel.selectProject(project.id)
+                                }
+                                .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
                             }
-                            .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                        }
+                    }
+
+                    let githubProjects = appModel.worktreeProjects.filter { $0.platform == .github }
+                    if !githubProjects.isEmpty {
+                        collapsibleSection(
+                            title: "GitHub",
+                            count: githubProjects.count,
+                            isExpanded: $isWorktreeGitHubExpanded
+                        ) {
+                            ForEach(githubProjects) { project in
+                                let count = appModel.worktreeCountByProject[project.displayName, default: 0]
+                                SidebarRowButton(
+                                    title: project.displayName,
+                                    systemImage: "folder",
+                                    badge: count > 0 ? "\(count)" : nil,
+                                    isSelected: appModel.selectedProjectID == project.id
+                                ) {
+                                    appModel.selectProject(project.id)
+                                }
+                                .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                            }
+                        }
+                    }
+
+                    let localProjects = appModel.worktreeProjects.filter { $0.platform == .local }
+                    if !localProjects.isEmpty {
+                        collapsibleSection(
+                            title: "本地仓库",
+                            count: localProjects.count,
+                            isExpanded: $isWorktreeLocalExpanded
+                        ) {
+                            ForEach(localProjects) { project in
+                                let count = appModel.worktreeCountByProject[project.displayName, default: 0]
+                                SidebarRowButton(
+                                    title: project.displayName,
+                                    systemImage: "folder",
+                                    badge: count > 0 ? "\(count)" : nil,
+                                    isSelected: appModel.selectedProjectID == project.id
+                                ) {
+                                    appModel.selectProject(project.id)
+                                }
+                                .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                            }
                         }
                     }
                 }
 
                 if appModel.selectedSection == .branchSync {
-                    Section("项目") {
-                        ForEach(appModel.localMergeProjects) { project in
-                            SidebarRowButton(
-                                title: project.displayName,
-                                subtitle: "当前分支: \(project.currentBranch)",
-                                badge: "\(project.localBranches.count)",
-                                isSelected: appModel.selectedLocalProjectID == project.id
-                            ) {
-                                appModel.selectLocalProject(project.id)
+                    let gitlabMergeProjects = appModel.localMergeProjects.filter { $0.platform == .gitlab }
+                    if !gitlabMergeProjects.isEmpty {
+                        collapsibleSection(
+                            title: "私有 GitLab",
+                            count: gitlabMergeProjects.count,
+                            isExpanded: $isSyncGitLabExpanded
+                        ) {
+                            ForEach(gitlabMergeProjects) { project in
+                                SidebarRowButton(
+                                    title: project.displayName,
+                                    systemImage: "folder",
+                                    badge: "\(project.localBranches.count)",
+                                    isSelected: appModel.selectedLocalProjectID == project.id
+                                ) {
+                                    appModel.selectLocalProject(project.id)
+                                }
+                                .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
                             }
-                            .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                        }
+                    }
+
+                    let otherMergeProjects = appModel.localMergeProjects.filter { $0.platform != .gitlab }
+                    if !otherMergeProjects.isEmpty {
+                        collapsibleSection(
+                            title: "其他项目",
+                            count: otherMergeProjects.count,
+                            isExpanded: $isSyncOtherExpanded
+                        ) {
+                            ForEach(otherMergeProjects) { project in
+                                SidebarRowButton(
+                                    title: project.displayName,
+                                    systemImage: "folder",
+                                    badge: "\(project.localBranches.count)",
+                                    isSelected: appModel.selectedLocalProjectID == project.id
+                                ) {
+                                    appModel.selectLocalProject(project.id)
+                                }
+                                .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                            }
                         }
                     }
                 }
@@ -63,7 +150,7 @@ struct RootView: View {
                             ) {
                                 appModel.selectMergeFilter(filter)
                             }
-                            .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                            .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
                         }
                     }
                 }
@@ -84,7 +171,7 @@ struct RootView: View {
                     SettingsView()
                 }
             }
-            .navigationSplitViewColumnWidth(min: 560, ideal: 700, max: 820)
+            .navigationSplitViewColumnWidth(min: 650, ideal: 800, max: 1200)
         } detail: {
             Group {
                 switch appModel.selectedSection ?? .worktrees {
@@ -98,7 +185,7 @@ struct RootView: View {
                     SettingsDetailView()
                 }
             }
-            .navigationSplitViewColumnWidth(min: 420, ideal: 520, max: 680)
+            .navigationSplitViewColumnWidth(min: 340, ideal: 380, max: 520)
         }
         .navigationSplitViewStyle(.balanced)
         .task {
@@ -106,10 +193,55 @@ struct RootView: View {
         }
     }
 
+    private func collapsibleSection<Content: View>(
+        title: String,
+        count: Int,
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Section {
+            if isExpanded.wrappedValue {
+                content()
+            }
+        } header: {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isExpanded.wrappedValue.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 10, height: 10)
+
+                    Text(title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Text("\(count)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.1))
+                        .clipShape(Capsule())
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 2, trailing: 0))
+        }
+    }
+
     private func sectionBadge(for section: AppSection) -> Int {
         switch section {
         case .worktrees:
-            return appModel.worktrees.count
+            return appModel.realWorktreesCount
         case .branchSync:
             return appModel.localMergeProjects.count
         case .mergeRequests:

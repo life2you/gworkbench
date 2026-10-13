@@ -2,7 +2,7 @@
 
 # GWorkbench
 
-`GWorkbench` is a native macOS desktop app that combines `gwtm`-style worktree management and `gmux`-style GitLab merge workflows in one place.
+`GWorkbench` is a native macOS desktop app that brings together Git worktree management, multi-target branch synchronization, and GitLab merge request workflows into a modern, unified interface.
 
 ## What It Does
 
@@ -26,10 +26,9 @@
 
 ## Requirements
 
-- macOS 15 or newer
+- macOS 14 or newer
 - Xcode / Swift toolchain
 - Git
-- Python 3 with `tomli`
 
 ## Run
 

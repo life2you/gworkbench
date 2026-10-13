@@ -15,7 +15,7 @@ cask "gworkbench" do
   desc "Native macOS desktop app for Git worktrees and GitLab merge workflows"
   homepage "https://github.com/life2you/gworkbench"
 
-  depends_on macos: :sequoia
+  depends_on macos: ">= :sonoma"
 
   app "GWorkbench.app"
 

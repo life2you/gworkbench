@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GWorkbench 分支同步 (Branch Sync) 现代 macOS 交互原型</title>
+<style>
+  :root {
+    --bg-window: #1e1e20;
+    --bg-sidebar: #18181a;
+    --bg-toolbar: #26262a;
+    --bg-card: rgba(255, 255, 255, 0.045);
+    --bg-card-hover: rgba(255, 255, 255, 0.075);
+    --bg-card-selected: rgba(59, 130, 246, 0.12);
+    --bg-input: rgba(0, 0, 0, 0.32);
+    --border-color: rgba(255, 255, 255, 0.09);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --text-primary: #f0f0f2;
+    --text-secondary: #9a9ba4;
+    --text-tertiary: #686973;
+    --accent: #0a84ff;
+    --accent-hover: #0071e3;
+    --accent-gradient: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%);
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --purple: #bf5af2;
+    --red: #ff453a;
+    --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+    --radius-sm: 5px;
+    --radius-md: 8px;
+    --radius-lg: 11px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111113;
+    color: var(--text-primary);
+    font-family: var(--font-system);
+    font-size: 12.5px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 顶部全局提示与模式切换条 */
+  .meta-topbar {
+    background: #0d0d0f;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 7px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    z-index: 100;
+  }
+  .meta-topbar strong { color: #fff; font-weight: 600; }
+  .meta-pills { display: flex; gap: 8px; align-items: center; }
+  .meta-badge {
+    background: rgba(10, 132, 255, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(10, 132, 255, 0.3);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .sim-hint { font-size: 11px; color: #a1a1aa; }
+
+  /* 主应用容器窗口（模拟 macOS 原生 Window） */
+  .window-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-window);
+    overflow: hidden;
+  }
+
+  /* 顶部 Toolbar */
+  .toolbar {
+    height: 44px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .traffic-lights {
+    display: flex;
+    gap: 7px;
+    margin-right: 6px;
+  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot-red { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #27c93f; }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--border-color);
+  }
+
+  .nav-picker {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 4px 9px;
+    font-size: 11.5px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .nav-picker:hover { border-color: rgba(255,255,255,0.2); }
+
+  /* 模式选择 Segmented */
+  .segmented-control {
+    display: flex;
+    background: rgba(0, 0, 0, 0.32);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .segment-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 4px 11px;
+    font-size: 11.5px;
+    font-weight: 500;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .segment-btn:hover { color: #fff; }
+  .segment-btn.active {
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn {
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 4px 11px;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: 0.15s;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary {
+    background: var(--accent);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary.executing {
+    background: #d97706;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { opacity: 0.8; }
+    50% { opacity: 1; }
+    100% { opacity: 0.8; }
+  }
+
+  /* 3 栏主体 */
+  .main-split {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* 左侧 Sidebar */
+  .sidebar {
+    width: 220px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-section {
+    padding: 12px 10px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin: 1px 6px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: 0.12s;
+  }
+  .sidebar-item:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
+  .sidebar-item.active {
+    background: rgba(10, 132, 255, 0.18);
+    color: #fff;
+    font-weight: 500;
+  }
+  .sidebar-badge {
+    margin-left: auto;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-tertiary);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 5px;
+    border-radius: 10px;
+  }
+  .sidebar-item.active .sidebar-badge {
+    background: rgba(10, 132, 255, 0.3);
+    color: #93c5fd;
+  }
+
+  /* 中间工作区：BranchSyncView */
+  .workspace-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-window);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .content-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 18px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* 模式引导与提示卡片 */
+  .mode-hero-card {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.02) 100%);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .mode-icon-circle {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    background: rgba(10, 132, 255, 0.15);
+    border: 1px solid rgba(10, 132, 255, 0.25);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .mode-hero-text h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 3px;
+  }
+  .mode-hero-text p {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
+
+  /* 通用配置卡片容器 */
+  .card-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .card-title .icon { font-size: 13px; color: var(--accent); }
+  .card-subtitle {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  /* 源分支选择器交互条 */
+  .source-branch-box {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .branch-search-input {
+    flex: 1;
+    position: relative;
+  }
+  .branch-search-input input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px 6px 28px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: #fff;
+    outline: none;
+    transition: 0.15s;
+  }
+  .branch-search-input input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.2);
+  }
+  .branch-search-input::before {
+    content: "⌕";
+    position: absolute;
+    left: 9px;
+    top: 5px;
+    font-size: 14px;
+    color: var(--text-tertiary);
+  }
+
+  .quick-branch-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .quick-tag {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 3px 8px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: 0.12s;
+  }
+  .quick-tag:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+  }
+  .quick-tag.active {
+    background: rgba(10, 132, 255, 0.2);
+    border-color: rgba(10, 132, 255, 0.4);
+    color: #93c5fd;
+    font-weight: 500;
+  }
+  .quick-tag.current-head {
+    border-color: rgba(48, 209, 88, 0.4);
+    color: #34d399;
+  }
+
+  /* 目标分支管道拓扑 (Pipeline Topology) */
+  .pipeline-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .pipeline-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+  .pipeline-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .text-action {
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .text-action:hover { text-decoration: underline; }
+
+  /* 目标卡片列表 */
+  .target-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .target-item {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: 0.15s;
+    cursor: pointer;
+  }
+  .target-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.16);
+  }
+  .target-item.selected {
+    background: rgba(10, 132, 255, 0.1);
+    border-color: rgba(10, 132, 255, 0.35);
+  }
+  .target-item.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .target-check {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: transparent;
+    transition: 0.12s;
+  }
+  .target-item.selected .target-check {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .target-flow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .target-env-badge {
+    background: rgba(191, 90, 242, 0.15);
+    color: #e879f9;
+    border: 1px solid rgba(191, 90, 242, 0.25);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-family: var(--font-system);
+    font-weight: 500;
+  }
+  .target-branch-name {
+    color: #fff;
+    font-weight: 500;
+  }
+  .arrow-indicator {
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+  .target-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+  .target-status-pill {
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 500;
+  }
+  .status-ready {
+    background: rgba(48, 209, 88, 0.14);
+    color: #34d399;
+    border: 1px solid rgba(48, 209, 88, 0.25);
+  }
+  .status-running {
+    background: rgba(255, 159, 10, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(255, 159, 10, 0.25);
+  }
+  .status-done {
+    background: rgba(10, 132, 255, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(10, 132, 255, 0.25);
+  }
+
+  /* 底部抽屉与控制台 */
+  .console-panel {
+    border-top: 1px solid var(--border-color);
+    background: #141416;
+    display: flex;
+    flex-direction: column;
+    height: 150px;
+    transition: height 0.2s ease;
+  }
+  .console-header {
+    height: 28px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .console-header strong { color: #fff; font-size: 11.5px; }
+  .console-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+  }
+  .console-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .console-btn:hover { color: #fff; }
+  .console-logs {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    color: #a1a1aa;
+    background: #111113;
+  }
+  .log-line { display: flex; gap: 8px; }
+  .log-time { color: #52525b; }
+  .log-cmd { color: #93c5fd; }
+  .log-ok { color: #34d399; }
+  .log-warn { color: #fbbf24; }
+
+  /* 状态栏 */
+  .status-bar {
+    height: 24px;
+    background: #121214;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    gap: 14px;
+  }
+  .status-item { display: flex; align-items: center; gap: 4px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+  /* 右侧检查器：BranchSyncDetailView */
+  .inspector {
+    width: 320px;
+    background: var(--bg-sidebar);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 16px;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+
+  .inspector-header {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .inspector-breadcrumb {
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+  }
+  .inspector-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .inspector-subtitle {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .pills-row {
+    display: flex;
+    gap: 5px;
+    margin-top: 2px;
+  }
+  .pill {
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 500;
+  }
+  .pill-blue { background: rgba(10, 132, 255, 0.14); color: #60a5fa; border: 1px solid rgba(10, 132, 255, 0.25); }
+  .pill-purple { background: rgba(191, 90, 242, 0.14); color: #c084fc; border: 1px solid rgba(191, 90, 242, 0.25); }
+  .pill-green { background: rgba(48, 209, 88, 0.14); color: #34d399; border: 1px solid rgba(48, 209, 88, 0.25); }
+
+  /* 快捷动作按钮组 */
+  .quick-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .quick-act-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 5px 8px;
+    font-size: 11px;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: 0.12s;
+  }
+  .quick-act-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+
+  /* 检查器卡片 */
+  .inspector-card {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 11px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .inspector-card-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .inspector-card-title .icon { font-size: 12px; color: var(--accent); }
+
+  .property-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 11.5px;
+  }
+  .property-label {
+    width: 68px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .property-val {
+    flex: 1;
+    color: var(--text-primary);
+    word-break: break-all;
+  }
+  .property-val.mono { font-family: var(--font-mono); font-size: 11px; }
+
+  /* 执行计划命令序列 */
+  .plan-step-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .plan-step-item {
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 5px;
+    padding: 6px 9px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: #cbd5e1;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .step-num {
+    background: rgba(255, 255, 255, 0.08);
+    color: #94a3b8;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9.5px;
+    flex-shrink: 0;
+  }
+
+  /* 提示 toast */
+  .toast {
+    position: fixed;
+    bottom: 35px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 999;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-5px);
+  }
+</style>
+</head>
+<body>
+
+<!-- 顶部演示控制与说明条 -->
+<div class="meta-topbar">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <strong>GWorkbench 分支同步 UI 原型设计</strong>
+    <span class="meta-badge">macOS Native Pro 规范</span>
+    <span class="sim-hint">💡 点击模式分段、切换源分支或勾选目标分支，界面将实时响应联动</span>
+  </div>
+  <div class="meta-pills">
+    <button class="btn" onclick="toggleTheme()" style="padding:2px 8px; font-size:11px;">☀️/🌙 切换背景</button>
+    <button class="btn btn-primary" onclick="runSimulatedExecution()" style="padding:2px 10px; font-size:11px;">▶ 模拟执行全流程</button>
+  </div>
+</div>
+
+<!-- 主窗口 -->
+<div class="window-container">
+
+  <!-- 顶部 macOS Toolbar -->
+  <header class="toolbar">
+    <div class="traffic-lights">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+    </div>
+
+    <!-- 项目快速切换 -->
+    <div class="nav-picker" title="切换当前同步项目">
+      <span style="color:var(--text-tertiary);">📁</span>
+      <strong id="active-project-name">order-service</strong>
+      <span style="font-size:9px; color:var(--text-tertiary);">▼</span>
+    </div>
+
+    <div class="toolbar-divider"></div>
+
+    <!-- 执行模式分段选择器 -->
+    <div class="segmented-control" id="mode-segments">
+      <button class="segment-btn active" data-mode="syncEnvironments" onclick="switchMode('syncEnvironments')">
+        <span>🔄</span> 同步环境分支
+      </button>
+      <button class="segment-btn" data-mode="mergeAll" onclick="switchMode('mergeAll')">
+        <span>🔀</span> 合并到全部目标
+      </button>
+      <button class="segment-btn" data-mode="mergeCustom" onclick="switchMode('mergeCustom')">
+        <span>☑️</span> 自定义勾选目标
+      </button>
+    </div>
+
+    <!-- 右侧操作栏 -->
+    <div class="toolbar-actions">
+      <button class="btn" onclick="showToast('已重新扫描本地分支与环境映射')">
+        <span>↻</span> 刷新
+      </button>
+      <button class="btn btn-primary" id="btn-execute" onclick="runSimulatedExecution()">
+        <span>▶</span> 开始执行
+      </button>
+    </div>
+  </header>
+
+  <!-- 三栏主体 -->
+  <div class="main-split">
+
+    <!-- 1. 侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-section">工作区</div>
+      <div class="sidebar-item">
+        <span>🗂️</span> 工作树
+        <span class="sidebar-badge">6</span>
+      </div>
+      <div class="sidebar-item active">
+        <span>🔄</span> 分支同步
+        <span class="sidebar-badge">4</span>
+      </div>
+      <div class="sidebar-item">
+        <span>🔀</span> 合并请求 (MR)
+        <span class="sidebar-badge">12</span>
+      </div>
+      <div class="sidebar-item">
+        <span>⚙️</span> 设置
+      </div>
+
+      <div class="sidebar-section" style="margin-top:10px;">本地项目</div>
+      <div class="sidebar-item active" onclick="switchProject('order-service', 18)">
+        <span>📦</span> order-service
+        <span class="sidebar-badge">18</span>
+      </div>
+      <div class="sidebar-item" onclick="switchProject('payment-gateway', 12)">
+        <span>📦</span> payment-gateway
+        <span class="sidebar-badge">12</span>
+      </div>
+      <div class="sidebar-item" onclick="switchProject('user-center', 8)">
+        <span>📦</span> user-center
+        <span class="sidebar-badge">8</span>
+      </div>
+      <div class="sidebar-item" onclick="switchProject('common-sdk', 5)">
+        <span>📦</span> common-sdk
+        <span class="sidebar-badge">5</span>
+      </div>
+    </aside>
+
+    <!-- 2. 中间工作区 -->
+    <main class="workspace-center">
+      <div class="content-scroll">
+
+        <!-- 模式说明 Banner -->
+        <div class="mode-hero-card">
+          <div class="mode-icon-circle" id="mode-hero-icon">🔄</div>
+          <div class="mode-hero-text">
+            <h3 id="mode-hero-title">同步环境分支 (Sync Environments)</h3>
+            <p id="mode-hero-desc">依次检查并更新本地对应环境分支（dev / test / staging），拉取最新远端代码，并合并到对应的集成目标分支后推送。</p>
+          </div>
+        </div>
+
+        <!-- 源分支选择卡片 (需源分支的模式展示) -->
+        <div class="card-block" id="source-branch-card" style="display:none;">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="icon">🌿</span>
+              <span>选择源分支 (Source Branch)</span>
+            </div>
+            <span class="card-subtitle">将以此分支作为基础合并到目标分支</span>
+          </div>
+
+          <div class="source-branch-box">
+            <div class="branch-search-input">
+              <input type="text" id="branch-input" placeholder="输入分支名或搜索过滤..." value="feat/pay-timeout-retry" oninput="filterBranches(this.value)">
+            </div>
+            <button class="btn" onclick="selectCurrentHead()">
+              <span>📍</span> 选中当前 HEAD
+            </button>
+          </div>
+
+          <!-- 快速分支推荐/筛选标签 -->
+          <div class="quick-branch-tags" id="branch-tag-list">
+            <span class="quick-tag current-head active" onclick="chooseTag('feat/pay-timeout-retry')">● feat/pay-timeout-retry (当前检出)</span>
+            <span class="quick-tag" onclick="chooseTag('fix/refund-callback')">fix/refund-callback</span>
+            <span class="quick-tag" onclick="chooseTag('feat/v2-invoice')">feat/v2-invoice</span>
+            <span class="quick-tag" onclick="chooseTag('main')">main</span>
+          </div>
+        </div>
+
+        <!-- 目标分支流水线拓扑卡片 -->
+        <div class="card-block">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="icon">🔀</span>
+              <span id="target-card-title">目标分支流向 (Target Flow)</span>
+            </div>
+            <div class="pipeline-actions" id="batch-select-actions" style="display:none;">
+              <span class="text-action" onclick="selectAllTargets(true)">全选</span>
+              <span style="color:var(--text-tertiary);">•</span>
+              <span class="text-action" onclick="selectAllTargets(false)">全不选</span>
+            </div>
+          </div>
+
+          <div class="pipeline-container">
+            <div class="pipeline-header">
+              <span>环境分支映射关系及同步目标</span>
+              <span id="target-count-text">共 4 个预配置目标</span>
+            </div>
+
+            <div class="target-grid" id="target-items-list">
+              <!-- Item 1 -->
+              <div class="target-item selected" data-target="feat-test-1" onclick="toggleTarget(this)">
+                <div class="target-check">✓</div>
+                <div class="target-flow">
+                  <span class="target-env-badge">dev</span>
+                  <span class="arrow-indicator">➔</span>
+                  <span class="target-branch-name">feat-test-1</span>
+                </div>
+                <div class="target-meta">
+                  <span style="color:var(--text-tertiary);">开发环境联调</span>
+                  <span class="target-status-pill status-ready" id="status-feat-test-1">就绪</span>
+                </div>
+              </div>
+
+              <!-- Item 2 -->
+              <div class="target-item selected" data-target="feat-test-2" onclick="toggleTarget(this)">
+                <div class="target-check">✓</div>
+                <div class="target-flow">
+                  <span class="target-env-badge">test</span>
+                  <span class="arrow-indicator">➔</span>
+                  <span class="target-branch-name">feat-test-2</span>
+                </div>
+                <div class="target-meta">
+                  <span style="color:var(--text-tertiary);">QA 测试环境</span>
+                  <span class="target-status-pill status-ready" id="status-feat-test-2">就绪</span>
+                </div>
+              </div>
+
+              <!-- Item 3 -->
+              <div class="target-item selected" data-target="feat-test-3" onclick="toggleTarget(this)">
+                <div class="target-check">✓</div>
+                <div class="target-flow">
+                  <span class="target-env-badge">staging</span>
+                  <span class="arrow-indicator">➔</span>
+                  <span class="target-branch-name">feat-test-3</span>
+                </div>
+                <div class="target-meta">
+                  <span style="color:var(--text-tertiary);">预发布验证</span>
+                  <span class="target-status-pill status-ready" id="status-feat-test-3">就绪</span>
+                </div>
+              </div>
+
+              <!-- Item 4 -->
+              <div class="target-item selected" data-target="feat-test-hotfix" onclick="toggleTarget(this)">
+                <div class="target-check">✓</div>
+                <div class="target-flow">
+                  <span class="target-env-badge">hotfix</span>
+                  <span class="arrow-indicator">➔</span>
+                  <span class="target-branch-name">feat-test-hotfix</span>
+                </div>
+                <div class="target-meta">
+                  <span style="color:var(--text-tertiary);">紧急修复集成</span>
+                  <span class="target-status-pill status-ready" id="status-feat-test-hotfix">就绪</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 底部控制台抽屉 -->
+      <div class="console-panel" id="console-drawer">
+        <div class="console-header">
+          <strong>⚡ 执行控制台</strong>
+          <span style="color:var(--text-tertiary);">|</span>
+          <span id="console-status-text">就绪待命</span>
+          <div class="console-actions">
+            <button class="console-btn" onclick="copyConsoleLogs()">复制日志</button>
+            <button class="console-btn" onclick="clearConsoleLogs()">清空</button>
+            <button class="console-btn" onclick="toggleConsoleHeight()">↕ 调整大小</button>
+          </div>
+        </div>
+        <div class="console-logs" id="console-logs-container">
+          <div class="log-line"><span class="log-time">[14:32:01]</span> <span>已就绪。项目 order-service 加载完成。本地分支 18 个，环境映射 4 条。</span></div>
+          <div class="log-line"><span class="log-time">[14:32:01]</span> <span class="log-cmd">git status:</span> 工作区整洁 (Clean)</div>
+        </div>
+      </div>
+
+      <!-- 底部状态栏 -->
+      <footer class="status-bar">
+        <div class="status-item">
+          <span class="status-dot"></span>
+          <span>Git 就绪</span>
+        </div>
+        <span>•</span>
+        <div class="status-item">
+          <span>当前分支: <strong style="color:#fff;" id="bar-branch">feat/pay-timeout-retry</strong></span>
+        </div>
+        <span>•</span>
+        <div class="status-item">
+          <span>计划目标: <strong style="color:#fff;" id="bar-target-count">4 个</strong></span>
+        </div>
+        <span style="margin-left:auto;">GWorkbench v0.1.9 • Git Engine</span>
+      </footer>
+    </main>
+
+    <!-- 3. 右侧详情检查器 (BranchSyncDetailView) -->
+    <aside class="inspector">
+      <div class="inspector-header">
+        <div class="inspector-breadcrumb">分支同步 · 本地项目</div>
+        <div class="inspector-title" id="insp-project-name">order-service</div>
+        <div class="inspector-subtitle" id="insp-mode-sub">同步环境分支 · 依次拉取更新并推送到对应目标</div>
+        <div class="pills-row">
+          <span class="pill pill-blue" id="insp-mode-pill">同步环境分支</span>
+          <span class="pill pill-purple" id="insp-target-count-pill">4 个目标</span>
+          <span class="pill pill-green">Git 正常</span>
+        </div>
+      </div>
+
+      <!-- 快捷操作按钮组 -->
+      <div class="quick-actions">
+        <button class="quick-act-btn" onclick="showToast('已在 VS Code 中打开项目')">
+          <span>↗</span> 打开 IDE
+        </button>
+        <button class="quick-act-btn" onclick="showToast('已在终端激活项目路径')">
+          <span>⌘</span> 打开终端
+        </button>
+        <button class="quick-act-btn" onclick="showToast('已在访达中显示')">
+          <span>📁</span> 访达显示
+        </button>
+        <button class="quick-act-btn" onclick="copyProjectPath()">
+          <span>📋</span> 复制路径
+        </button>
+      </div>
+
+      <!-- 检查器卡片 1：项目属性 -->
+      <div class="inspector-card">
+        <div class="inspector-card-title">
+          <span class="icon">ℹ️</span>
+          <span>项目配置概览</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">物理路径</span>
+          <span class="property-val mono" id="insp-path">/Users/dev/repos/order-service</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">本地分支</span>
+          <span class="property-val" id="insp-branch-count">18 个</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">中间段</span>
+          <span class="property-val mono">-test-</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">环境分支</span>
+          <span class="property-val">dev, test, staging, hotfix</span>
+        </div>
+      </div>
+
+      <!-- 检查器卡片 2：本次执行计划 -->
+      <div class="inspector-card">
+        <div class="inspector-card-title">
+          <span class="icon">📋</span>
+          <span>本次执行计划 (Plan)</span>
+        </div>
+        <div class="plan-step-list" id="insp-plan-list">
+          <div class="plan-step-item">
+            <span class="step-num">1</span>
+            <span>更新 dev 并拉取最新代码</span>
+          </div>
+          <div class="plan-step-item">
+            <span class="step-num">2</span>
+            <span>合并 dev 到 feat-test-1 并 push</span>
+          </div>
+          <div class="plan-step-item">
+            <span class="step-num">3</span>
+            <span>更新 test 并拉取最新代码</span>
+          </div>
+          <div class="plan-step-item">
+            <span class="step-num">4</span>
+            <span>合并 test 到 feat-test-2 并 push</span>
+          </div>
+          <div class="plan-step-item">
+            <span class="step-num">5</span>
+            <span>更新 staging / hotfix 同步推送</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 检查器卡片 3：最近执行审计 -->
+      <div class="inspector-card">
+        <div class="inspector-card-title">
+          <span class="icon">📊</span>
+          <span>执行审计与结果</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">上次执行</span>
+          <span class="property-val" id="insp-last-run">今天 14:15:30</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">执行结果</span>
+          <span class="property-val" style="color:#34d399;" id="insp-last-result">全部成功 (4/4)</span>
+        </div>
+        <div class="property-row">
+          <span class="property-label">耗时</span>
+          <span class="property-val mono">3.42s</span>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<!-- 吐司通知 -->
+<div class="toast" id="toast">已复制</div>
+
+<script>
+  let currentMode = 'syncEnvironments';
+  let currentProject = 'order-service';
+  let isExecuting = false;
+
+  const modeData = {
+    syncEnvironments: {
+      name: '同步环境分支',
+      icon: '🔄',
+      desc: '依次检查并更新本地对应环境分支（dev / test / staging），拉取最新远端代码，并合并到对应的集成目标分支后推送。',
+      requiresSource: false,
+      singleTarget: false
+    },
+    mergeAll: {
+      name: '合并到全部目标',
+      icon: '🔀',
+      desc: '选择指定的本地源分支，自动依次 checkout 所有集成目标分支，合并当前源分支并全部自动 push。',
+      requiresSource: true,
+      singleTarget: false
+    },
+    mergeCustom: {
+      name: '自定义勾选目标',
+      icon: '☑️',
+      desc: '手动勾选这次要参与合并的目标分支集合（支持单个或多个），精准完成特定环境代码合流。',
+      requiresSource: true,
+      singleTarget: false
+    }
+  };
+
+  function switchMode(modeKey) {
+    if (isExecuting) return;
+    currentMode = modeKey;
+    const config = modeData[modeKey];
+
+    // 更新 Segmented UI
+    document.querySelectorAll('.segment-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === modeKey);
+    });
+
+    // 更新 Hero Banner
+    document.getElementById('mode-hero-icon').innerText = config.icon;
+    document.getElementById('mode-hero-title').innerText = `${config.name} (${modeKey})`;
+    document.getElementById('mode-hero-desc').innerText = config.desc;
+
+    // 是否需要展示源分支卡片
+    const sourceCard = document.getElementById('source-branch-card');
+    sourceCard.style.display = config.requiresSource ? 'flex' : 'none';
+
+    // 批量操作按钮
+    document.getElementById('batch-select-actions').style.display = modeKey === 'mergeCustom' ? 'flex' : 'none';
+
+    // 更新目标分支行为
+    const targetItems = document.querySelectorAll('.target-item');
+    if (config.singleTarget) {
+      // 单选模式：只保留第一个选中
+      targetItems.forEach((item, index) => {
+        item.classList.toggle('selected', index === 0);
+      });
+    } else if (modeKey === 'mergeAll' || modeKey === 'syncEnvironments') {
+      targetItems.forEach(item => item.classList.add('selected'));
+    }
+
+    // 更新检查器
+    document.getElementById('insp-mode-sub').innerText = `${config.name} · ${config.desc}`;
+    document.getElementById('insp-mode-pill').innerText = config.name;
+
+    updateTargetSummary();
+    rebuildExecutionPlan();
+    showToast(`已切换为「${config.name}」模式`);
+  }
+
+  function toggleTarget(element) {
+    if (isExecuting) return;
+    if (currentMode === 'mergeAll' || currentMode === 'syncEnvironments') {
+      showToast('当前模式自动处理全部目标分支');
+      return;
+    }
+    if (currentMode === 'mergeSingle') {
+      document.querySelectorAll('.target-item').forEach(el => el.classList.remove('selected'));
+      element.classList.add('selected');
+    } else if (currentMode === 'mergeCustom') {
+      element.classList.toggle('selected');
+    }
+    updateTargetSummary();
+    rebuildExecutionPlan();
+  }
+
+  function selectAllTargets(select) {
+    if (currentMode !== 'mergeCustom') return;
+    document.querySelectorAll('.target-item').forEach(item => {
+      item.classList.toggle('selected', select);
+    });
+    updateTargetSummary();
+    rebuildExecutionPlan();
+  }
+
+  function updateTargetSummary() {
+    const selected = document.querySelectorAll('.target-item.selected');
+    const count = selected.length;
+    document.getElementById('target-count-text').innerText = `已选 ${count} 个目标分支`;
+    document.getElementById('bar-target-count').innerText = `${count} 个`;
+    document.getElementById('insp-target-count-pill').innerText = `${count} 个目标`;
+  }
+
+  function rebuildExecutionPlan() {
+    const list = document.getElementById('insp-plan-list');
+    list.innerHTML = '';
+    const selectedTargets = Array.from(document.querySelectorAll('.target-item.selected')).map(el => el.dataset.target);
+    const sourceBranch = document.getElementById('branch-input').value.trim() || 'feat/pay-timeout-retry';
+
+    if (currentMode === 'syncEnvironments') {
+      let step = 1;
+      selectedTargets.forEach(target => {
+        list.innerHTML += `<div class="plan-step-item"><span class="step-num">${step++}</span><span>pull 环境最新 commit 并 merge -> ${target}</span></div>`;
+      });
+    } else {
+      let step = 1;
+      selectedTargets.forEach(target => {
+        list.innerHTML += `<div class="plan-step-item"><span class="step-num">${step++}</span><span>merge ${sourceBranch} -> ${target} 并 push</span></div>`;
+      });
+    }
+    if (selectedTargets.length === 0) {
+      list.innerHTML = `<div style="color:var(--text-tertiary); font-size:11px; padding:6px;">未选择任何目标分支</div>`;
+    }
+  }
+
+  function chooseTag(branchName) {
+    document.getElementById('branch-input').value = branchName;
+    document.querySelectorAll('.quick-tag').forEach(tag => {
+      tag.classList.toggle('active', tag.innerText.includes(branchName));
+    });
+    document.getElementById('bar-branch').innerText = branchName;
+    rebuildExecutionPlan();
+    showToast(`已选择源分支: ${branchName}`);
+  }
+
+  function selectCurrentHead() {
+    chooseTag('feat/pay-timeout-retry');
+  }
+
+  function filterBranches(val) {
+    document.getElementById('bar-branch').innerText = val || '未选择';
+    rebuildExecutionPlan();
+  }
+
+  function switchProject(name, count) {
+    currentProject = name;
+    document.getElementById('active-project-name').innerText = name;
+    document.getElementById('insp-project-name').innerText = name;
+    document.getElementById('insp-path').innerText = `/Users/dev/repos/${name}`;
+    document.getElementById('insp-branch-count').innerText = `${count} 个`;
+
+    document.querySelectorAll('.sidebar-item').forEach(item => {
+      if (item.innerText.includes(name)) {
+        item.classList.add('active');
+      } else if (item.innerText.includes('order-service') || item.innerText.includes('payment-gateway') || item.innerText.includes('user-center') || item.innerText.includes('common-sdk')) {
+        item.classList.remove('active');
+      }
+    });
+
+    logMessage(`切换到项目 ${name} (本地分支 ${count} 个)`);
+    showToast(`已切换到项目: ${name}`);
+  }
+
+  function logMessage(text, type = 'info') {
+    const logs = document.getElementById('console-logs-container');
+    const now = new Date().toTimeString().slice(0, 8);
+    let colorClass = '';
+    if (type === 'cmd') colorClass = 'log-cmd';
+    if (type === 'ok') colorClass = 'log-ok';
+    if (type === 'warn') colorClass = 'log-warn';
+
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `<span class="log-time">[${now}]</span> <span class="${colorClass}">${text}</span>`;
+    logs.appendChild(line);
+    logs.scrollTop = logs.scrollHeight;
+  }
+
+  function clearConsoleLogs() {
+    document.getElementById('console-logs-container').innerHTML = '';
+    showToast('已清空控制台日志');
+  }
+
+  function copyConsoleLogs() {
+    const text = document.getElementById('console-logs-container').innerText;
+    navigator.clipboard.writeText(text);
+    showToast('已复制控制台日志到剪贴板');
+  }
+
+  function copyProjectPath() {
+    const p = document.getElementById('insp-path').innerText;
+    navigator.clipboard.writeText(p);
+    showToast('已复制物理路径');
+  }
+
+  let consoleExpanded = false;
+  function toggleConsoleHeight() {
+    const panel = document.getElementById('console-panel');
+    consoleExpanded = !consoleExpanded;
+    panel.style.height = consoleExpanded ? '260px' : '150px';
+  }
+
+  async function runSimulatedExecution() {
+    if (isExecuting) return;
+    const targets = Array.from(document.querySelectorAll('.target-item.selected'));
+    if (targets.length === 0) {
+      showToast('⚠️ 请至少选择一个目标分支');
+      return;
+    }
+
+    isExecuting = true;
+    const btn = document.getElementById('btn-execute');
+    btn.classList.add('executing');
+    btn.innerHTML = `<span>⏳</span> 执行中...`;
+    document.getElementById('console-status-text').innerText = '正在执行流水线操作...';
+
+    logMessage(`--- 开始执行: [${modeData[currentMode].name}] ---`, 'cmd');
+
+    for (let i = 0; i < targets.length; i++) {
+      const item = targets[i];
+      const targetName = item.dataset.target;
+      const statusPill = document.getElementById(`status-${targetName}`);
+
+      statusPill.className = 'target-status-pill status-running';
+      statusPill.innerText = '同步中...';
+
+      logMessage(`[${i+1}/${targets.length}] 正在检出分支: ${targetName}...`, 'cmd');
+      await new Promise(r => setTimeout(r, 600));
+
+      logMessage(`[${i+1}/${targets.length}] 执行 merge 操作...`);
+      await new Promise(r => setTimeout(r, 600));
+
+      logMessage(`[${i+1}/${targets.length}] push origin ${targetName} 成功。`, 'ok');
+      statusPill.className = 'target-status-pill status-done';
+      statusPill.innerText = '已完成';
+    }
+
+    logMessage(`全部 ${targets.length} 个目标已顺利完成同步！`, 'ok');
+    document.getElementById('console-status-text').innerText = '执行成功';
+    btn.classList.remove('executing');
+    btn.innerHTML = `<span>▶</span> 开始执行`;
+    isExecuting = false;
+
+    document.getElementById('insp-last-run').innerText = '刚刚';
+    document.getElementById('insp-last-result').innerText = `全部成功 (${targets.length}/${targets.length})`;
+    showToast('🎉 分支同步执行完毕！');
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+      t.classList.remove('show');
+    }, 2000);
+  }
+
+  let dark = true;
+  function toggleTheme() {
+    dark = !dark;
+    document.documentElement.style.filter = dark ? 'none' : 'invert(0.92) hue-rotate(180deg)';
+  }
+
+  // 初始化
+  rebuildExecutionPlan();
+  updateTargetSummary();
+</script>
+</body>
+</html>

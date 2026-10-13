@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 C：极速命令流工作台 (全键盘与交互体验) - GWorkbench</title>
+<style>
+  :root {
+    --bg-overlay: rgba(10, 10, 12, 0.75);
+    --bg-window: #1c1c20;
+    --bg-input: #26262c;
+    --bg-row-hover: rgba(255, 255, 255, 0.05);
+    --bg-row-selected: #2d3345;
+    --border-color: rgba(255, 255, 255, 0.09);
+    --text-primary: #f4f4f6;
+    --text-secondary: #9ea0a8;
+    --text-muted: #6b6d76;
+    --accent: #3b82f6;
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background-color: #0c0d10;
+    background-image: radial-gradient(circle at 50% 25%, #1e2338 0%, #0c0d10 70%);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 居中大浮窗 */
+  .modal-window {
+    width: 840px;
+    height: 540px;
+    background: var(--bg-window);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 14px;
+    box-shadow: 0 35px 90px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    backdrop-filter: blur(40px);
+  }
+
+  /* 顶部全局搜索条 (⌘K 风格) */
+  .search-header {
+    height: 58px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 14px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .search-icon { font-size: 18px; color: var(--text-muted); }
+  .search-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 16.5px;
+    outline: none;
+    font-weight: 400;
+  }
+  .search-input::placeholder { color: var(--text-muted); }
+  .esc-badge {
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    padding: 3px 6px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    cursor: pointer;
+  }
+
+  /* 主体左右分栏 */
+  .content-split {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* 左侧列表 */
+  .list-pane {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .section-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 10px 10px 4px 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .row-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: 0.1s;
+    gap: 12px;
+  }
+  .row-item:hover { background: var(--bg-row-hover); }
+  .row-item.selected {
+    background: var(--bg-row-selected);
+  }
+  .row-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .row-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+  }
+  .row-title {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row-subtitle {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row-tag {
+    font-size: 10.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  /* 右侧 Inspector 预览 */
+  .preview-pane {
+    width: 330px;
+    background: rgba(0, 0, 0, 0.2);
+    border-left: 1px solid var(--border-color);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
+  }
+  .preview-header {
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+  }
+  .preview-title {
+    font-size: 15px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: #f3f4f6;
+    margin-bottom: 4px;
+    word-break: break-all;
+  }
+  .preview-repo { font-size: 12px; color: var(--text-muted); }
+
+  .preview-meta-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .meta-title {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+  .meta-val {
+    font-size: 12.5px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+  }
+
+  .preview-note {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* 底部快捷键指示条 */
+  .footer-bar {
+    height: 42px;
+    background: rgba(0, 0, 0, 0.28);
+    border-top: 1px solid var(--border-color);
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .action-pills { display: flex; align-items: center; gap: 14px; }
+  .key-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .key-chip:hover { color: var(--text-primary); }
+  .kbd {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+  }
+
+  /* 悬浮 Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    background: rgba(30, 32, 40, 0.95);
+    border: 1px solid var(--accent);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    transform: translateY(15px);
+    transition: all 0.2s;
+    pointer-events: none;
+    z-index: 1000;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="modal-window">
+  <!-- 搜索栏 -->
+  <div class="search-header">
+    <span class="search-icon">🔍</span>
+    <input type="text" class="search-input" id="searchCmd" placeholder="支持键盘 ↑ / ↓ 选择，回车执行；试输入 'pay', 'token', 'prune'..." oninput="handleSearch()" autofocus>
+    <span class="esc-badge" onclick="clearSearch()">ESC 清空</span>
+  </div>
+
+  <div class="content-split">
+    <!-- 左侧列表 -->
+    <div class="list-pane" id="listPane">
+      <div class="section-label" id="sectionWorktrees">🌿 工作树 (Worktrees)</div>
+
+      <div class="row-item selected" data-type="worktree" data-key="feat/pay-retry-v2" onclick="selectRow(this)">
+        <div class="row-icon" style="color: #60a5fa;">🌿</div>
+        <div class="row-main">
+          <div class="row-title">feat/pay-retry-v2</div>
+          <div class="row-subtitle">portal · 正在使用 Cursor · 3 个未提交修改</div>
+        </div>
+        <span class="row-tag" style="background: rgba(59, 130, 246, 0.18); color: #60a5fa;">Active</span>
+      </div>
+
+      <div class="row-item" data-type="worktree" data-key="fix/oauth-refresh" onclick="selectRow(this)">
+        <div class="row-icon">🌿</div>
+        <div class="row-main">
+          <div class="row-title">fix/oauth-refresh</div>
+          <div class="row-subtitle">portal · 2 小时前修改 · Clean</div>
+        </div>
+        <span class="row-tag">34 MB</span>
+      </div>
+
+      <div class="row-item" data-type="worktree" data-key="main" onclick="selectRow(this)">
+        <div class="row-icon" style="color: #34d399;">🏠</div>
+        <div class="row-main">
+          <div class="row-title">main</div>
+          <div class="row-subtitle">主仓库基线 · 0 dirty files · v1.4.2</div>
+        </div>
+        <span class="row-tag">Root</span>
+      </div>
+
+      <div class="row-item" data-type="worktree" data-key="feat/dark-tokens" onclick="selectRow(this)">
+        <div class="row-icon" style="color: #c084fc;">🌿</div>
+        <div class="row-main">
+          <div class="row-title">feat/dark-tokens</div>
+          <div class="row-subtitle">已合并并在生产发布 · 待清理释放</div>
+        </div>
+        <span class="row-tag" style="color: #f87171;">Prunable</span>
+      </div>
+
+      <div class="section-label" id="sectionActions">🛠 快捷自动化动作 (Quick Actions)</div>
+
+      <div class="row-item" data-type="action" data-key="action-sync" onclick="selectRow(this)">
+        <div class="row-icon" style="color: #34d399;">🔀</div>
+        <div class="row-main">
+          <div class="row-title" style="font-family: var(--font-sans);">批量同步所有环境分支 (Sync All Environments)</div>
+          <div class="row-subtitle">依次拉取并合并推送至 dev, test, staging</div>
+        </div>
+        <span class="row-tag">Command</span>
+      </div>
+
+      <div class="row-item" data-type="action" data-key="action-prune" onclick="selectRow(this)">
+        <div class="row-icon" style="color: #f87171;">🗑</div>
+        <div class="row-main">
+          <div class="row-title" style="font-family: var(--font-sans);">一键释放所有已合并的工作树 (Prune All)</div>
+          <div class="row-subtitle">将安全删除已合并目录并释放 1.4 GB 空间</div>
+        </div>
+        <span class="row-tag">Command</span>
+      </div>
+    </div>
+
+    <!-- 右侧 Inspector 实时预览 -->
+    <div class="preview-pane" id="previewPane">
+      <div class="preview-header">
+        <div class="preview-title" id="pTitle">feat/pay-retry-v2</div>
+        <div class="preview-repo" id="pRepo">Repository: vibeCodes / frontend-portal</div>
+      </div>
+
+      <div class="preview-note" id="pNote">
+        📝 <b>功能备忘：</b><br>
+        结算重试队列改造，增加指数退避策略与超时防抖。已完成本地单元测试。
+      </div>
+
+      <div class="preview-meta-row">
+        <div class="meta-title">物理路径</div>
+        <div class="meta-val" id="pPath" style="font-size: 11px;">/Users/alex/worktrees/portal-pay</div>
+      </div>
+
+      <div class="preview-meta-row">
+        <div class="meta-title">当前 HEAD</div>
+        <div class="meta-val" id="pHead">8a1b4d2 (15 分钟前)</div>
+      </div>
+
+      <div class="preview-meta-row">
+        <div class="meta-title">占用与变更</div>
+        <div class="meta-val" id="pStatus" style="color: #fbbf24;">38 MB · 3 dirty files</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部快捷操作键 -->
+  <div class="footer-bar">
+    <div class="action-pills">
+      <span class="key-chip" onclick="executeCurrent('ide')"><span class="kbd">↵</span> 在 Cursor 打开</span>
+      <span class="key-chip" onclick="executeCurrent('finder')"><span class="kbd">⌘ ↵</span> 访达中查看</span>
+      <span class="key-chip" onclick="executeCurrent('copy')"><span class="kbd">⌘ C</span> 复制路径</span>
+      <span class="key-chip" onclick="executeCurrent('destroy')"><span class="kbd">⌘ ⌫</span> 销毁工作树</span>
+    </div>
+    <div>
+      <span class="key-chip" onclick="showToast('支持全键盘 ⌘K 呼出与操作')"><span class="kbd">Tab</span> 更多动作</span>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">操作已触发</div>
+
+<script>
+  const previewData = {
+    'feat/pay-retry-v2': {
+      title: 'feat/pay-retry-v2',
+      repo: 'vibeCodes / frontend-portal',
+      note: '📝 <b>功能备忘：</b><br>结算重试队列改造，增加指数退避策略与超时防抖。已完成本地单元测试。',
+      path: '~/worktrees/portal-pay',
+      head: '8a1b4d2 (15 分钟前)',
+      status: '38 MB · 3 dirty files'
+    },
+    'fix/oauth-refresh': {
+      title: 'fix/oauth-refresh',
+      repo: 'vibeCodes / frontend-portal',
+      note: '📝 <b>功能备忘：</b><br>修复偶发性刷新 Token 引起的死循环拦截。',
+      path: '~/worktrees/portal-auth',
+      head: 'd401ae8 (2 小时前)',
+      status: '34 MB · Clean'
+    },
+    'main': {
+      title: 'main (生产基线)',
+      repo: 'vibeCodes / frontend-portal',
+      note: '🏠 <b>基准分支：</b><br>主干仓库，锁定不可直接推送，通过 PR 合并。',
+      path: '~/vibeCodes/portal',
+      head: 'f910ab1 (1 小时前)',
+      status: '118 MB · 0 dirty files'
+    },
+    'feat/dark-tokens': {
+      title: 'feat/dark-tokens',
+      repo: 'vibeCodes / frontend-portal',
+      note: '💤 <b>已合并待释放：</b><br>已合并并在生产部署，建议执行销毁释放 48.2 MB。',
+      path: '~/worktrees/portal-dark',
+      head: 'a781b22 (3 天前)',
+      status: '48.2 MB · Merged'
+    },
+    'action-sync': {
+      title: '批量同步所有环境',
+      repo: '批处理自动化脚本',
+      note: '⚡️ <b>动作说明：</b><br>将依次执行 git fetch，并将当前活跃特性分支合并推送到 dev / test / staging 合并分支。',
+      path: '全部已关联项目',
+      head: '自动化流水线',
+      status: '可一键触发'
+    },
+    'action-prune': {
+      title: '清理已合并工作树',
+      repo: '空间释放任务',
+      note: '🗑 <b>动作说明：</b><br>安全扫描已通过 PR 合并到 main 的本地工作树，并安全移除目录以释放磁盘。',
+      path: '共计 3 个候选目录',
+      head: '安全检查通过',
+      status: '预计释放 1.4 GB'
+    }
+  };
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._tTimer);
+    window._tTimer = setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  function selectRow(el) {
+    document.querySelectorAll('.row-item').forEach(r => r.classList.remove('selected'));
+    el.classList.add('selected');
+    const key = el.getAttribute('data-key');
+    const data = previewData[key];
+    if (data) {
+      document.getElementById('pTitle').innerText = data.title;
+      document.getElementById('pRepo').innerText = data.repo;
+      document.getElementById('pNote').innerHTML = data.note;
+      document.getElementById('pPath').innerText = data.path;
+      document.getElementById('pHead').innerText = data.head;
+      document.getElementById('pStatus').innerText = data.status;
+    }
+  }
+
+  function executeCurrent(type) {
+    const current = document.querySelector('.row-item.selected');
+    if (!current) return;
+    const title = current.querySelector('.row-title').innerText;
+    const key = current.getAttribute('data-key');
+    const data = previewData[key];
+
+    if (type === 'ide') {
+      showToast(`🚀 已在 Cursor 中打开 [${title}]`);
+    } else if (type === 'finder') {
+      showToast(`📂 已在访达中显示 [${data.path}]`);
+    } else if (type === 'copy') {
+      navigator.clipboard && navigator.clipboard.writeText(data.path);
+      showToast(`📋 已复制路径到剪贴板: ${data.path}`);
+    } else if (type === 'destroy') {
+      if (confirm(`确定销毁 [${title}] 吗？`)) {
+        current.remove();
+        showToast(`🗑 已删除工作树 [${title}]`);
+      }
+    }
+  }
+
+  function clearSearch() {
+    const inp = document.getElementById('searchCmd');
+    inp.value = '';
+    handleSearch();
+    inp.focus();
+  }
+
+  function handleSearch() {
+    const q = document.getElementById('searchCmd').value.toLowerCase().trim();
+    const rows = document.querySelectorAll('.row-item');
+    let firstVisible = null;
+
+    rows.forEach(r => {
+      const text = r.innerText.toLowerCase();
+      const match = text.includes(q);
+      r.style.display = match ? 'flex' : 'none';
+      if (match && !firstVisible) firstVisible = r;
+    });
+
+    if (firstVisible) {
+      selectRow(firstVisible);
+    }
+  }
+
+  // 键盘快捷监听 (↑ / ↓ / Enter)
+  document.addEventListener('keydown', function(e) {
+    const visibleRows = Array.from(document.querySelectorAll('.row-item')).filter(r => r.style.display !== 'none');
+    const currentIndex = visibleRows.findIndex(r => r.classList.contains('selected'));
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextIndex = (currentIndex + 1) % visibleRows.length;
+      if (visibleRows[nextIndex]) {
+        selectRow(visibleRows[nextIndex]);
+        visibleRows[nextIndex].scrollIntoView({ block: 'nearest' });
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevIndex = (currentIndex - 1 + visibleRows.length) % visibleRows.length;
+      if (visibleRows[prevIndex]) {
+        selectRow(visibleRows[prevIndex]);
+        visibleRows[prevIndex].scrollIntoView({ block: 'nearest' });
+      }
+    } else if (e.key === 'Enter') {
+      executeCurrent('ide');
+    }
+  });
+</script>
+
+</body>
+</html>

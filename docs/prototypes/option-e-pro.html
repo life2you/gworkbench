@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 E：Apple 原生高密度专业面板 (全交互体验) - GWorkbench</title>
+<style>
+  :root {
+    --bg-window: #1e1e1e;
+    --bg-toolbar: #2d2d2d;
+    --bg-table-header: #282828;
+    --bg-table-row: #222222;
+    --bg-table-alt: #1f1f1f;
+    --bg-table-selected: #094771;
+    --border-color: rgba(255, 255, 255, 0.09);
+    --text-primary: #cccccc;
+    --text-bright: #ffffff;
+    --text-secondary: #888888;
+    --accent: #007acc;
+    --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-window);
+    color: var(--text-primary);
+    font-family: var(--font-system);
+    font-size: 12px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 顶部工具栏 */
+  .toolbar {
+    height: 40px;
+    background: var(--bg-toolbar);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .traffic-lights { display: flex; gap: 6px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot-red { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #27c93f; }
+
+  .segmented-control {
+    display: flex;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .segment-btn {
+    padding: 3px 10px;
+    font-size: 11px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    transition: 0.12s;
+  }
+  .segment-btn:last-child { border-right: none; }
+  .segment-btn.active {
+    background: rgba(255, 255, 255, 0.14);
+    color: var(--text-bright);
+    font-weight: 500;
+  }
+
+  .quick-search {
+    margin-left: auto;
+    position: relative;
+    width: 220px;
+  }
+  .quick-search input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    padding: 3px 8px 3px 22px;
+    color: var(--text-bright);
+    font-size: 11px;
+    outline: none;
+    transition: 0.12s;
+  }
+  .quick-search input:focus {
+    border-color: var(--accent);
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .quick-search::before {
+    content: "🔍";
+    position: absolute;
+    left: 6px;
+    top: 4px;
+    font-size: 10px;
+    opacity: 0.5;
+  }
+
+  .tool-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 3px 9px;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: 0.12s;
+  }
+  .tool-btn:hover { background: rgba(255, 255, 255, 0.12); color: white; }
+  .tool-btn.primary {
+    background: #007acc;
+    color: white;
+    border-color: #007acc;
+  }
+  .tool-btn.primary:hover { background: #0098ff; }
+
+  /* 主工作区 */
+  .main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .grid-container {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--bg-table-row);
+  }
+  table.data-grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  table.data-grid th {
+    background: var(--bg-table-header);
+    border-bottom: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    padding: 5px 10px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  table.data-grid td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-right: 1px solid rgba(255, 255, 255, 0.04);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  table.data-grid tr:nth-child(even) { background: var(--bg-table-alt); }
+  table.data-grid tr:hover { background: rgba(255, 255, 255, 0.04); cursor: pointer; }
+  table.data-grid tr.selected {
+    background: var(--bg-table-selected) !important;
+    color: white;
+  }
+
+  .mono { font-family: var(--font-mono); font-size: 11.5px; }
+  .pill-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+    display: inline-block;
+  }
+  .pill-active { background: #007acc; color: white; }
+  .pill-dirty { background: #b45309; color: #fde68a; }
+  .pill-clean { background: #15803d; color: #bbf7d0; }
+  .pill-merged { background: #4b5563; color: #d1d5db; }
+
+  /* 底部 Console 日志抽屉 */
+  .console-drawer {
+    height: 140px;
+    background: #141414;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .console-header {
+    height: 26px;
+    background: #1a1a1a;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .console-logs {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: #a0a0a0;
+  }
+  .log-cmd { color: #58a6ff; }
+  .log-ok { color: #3fb950; }
+  .log-warn { color: #d29922; }
+
+  /* 底部状态条 */
+  .statusbar {
+    height: 22px;
+    background: #007acc;
+    color: white;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    font-size: 11px;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+
+  /* 简易 Toast */
+  .toast {
+    position: fixed;
+    top: 50px;
+    right: 20px;
+    background: #252526;
+    border: 1px solid #007acc;
+    color: white;
+    padding: 7px 14px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 1000;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- 顶部工具栏 -->
+<div class="toolbar">
+  <div class="traffic-lights">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+  </div>
+
+  <div class="segmented-control">
+    <button class="segment-btn active" onclick="filterCategory('all', this)">全部工作树 (4)</button>
+    <button class="segment-btn" onclick="filterCategory('active', this)">活跃任务</button>
+    <button class="segment-btn" onclick="filterCategory('merged', this)">已合并分支</button>
+  </div>
+
+  <div class="quick-search">
+    <input type="text" id="gridSearch" placeholder="过滤分支名、提交或路径..." oninput="handleTableFilter()">
+  </div>
+
+  <button class="tool-btn" onclick="refreshGitGrid()">⟳ 刷新状态</button>
+  <button class="tool-btn" onclick="openCurrentDir()">📂 打开目录</button>
+  <button class="tool-btn" onclick="launchIDE()">⚡️ 唤起 IDE</button>
+  <button class="tool-btn primary" onclick="addWorktreeRow()">+ 新建 Worktree</button>
+</div>
+
+<!-- 主数据区 -->
+<div class="main-area">
+  <div class="grid-container">
+    <table class="data-grid" id="mainGrid">
+      <thead>
+        <tr>
+          <th style="width: 30px;">#</th>
+          <th style="width: 220px;">分支名称 (Branch)</th>
+          <th style="width: 90px;">状态 (Status)</th>
+          <th style="width: 100px;">差异 (Diff)</th>
+          <th style="width: 300px;">物理路径 (Worktree Path)</th>
+          <th style="width: 160px;">上游追踪 (Tracking)</th>
+          <th style="width: 80px;">磁盘大小</th>
+          <th>最近提交信息 (Latest Commit)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-cat="all" data-branch="main" data-path="~/vibeCodes/portal" onclick="selectRow(this, 'main')">
+          <td>1</td>
+          <td class="mono"><b>🌿 main</b></td>
+          <td><span class="pill-tag pill-clean">Root Base</span></td>
+          <td class="mono">0 dirty</td>
+          <td class="mono" style="color: var(--text-secondary);">/Users/alex/vibeCodes/portal</td>
+          <td class="mono">origin/main</td>
+          <td>120 MB</td>
+          <td>chore(release): bump version to 1.4.2</td>
+        </tr>
+
+        <tr class="selected" data-cat="active" data-branch="feat/pay-retry-v2" data-path="~/worktrees/portal-pay" onclick="selectRow(this, 'feat/pay-retry-v2')">
+          <td>2</td>
+          <td class="mono"><b>🌿 feat/pay-retry-v2</b></td>
+          <td><span class="pill-tag pill-active">Active</span></td>
+          <td class="mono" style="color: #fde68a;">3 dirty files</td>
+          <td class="mono">/Users/alex/worktrees/portal-pay</td>
+          <td class="mono">origin/feat/pay-retry</td>
+          <td>38.4 MB</td>
+          <td>fix(retry): 修复重试计数器高并发溢出 bug</td>
+        </tr>
+
+        <tr data-cat="active" data-branch="fix/oauth-refresh" data-path="~/worktrees/portal-auth" onclick="selectRow(this, 'fix/oauth-refresh')">
+          <td>3</td>
+          <td class="mono"><b>🌿 fix/oauth-refresh</b></td>
+          <td><span class="pill-tag pill-clean">Clean</span></td>
+          <td class="mono">Clean</td>
+          <td class="mono" style="color: var(--text-secondary);">/Users/alex/worktrees/portal-auth</td>
+          <td class="mono">origin/fix/oauth-refresh</td>
+          <td>34.1 MB</td>
+          <td>fix(auth): 处理拦截器偶发401刷新循环</td>
+        </tr>
+
+        <tr data-cat="merged" data-branch="feat/dark-tokens" data-path="~/worktrees/portal-dark" onclick="selectRow(this, 'feat/dark-tokens')">
+          <td>4</td>
+          <td class="mono" style="text-decoration: line-through; opacity: 0.6;"><b>🌿 feat/dark-tokens</b></td>
+          <td><span class="pill-tag pill-merged">Merged</span></td>
+          <td class="mono">Clean</td>
+          <td class="mono" style="color: var(--text-secondary);">/Users/alex/worktrees/portal-dark</td>
+          <td class="mono">-</td>
+          <td>48.2 MB</td>
+          <td>feat(theme): 完成暗黑模式色板Token抽离</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 底部 Git 实时控制台 -->
+  <div class="console-drawer">
+    <div class="console-header">
+      <span>🖥 GIT OUTPUT CONSOLE (执行日志)</span>
+      <span id="consoleTargetText">当前选中: feat/pay-retry-v2 (/Users/alex/worktrees/portal-pay)</span>
+    </div>
+    <div class="console-logs" id="consoleLogs">
+      <div><span class="log-cmd">$ git</span> worktree list --porcelain</div>
+      <div><span class="log-ok">✓</span> 发现 4 个有效工作树，元数据校验一致 (耗时 12ms)</div>
+      <div><span class="log-cmd">$ git</span> -C ~/worktrees/portal-pay status --porcelain</div>
+      <div><span class="log-warn">!</span> 检测到 3 个工作区脏文件: src/pay/queue.ts, src/pay/types.ts, test/queue.test.ts</div>
+      <div><span class="log-cmd">$ git</span> rev-parse --short HEAD -> 8a1b4d2 (Alex Lin, 15m ago)</div>
+    </div>
+  </div>
+</div>
+
+<!-- 底部状态条 -->
+<div class="statusbar">
+  <span>✓ 就绪</span>
+  <span>仓库: vibeCodes/frontend-portal</span>
+  <span>当前绑定 IDE: Cursor (/Applications/Cursor.app)</span>
+  <span style="margin-left: auto;" id="statusTotal">4 个工作树 (占用 240.7 MB)</span>
+</div>
+
+<div class="toast" id="toast">操作已触发</div>
+
+<script>
+  let currentSelectedBranch = 'feat/pay-retry-v2';
+  let currentSelectedPath = '~/worktrees/portal-pay';
+
+  const branchLogs = {
+    'main': [
+      '<span class="log-cmd">$ git</span> -C ~/vibeCodes/portal status',
+      'On branch main, Your branch is up to date with \'origin/main\'.',
+      '<span class="log-ok">✓</span> nothing to commit, working tree clean',
+      '<span class="log-cmd">$ git</span> log -1 --oneline -> f910ab1 chore(release): bump version to 1.4.2'
+    ],
+    'feat/pay-retry-v2': [
+      '<span class="log-cmd">$ git</span> -C ~/worktrees/portal-pay status --porcelain',
+      '<span class="log-warn">!</span> M src/pay/queue.ts',
+      '<span class="log-warn">!</span> M src/pay/types.ts',
+      '<span class="log-warn">!</span> ?? test/queue.test.ts',
+      '<span class="log-cmd">$ git</span> rev-parse --short HEAD -> 8a1b4d2 (15 分钟前)'
+    ],
+    'fix/oauth-refresh': [
+      '<span class="log-cmd">$ git</span> -C ~/worktrees/portal-auth status',
+      'On branch fix/oauth-refresh',
+      '<span class="log-ok">✓</span> working tree clean, ahead of \'origin/fix/oauth-refresh\' by 1 commit'
+    ],
+    'feat/dark-tokens': [
+      '<span class="log-cmd">$ git</span> -C ~/worktrees/portal-dark branch --merged main',
+      '* feat/dark-tokens (已完全合入 main)',
+      '<span class="log-warn">提示:</span> 可通过 git worktree remove ~/worktrees/portal-dark 安全清理释放空间'
+    ]
+  };
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._pTimer);
+    window._pTimer = setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  function selectRow(tr, branch) {
+    document.querySelectorAll('#mainGrid tbody tr').forEach(r => r.classList.remove('selected'));
+    tr.classList.add('selected');
+    currentSelectedBranch = branch;
+    currentSelectedPath = tr.getAttribute('data-path') || '';
+
+    document.getElementById('consoleTargetText').innerText = `当前选中: ${branch} (${currentSelectedPath})`;
+
+    const logs = branchLogs[branch] || [`$ git -C ${currentSelectedPath} status`];
+    const logBox = document.getElementById('consoleLogs');
+    logBox.innerHTML = logs.map(l => `<div>${l}</div>`).join('');
+  }
+
+  function handleTableFilter() {
+    const q = document.getElementById('gridSearch').value.toLowerCase().trim();
+    document.querySelectorAll('#mainGrid tbody tr').forEach(r => {
+      const match = r.innerText.toLowerCase().includes(q);
+      r.style.display = match ? '' : 'none';
+    });
+  }
+
+  function filterCategory(cat, btn) {
+    document.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    document.querySelectorAll('#mainGrid tbody tr').forEach(r => {
+      if (cat === 'all') {
+        r.style.display = '';
+      } else {
+        const c = r.getAttribute('data-cat');
+        r.style.display = (c === cat) ? '' : 'none';
+      }
+    });
+    showToast(`过滤分类: ${btn.innerText}`);
+  }
+
+  function refreshGitGrid() {
+    const logBox = document.getElementById('consoleLogs');
+    logBox.innerHTML += `<div><span class="log-cmd">$ git</span> fetch --all --prune (全量同步完成 45ms)</div>`;
+    showToast('⟳ 已全量重新扫描 Git worktrees 状态');
+  }
+
+  function openCurrentDir() {
+    showToast(`📂 已在访达中打开: ${currentSelectedPath}`);
+  }
+
+  function launchIDE() {
+    showToast(`🚀 已在 Cursor 中打开: ${currentSelectedBranch}`);
+  }
+
+  function addWorktreeRow() {
+    const b = prompt('请输入新分支名:', 'feat/pro-metrics-v2');
+    if (!b) return;
+
+    const tbody = document.querySelector('#mainGrid tbody');
+    const newRow = document.createElement('tr');
+    newRow.setAttribute('data-cat', 'active');
+    newRow.setAttribute('data-branch', b);
+    newRow.setAttribute('data-path', `~/worktrees/${b.replace('/', '-')}`);
+    newRow.onclick = function() { selectRow(this, b); };
+    newRow.innerHTML = `
+      <td>${tbody.children.length + 1}</td>
+      <td class="mono"><b>🌿 ${b}</b></td>
+      <td><span class="pill-tag pill-clean">New</span></td>
+      <td class="mono">0 dirty</td>
+      <td class="mono" style="color: var(--text-secondary);">~/worktrees/${b.replace('/', '-')}</td>
+      <td class="mono">origin/${b}</td>
+      <td>25 MB</td>
+      <td>feat: 初始化工作树 ${b}</td>
+    `;
+    tbody.appendChild(newRow);
+    newRow.click();
+    showToast(`✨ 新建工作树行 [${b}] 已加入数据表格`);
+  }
+</script>
+
+</body>
+</html>

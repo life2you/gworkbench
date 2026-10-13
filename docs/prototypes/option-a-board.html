@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 A：看板泳道工作台 (全交互体验) - GWorkbench</title>
+<style>
+  :root {
+    --bg-window: #191a20;
+    --bg-canvas: #121316;
+    --bg-column: #1e2027;
+    --bg-card: #272a34;
+    --bg-card-hover: #303442;
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-card: rgba(255, 255, 255, 0.06);
+    --text-primary: #f0f2f5;
+    --text-secondary: #9aa0af;
+    --text-muted: #646a78;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --accent-bg: rgba(59, 130, 246, 0.15);
+    --success: #10b981;
+    --success-bg: rgba(16, 185, 129, 0.15);
+    --warning: #f59e0b;
+    --warning-bg: rgba(245, 158, 11, 0.15);
+    --purple: #8b5cf6;
+    --purple-bg: rgba(139, 92, 246, 0.15);
+    --danger: #ef4444;
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background-color: var(--bg-window);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 顶部工具栏 */
+  .toolbar {
+    height: 52px;
+    background: rgba(25, 26, 32, 0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  .traffic-lights { display: flex; gap: 8px; margin-right: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-red { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #27c93f; }
+
+  .project-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .project-selector:hover { background: rgba(255, 255, 255, 0.09); }
+
+  .search-box {
+    flex: 1;
+    max-width: 320px;
+    position: relative;
+  }
+  .search-box input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px 12px 6px 32px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    transition: 0.15s;
+  }
+  .search-box input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-bg);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .toolbar-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 7px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border-color: var(--border-color);
+  }
+  .btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: white;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+
+  /* 主画布区 */
+  .canvas {
+    flex: 1;
+    background: var(--bg-canvas);
+    padding: 20px 24px;
+    overflow-x: auto;
+    display: flex;
+    gap: 20px;
+  }
+
+  /* 泳道列 */
+  .column {
+    flex: 0 0 320px;
+    background: var(--bg-column);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+  }
+  .column-header {
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .column-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .count-tag {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary);
+  }
+
+  .card-list {
+    padding: 12px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+  }
+
+  /* 任务卡片 */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: 10px;
+    padding: 14px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  }
+  .card:hover {
+    background: var(--bg-card-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+  .card.active-now {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 4px 14px rgba(59, 130, 246, 0.25);
+  }
+  .card.selected {
+    border-color: #60a5fa;
+    background: #2e3240;
+  }
+  .card.removing {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+
+  .card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .branch-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+  }
+  .pill {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    text-transform: uppercase;
+  }
+  .pill-main { background: var(--accent-bg); color: #60a5fa; }
+  .pill-dirty { background: var(--warning-bg); color: #fbbf24; }
+  .pill-clean { background: var(--success-bg); color: #34d399; }
+  .pill-mr { background: var(--purple-bg); color: #c084fc; }
+
+  .card-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 12px;
+  }
+
+  .card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 10px;
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  }
+  .action-chip {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  .action-chip:hover {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .action-chip.danger:hover {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: white;
+  }
+
+  /* 悬浮 Toast 通知 */
+  .toast {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%) translateY(30px);
+    background: rgba(30, 32, 40, 0.95);
+    border: 1px solid var(--accent);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    pointer-events: none;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 1000;
+  }
+  .toast.show {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* 模态弹窗 */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 900;
+    opacity: 0;
+    pointer-events: none;
+    transition: 0.2s;
+  }
+  .modal-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .modal {
+    width: 480px;
+    background: #22242c;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 24px;
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    transform: scale(0.95);
+    transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .modal-overlay.open .modal {
+    transform: scale(1);
+  }
+  .modal-title { font-size: 16px; font-weight: 600; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 12px; color: var(--text-secondary); }
+  .form-group input, .form-group select {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    padding: 8px 12px;
+    color: white;
+    font-size: 13px;
+    outline: none;
+  }
+  .form-group input:focus, .form-group select:focus {
+    border-color: var(--accent);
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="traffic-lights">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+  </div>
+
+  <div class="project-selector" onclick="showToast('当前仓库: vibeCodes / frontend-portal (共 4 个工作树)')">
+    <span style="color: var(--accent);">📁</span>
+    <span>vibeCodes / frontend-portal</span>
+    <span style="color: var(--text-muted); font-size: 10px;">▼</span>
+  </div>
+
+  <div class="search-box">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="searchInput" placeholder="实时过滤分支或备忘 (试键入 'pay' 或 'clean')..." oninput="filterCards()">
+  </div>
+
+  <div class="toolbar-actions">
+    <button class="btn btn-ghost" onclick="refreshStatus()">⟳ 刷新状态</button>
+    <button class="btn btn-primary" onclick="openNewModal()">+ 新建工作树</button>
+  </div>
+</div>
+
+<div class="canvas">
+
+  <!-- 泳道 1: 主仓库 -->
+  <div class="column">
+    <div class="column-header">
+      <div class="column-title"><span>🏠 主仓库与基准</span></div>
+      <span class="count-tag" id="count-base">1</span>
+    </div>
+    <div class="card-list" id="list-base">
+      <div class="card" onclick="selectCard(this)" data-title="main 生产基线">
+        <div class="card-top">
+          <div class="branch-name">🌿 main</div>
+          <span class="pill pill-main">Root Repo</span>
+        </div>
+        <div class="card-desc">生产基线分支 · HEAD 指向 v1.4.2 Release Tag</div>
+        <div class="card-meta">
+          <span>🕒 10 分钟前更新</span>
+          <span style="font-family: var(--font-mono);">0 dirty files</span>
+        </div>
+        <div class="card-actions">
+          <div class="action-chip" onclick="openInIDE('main', 'VS Code', event)">⚡️ VS Code</div>
+          <div class="action-chip" onclick="openTerminal('~/vibeCodes/portal', event)">💻 Terminal</div>
+          <div class="action-chip" onclick="openFinder('~/vibeCodes/portal', event)">📂 Finder</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 泳道 2: 正在进行中 -->
+  <div class="column">
+    <div class="column-header">
+      <div class="column-title"><span>🔥 正在进行中 (Active)</span></div>
+      <span class="count-tag" id="count-active">2</span>
+    </div>
+    <div class="card-list" id="list-active">
+      <div class="card active-now" onclick="selectCard(this)" data-title="feat/pay-retry-v2 支付超时队列">
+        <div class="card-top">
+          <div class="branch-name">🌿 feat/pay-retry-v2</div>
+          <span class="pill pill-dirty">3 Dirty</span>
+        </div>
+        <div class="card-desc">改造支付结算超时重试队列，新增指数退避算法与单元测试。</div>
+        <div class="card-meta">
+          <span>🕒 2 分钟前活跃</span>
+          <span style="color: #fbbf24; font-weight: 500;">⚡️ Cursor 编辑中</span>
+        </div>
+        <div class="card-actions">
+          <div class="action-chip" style="background: var(--accent); color: white;" onclick="openInIDE('feat/pay-retry-v2', 'Cursor', event)">⚡️ 切换至 Cursor</div>
+          <div class="action-chip" onclick="syncEnv('feat/pay-retry-v2', 'test', event)">🔀 同步测试环境</div>
+        </div>
+      </div>
+
+      <div class="card" onclick="selectCard(this)" data-title="fix/oauth-refresh 认证拦截器">
+        <div class="card-top">
+          <div class="branch-name">🌿 fix/oauth-refresh</div>
+          <span class="pill pill-clean">Clean</span>
+        </div>
+        <div class="card-desc">修复 Token 自动刷新时 401 偶发拦截导致登出的缺陷。</div>
+        <div class="card-meta">
+          <span>🕒 1 小时前提交</span>
+          <span>45 MB · 2 commits</span>
+        </div>
+        <div class="card-actions">
+          <div class="action-chip" onclick="openInIDE('fix/oauth-refresh', 'Cursor', event)">⚡️ 打开</div>
+          <div class="action-chip" onclick="openTerminal('~/worktrees/portal-auth', event)">💻 Terminal</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 泳道 3: 待评审队列 -->
+  <div class="column">
+    <div class="column-header">
+      <div class="column-title"><span>🚀 待评审 / MR 队列</span></div>
+      <span class="count-tag" id="count-review">1</span>
+    </div>
+    <div class="card-list" id="list-review">
+      <div class="card" onclick="selectCard(this)" data-title="feat/dark-tokens 暗黑模式">
+        <div class="card-top">
+          <div class="branch-name">🌿 feat/dark-tokens</div>
+          <span class="pill pill-mr">MR #84 审核中</span>
+        </div>
+        <div class="card-desc">暗黑模式全局颜色 Token 抽离，支持深浅色无缝热切换。</div>
+        <div class="card-meta">
+          <span>🕒 4 小时前推送</span>
+          <span style="color: #34d399;">● CI 流水线通过</span>
+        </div>
+        <div class="card-actions">
+          <div class="action-chip" onclick="showToast('正在打开 GitLab MR !84 审查页...', event)">🌐 查看 MR</div>
+          <div class="action-chip" onclick="openInIDE('feat/dark-tokens', 'Cursor', event)">⚡️ 打开检查</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 泳道 4: 已合并待清理 -->
+  <div class="column">
+    <div class="column-header">
+      <div class="column-title"><span>💤 已合并待释放 (Prunable)</span></div>
+      <span class="count-tag" id="count-prune">1</span>
+    </div>
+    <div class="card-list" id="list-prune">
+      <div class="card" id="card-cors" onclick="selectCard(this)" data-title="fix/cors-patch 已合并跨域补丁">
+        <div class="card-top">
+          <div class="branch-name" style="text-decoration: line-through; color: var(--text-muted);">🌿 fix/cors-patch</div>
+          <span class="pill" style="background: rgba(255,255,255,0.08); color: var(--text-muted);">Merged</span>
+        </div>
+        <div class="card-desc">已成功合并到 main 分支。建议清理此工作树以释放磁盘资源。</div>
+        <div class="card-meta">
+          <span>🕒 昨天已合并</span>
+          <span style="color: var(--danger);">可释放 58 MB</span>
+        </div>
+        <div class="card-actions">
+          <div class="action-chip danger" onclick="pruneCard('card-cors', 'fix/cors-patch', event)">🗑 一键销毁工作树</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 模态框：新建工作树 -->
+<div class="modal-overlay" id="newModal">
+  <div class="modal">
+    <div class="modal-title">✨ 新建工作树 (New Worktree)</div>
+    
+    <div class="form-group">
+      <label>分支名称 (Branch Name)</label>
+      <input type="text" id="newBranchInput" placeholder="例如: feat/user-profile-v3" value="feat/user-avatar-upload">
+    </div>
+
+    <div class="form-group">
+      <label>基准分支 (Base Branch)</label>
+      <select id="newBaseSelect">
+        <option>main (当前生产基准)</option>
+        <option>origin/feat/pay-retry-v2</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>功能备忘 / 上下文描述 (可选)</label>
+      <input type="text" id="newDescInput" placeholder="输入这颗工作树的任务目标..." value="用户头像裁剪与上传功能实现">
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeNewModal()">取消</button>
+      <button class="btn btn-primary" onclick="confirmCreateWorktree()">创建并在 Cursor 打开</button>
+    </div>
+  </div>
+</div>
+
+<!-- 浮动通知 Toast -->
+<div class="toast" id="toast">
+  <span id="toastIcon">⚡️</span>
+  <span id="toastMsg">通知文本</span>
+</div>
+
+<script>
+  function showToast(msg, event) {
+    if (event) event.stopPropagation();
+    const t = document.getElementById('toast');
+    document.getElementById('toastMsg').innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+      t.classList.remove('show');
+    }, 2400);
+  }
+
+  function selectCard(el) {
+    document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    showToast('已选中工作树: ' + el.querySelector('.branch-name').innerText);
+  }
+
+  function filterCards() {
+    const q = document.getElementById('searchInput').value.toLowerCase().trim();
+    document.querySelectorAll('.card').forEach(c => {
+      const text = (c.getAttribute('data-title') + ' ' + c.innerText).toLowerCase();
+      c.style.display = text.includes(q) ? 'block' : 'none';
+    });
+  }
+
+  function openInIDE(branch, ide, e) {
+    showToast(`🚀 已在 ${ide} 中打开分支 [${branch}] (PID: 74218)`, e);
+  }
+
+  function openTerminal(path, e) {
+    showToast(`💻 已在系统终端中定位到 [${path}]`, e);
+  }
+
+  function openFinder(path, e) {
+    showToast(`📂 已在访达中显示 [${path}]`, e);
+  }
+
+  function syncEnv(branch, env, e) {
+    showToast(`🔀 正在将 ${branch} 同步并推送至 ${env} 环境分支...`, e);
+  }
+
+  function pruneCard(id, branch, e) {
+    if (e) e.stopPropagation();
+    if (!confirm(`确定销毁工作树 [${branch}] 吗？将释放 58 MB 磁盘空间。`)) return;
+    const card = document.getElementById(id);
+    card.classList.add('removing');
+    setTimeout(() => {
+      card.remove();
+      document.getElementById('count-prune').innerText = '0';
+      showToast(`🗑 已成功销毁工作树 ${branch}，释放 58 MB 空间！`);
+    }, 250);
+  }
+
+  function refreshStatus() {
+    showToast('⟳ 已重新检查所有本地分支状态、未暂存更改与远端同步。');
+  }
+
+  function openNewModal() {
+    document.getElementById('newModal').classList.add('open');
+  }
+  function closeNewModal() {
+    document.getElementById('newModal').classList.remove('open');
+  }
+
+  function confirmCreateWorktree() {
+    const branch = document.getElementById('newBranchInput').value.trim();
+    const desc = document.getElementById('newDescInput').value.trim();
+    if (!branch) return alert('请输入分支名');
+
+    closeNewModal();
+
+    // 动态添加卡片到 Active 泳道
+    const list = document.getElementById('list-active');
+    const newCard = document.createElement('div');
+    newCard.className = 'card active-now';
+    newCard.setAttribute('data-title', branch + ' ' + desc);
+    newCard.onclick = function() { selectCard(this); };
+    newCard.innerHTML = `
+      <div class="card-top">
+        <div class="branch-name">🌿 ${branch}</div>
+        <span class="pill pill-clean">Just Created</span>
+      </div>
+      <div class="card-desc">${desc || '新建工作树'}</div>
+      <div class="card-meta">
+        <span>🕒 刚刚创建</span>
+        <span style="color: #60a5fa;">⚡️ 正在唤起 Cursor</span>
+      </div>
+      <div class="card-actions">
+        <div class="action-chip" style="background: var(--accent); color: white;" onclick="openInIDE('${branch}', 'Cursor', event)">⚡️ 切换至 Cursor</div>
+        <div class="action-chip" onclick="openTerminal('~/worktrees/${branch}', event)">💻 Terminal</div>
+      </div>
+    `;
+    list.prepend(newCard);
+    document.getElementById('count-active').innerText = '3';
+    showToast(`✨ 工作树 [${branch}] 创建成功，已在 Cursor 唤起！`);
+  }
+</script>
+
+</body>
+</html>

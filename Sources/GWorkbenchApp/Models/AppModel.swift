@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 enum AppSection: String, CaseIterable, Identifiable {
     case worktrees
@@ -35,9 +36,40 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
 }
 
-enum WorktreeKind: String, Hashable {
+enum WorktreeKind: String, Hashable, Comparable, Sendable {
     case mainRepo = "主仓库"
     case worktree = "工作树"
+
+    public static func < (lhs: WorktreeKind, rhs: WorktreeKind) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+}
+
+enum WorktreeCategoryFilter: String, CaseIterable, Identifiable, Sendable {
+    case all = "全部"
+    case active = "活跃"
+    case modified = "有修改"
+    case mainRepo = "主仓库"
+
+    var id: String { rawValue }
+}
+
+enum WorkbenchConsoleTab: String, CaseIterable, Identifiable, Sendable {
+    case changes = "改动文件"
+    case syncRadar = "分支同步雷达"
+    case logs = "执行日志"
+    case quickScripts = "快捷脚本"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .changes: return "doc.badge.ellipsis"
+        case .syncRadar: return "dot.radiowaves.left.and.right"
+        case .logs: return "terminal"
+        case .quickScripts: return "applescript"
+        }
+    }
 }
 
 enum MergeRequestFilter: String, CaseIterable, Identifiable {
@@ -89,7 +121,6 @@ enum CreateWorktreeMode: String, CaseIterable, Hashable, Sendable {
 enum LocalBranchOperationMode: String, CaseIterable, Identifiable, Hashable, Sendable {
     case syncEnvironments = "同步环境分支"
     case mergeAll = "合并到全部目标"
-    case mergeSingle = "合并到单个目标"
     case mergeCustom = "自定义目标"
 
     var id: String { rawValue }
@@ -100,15 +131,35 @@ enum LocalBranchOperationMode: String, CaseIterable, Identifiable, Hashable, Sen
             return "依次更新环境分支，再同步到对应合并分支并推送。"
         case .mergeAll:
             return "选择一个源分支，批量合并到全部目标合并分支。"
-        case .mergeSingle:
-            return "选择一个源分支，只合并到一个目标分支。"
         case .mergeCustom:
-            return "手动勾选多个目标分支，适合灰度或局部回合并。"
+            return "按需勾选这次要处理的目标分支，灵活支持单个或多个目标。"
         }
     }
 
     var requiresSourceBranch: Bool {
         self != .syncEnvironments
+    }
+
+    var systemImage: String {
+        switch self {
+        case .syncEnvironments:
+            return "arrow.triangle.2.circlepath"
+        case .mergeAll:
+            return "arrow.triangle.merge"
+        case .mergeCustom:
+            return "checklist"
+        }
+    }
+
+    var detailedDescription: String {
+        switch self {
+        case .syncEnvironments:
+            return "依次检查并更新本地对应环境分支（如 dev / test / staging），拉取最新远端代码，并合并到对应的集成目标分支后自动推送。"
+        case .mergeAll:
+            return "选择指定的本地源分支，自动依次检出所有集成目标分支，合并当前源分支并全部自动推送到远端仓库。"
+        case .mergeCustom:
+            return "灵活勾选本次要参与合并的目标分支（支持单个特定目标或多个目标组合），精准完成特定环境代码合流。"
+        }
     }
 }
 
@@ -182,6 +233,9 @@ struct WorktreeItem: Identifiable, Hashable, Sendable {
     let diskUsage: String
     let canRemoveRemoteBranch: Bool
     let commits: [CommitEntry]
+    var isDirty: Bool = false
+    var dirtySummary: String = "干净"
+    var platform: RepositoryPlatform = .local
 }
 
 struct MergeRequestItem: Identifiable, Hashable, Sendable {
@@ -257,9 +311,44 @@ final class AppModel {
     var selectedProjectID: String?
     var selectedLocalProjectID: String?
     var selectedMergeProjectID: String?
-    var selectedWorktreeID: String?
+    var selectedWorktreeID: String? {
+        didSet {
+            if selectedWorktreeID != oldValue {
+                syncSelectedWorktreeDescriptionDraft()
+                syncSelectedWorktreeDetails()
+            }
+        }
+    }
+    var activeConsoleTab: WorkbenchConsoleTab = .changes
+    var consolePanelHeight: CGFloat = 220
+    var isConsoleCollapsed: Bool = false
+    var selectedWorktreeFileChanges: [WorktreeFileChange] = []
+    var selectedWorktreeAheadBehind: AheadBehindCount? = nil
+    var isLoadingConsoleDetails: Bool = false
+
+    private var consoleDetailsTask: Task<Void, Never>?
+    private var consoleDetailsGeneration: Int = 0
     var selectedMergeRequestID: String?
     var selectedMergeFilter: MergeRequestFilter = .open
+    var selectedWorktreeCategory: WorktreeCategoryFilter = .all
+    var selectedPlatformFilter: RepositoryPlatform = .all {
+        didSet {
+            if selectedPlatformFilter != oldValue {
+                if selectedPlatformFilter != .all {
+                    if let cur = currentWorktreeProject, cur.platform != selectedPlatformFilter {
+                        selectedProjectID = filteredWorktreeProjects.first?.id
+                    }
+                    if let cur = currentLocalMergeProject, cur.platform != selectedPlatformFilter {
+                        selectedLocalProjectID = filteredLocalMergeProjects.first?.id
+                    }
+                }
+            }
+        }
+    }
+    var sortOrder: [KeyPathComparator<WorktreeItem>] = [
+        KeyPathComparator(\.branch, order: .forward)
+    ]
+    var gitVersion: String = "Git"
 
     var worktreeSearchText = ""
     var localBranchSearchText = ""
@@ -279,7 +368,14 @@ final class AppModel {
     var localOperationSingleTarget = ""
     var localOperationCustomTargets = Set<String>()
 
+    var scannedTerminals: [InstalledTerminalApp] = []
+    var scannedIDEs: [InstalledIDEApp] = []
     var deleteLocalBranchOnRemove = false
+
+    init() {
+        scannedTerminals = TerminalService.shared.scanInstalledTerminals()
+        scannedIDEs = IDEService.shared.scanInstalledIDEs()
+    }
     var deleteRemoteBranchOnRemove = false
 
     var worktreeOperation = OperationState.idle(title: "工作树状态")
@@ -288,14 +384,31 @@ final class AppModel {
     var settingsOperation = OperationState.idle(title: "设置状态")
 
     var appConfig: GWorkbenchConfig?
-    var gwtmConfig: GwtmConfig?
+    var worktreeConfig: WorktreeConfig?
     var localMergeContext: LocalMergeContext?
-    var gmuxContext: GmuxContext?
+    var mergeRequestContext: MergeRequestContext?
     var settingsDraft = SettingsDraft()
     var settingsTokenVisible = false
     var globalErrorMessage: String?
 
     private var didBootstrap = false
+
+    var effectiveWorktreeConfig: WorktreeConfig? {
+        if let app = appConfig {
+            return app.asWorktreeConfig()
+        }
+        return worktreeConfig
+    }
+
+    var currentIDELabel: String {
+        if let label = effectiveWorktreeConfig?.ideLabel, !label.isEmpty {
+            return label
+        }
+        if !settingsDraft.ideLabel.isEmpty {
+            return settingsDraft.ideLabel
+        }
+        return "IDE"
+    }
 
     var selectedWorktree: WorktreeItem? {
         filteredWorktrees.first(where: { $0.id == selectedWorktreeID })
@@ -308,11 +421,56 @@ final class AppModel {
     }
 
     var currentWorktreeProject: LocalProject? {
-        worktreeProjects.first(where: { $0.id == selectedProjectID }) ?? worktreeProjects.first
+        if let id = selectedProjectID {
+            return filteredWorktreeProjects.first(where: { $0.id == id })
+                ?? worktreeProjects.first(where: { $0.id == id })
+        }
+        return filteredWorktreeProjects.first ?? worktreeProjects.first
     }
 
     var currentLocalMergeProject: MergeProject? {
-        localMergeProjects.first(where: { $0.id == selectedLocalProjectID }) ?? localMergeProjects.first
+        if let id = selectedLocalProjectID {
+            return filteredLocalMergeProjects.first(where: { $0.id == id })
+                ?? localMergeProjects.first(where: { $0.id == id })
+        }
+        return filteredLocalMergeProjects.first ?? localMergeProjects.first
+    }
+
+    var filteredWorktreeProjects: [LocalProject] {
+        worktreeProjects.filter { project in
+            selectedPlatformFilter == .all || project.platform == selectedPlatformFilter
+        }
+    }
+
+    var filteredLocalMergeProjects: [MergeProject] {
+        localMergeProjects.filter { project in
+            selectedPlatformFilter == .all || project.platform == selectedPlatformFilter
+        }
+    }
+
+    func projectCount(for platform: RepositoryPlatform) -> Int {
+        if platform == .all {
+            return worktreeProjects.count
+        }
+        return worktreeProjects.filter { $0.platform == platform }.count
+    }
+
+    func localMergeProjectCount(for platform: RepositoryPlatform) -> Int {
+        if platform == .all {
+            return localMergeProjects.count
+        }
+        return localMergeProjects.filter { $0.platform == platform }.count
+    }
+
+    var availablePlatforms: [RepositoryPlatform] {
+        let platforms = Set(worktreeProjects.map(\.platform))
+        var list: [RepositoryPlatform] = [.all]
+        for p in [RepositoryPlatform.gitlab, RepositoryPlatform.github, RepositoryPlatform.local] {
+            if platforms.contains(p) {
+                list.append(p)
+            }
+        }
+        return list
     }
 
     var currentMergeProject: MergeProject? {
@@ -320,7 +478,11 @@ final class AppModel {
     }
 
     var worktreeCountByProject: [String: Int] {
-        Dictionary(grouping: worktrees, by: \.project).mapValues(\.count)
+        Dictionary(grouping: worktrees.filter { $0.kind == .worktree }, by: \.project).mapValues(\.count)
+    }
+
+    var realWorktreesCount: Int {
+        worktrees.filter { $0.kind == .worktree }.count
     }
 
     var mergeCountByFilter: [MergeRequestFilter: Int] {
@@ -334,12 +496,89 @@ final class AppModel {
             return []
         }
         return worktrees.filter { item in
-            item.projectPath == currentProject.path &&
-            (worktreeSearchText.isEmpty ||
-             item.branch.localizedCaseInsensitiveContains(worktreeSearchText) ||
-             item.summary.localizedCaseInsensitiveContains(worktreeSearchText))
+            guard item.projectPath == currentProject.path else { return false }
+
+            switch selectedWorktreeCategory {
+            case .all:
+                break
+            case .active:
+                if item.kind != .worktree { return false }
+            case .modified:
+                if !item.isDirty { return false }
+            case .mainRepo:
+                if item.kind != .mainRepo { return false }
+            }
+
+            if !worktreeSearchText.isEmpty {
+                let match = item.branch.localizedCaseInsensitiveContains(worktreeSearchText) ||
+                    item.summary.localizedCaseInsensitiveContains(worktreeSearchText) ||
+                    item.path.localizedCaseInsensitiveContains(worktreeSearchText) ||
+                    item.head.localizedCaseInsensitiveContains(worktreeSearchText)
+                if !match { return false }
+            }
+            return true
         }
     }
+
+    var sortedWorktrees: [WorktreeItem] {
+        filteredWorktrees.sorted(using: sortOrder)
+    }
+
+    var currentProjectWorktreeCount: Int {
+        guard let project = currentWorktreeProject else { return 0 }
+        return worktrees.filter { $0.projectPath == project.path }.count
+    }
+
+    var currentProjectTotalDiskUsage: String {
+        guard let project = currentWorktreeProject else { return "0 MB" }
+        let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
+        guard !projectWorktrees.isEmpty else { return "0 MB" }
+
+        var totalBytes: Int64 = 0
+        var hasValid = false
+
+        for item in projectWorktrees {
+            let str = item.diskUsage.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            if str.hasSuffix("G") || str.hasSuffix("GB") {
+                let numStr = str.replacingOccurrences(of: "GB", with: "").replacingOccurrences(of: "G", with: "")
+                if let num = Double(numStr) {
+                    totalBytes += Int64(num * 1024 * 1024 * 1024)
+                    hasValid = true
+                }
+            } else if str.hasSuffix("M") || str.hasSuffix("MB") {
+                let numStr = str.replacingOccurrences(of: "MB", with: "").replacingOccurrences(of: "M", with: "")
+                if let num = Double(numStr) {
+                    totalBytes += Int64(num * 1024 * 1024)
+                    hasValid = true
+                }
+            } else if str.hasSuffix("K") || str.hasSuffix("KB") {
+                let numStr = str.replacingOccurrences(of: "KB", with: "").replacingOccurrences(of: "K", with: "")
+                if let num = Double(numStr) {
+                    totalBytes += Int64(num * 1024)
+                    hasValid = true
+                }
+            } else if str.hasSuffix("B") {
+                let numStr = str.replacingOccurrences(of: "B", with: "")
+                if let num = Double(numStr) {
+                    totalBytes += Int64(num)
+                    hasValid = true
+                }
+            }
+        }
+
+        if !hasValid {
+            return "未知"
+        }
+
+        let byteCountFormatter = ByteCountFormatter()
+        byteCountFormatter.allowedUnits = [.useAll]
+        byteCountFormatter.countStyle = .file
+        byteCountFormatter.zeroPadsFractionDigits = false
+        byteCountFormatter.includesActualByteCount = false
+        return byteCountFormatter.string(fromByteCount: totalBytes)
+    }
+
+    var mrSortOrder = [KeyPathComparator(\MergeRequestItem.iid, order: .reverse)]
 
     var filteredMergeRequests: [MergeRequestItem] {
         mergeRequests(for: selectedMergeFilter).filter { item in
@@ -350,6 +589,10 @@ final class AppModel {
             item.targetBranch.localizedCaseInsensitiveContains(mergeRequestSearchText) ||
             item.author.localizedCaseInsensitiveContains(mergeRequestSearchText)
         }
+    }
+
+    var sortedMergeRequests: [MergeRequestItem] {
+        filteredMergeRequests.sorted(using: mrSortOrder)
     }
 
     var availableBaseBranches: [String] {
@@ -435,12 +678,8 @@ final class AppModel {
 
     var resolvedLocalOperationTargets: [String] {
         switch localOperationMode {
-        case .syncEnvironments:
+        case .syncEnvironments, .mergeAll:
             return localTargetOptions.map(\.targetBranch)
-        case .mergeAll:
-            return localTargetOptions.map(\.targetBranch)
-        case .mergeSingle:
-            return localOperationSingleTarget.nonEmptyArray
         case .mergeCustom:
             return localTargetOptions
                 .map(\.targetBranch)
@@ -450,7 +689,7 @@ final class AppModel {
 
     var localOperationPreviewLines: [String] {
         guard let project = currentLocalMergeProject else {
-            return ["当前还没有可执行的 gmux 本地项目。"]
+            return ["当前还没有可执行的本地项目。"]
         }
 
         var lines = [
@@ -473,7 +712,7 @@ final class AppModel {
                 lines.append("- 更新环境分支 `\(option.envBranch)` 并 pull 最新代码")
                 lines.append("- 同步到合并分支 `\(option.targetBranch)` 并 push")
             }
-        case .mergeAll, .mergeSingle, .mergeCustom:
+        case .mergeAll, .mergeCustom:
             for target in resolvedLocalOperationTargets {
                 lines.append("- checkout `\(target)`")
                 lines.append("- merge `\(localOperationSourceBranch)` 到 `\(target)`")
@@ -515,8 +754,6 @@ final class AppModel {
             return !localTargetOptions.isEmpty
         case .mergeAll:
             return localOperationSourceBranch.nonEmpty != nil && !localTargetOptions.isEmpty
-        case .mergeSingle:
-            return localOperationSourceBranch.nonEmpty != nil && localOperationSingleTarget.nonEmpty != nil
         case .mergeCustom:
             return localOperationSourceBranch.nonEmpty != nil && !resolvedLocalOperationTargets.isEmpty
         }
@@ -527,6 +764,9 @@ final class AppModel {
             return
         }
         didBootstrap = true
+        if let ver = try? GitCliService().gitVersion() {
+            gitVersion = ver
+        }
         await refreshSettings()
         await refreshWorktrees()
         await refreshLocalMergeProjects()
@@ -534,10 +774,13 @@ final class AppModel {
     }
 
     func refreshSettings() async {
+        refreshScannedTerminals()
+        refreshScannedIDEs()
         settingsOperation = OperationState(isRunning: true, title: "读取设置", detail: "正在加载 GWorkbench 配置")
         do {
             let config = try await service.loadWorkbenchConfig()
             appConfig = config
+            worktreeConfig = config.asWorktreeConfig()
             settingsDraft = SettingsDraft(config: config)
             settingsTokenVisible = false
             settingsOperation = OperationState(
@@ -559,22 +802,35 @@ final class AppModel {
     }
 
     func refreshWorktrees() async {
-        worktreeOperation = OperationState(isRunning: true, title: "刷新工作树", detail: "开始读取本地配置")
+        appendWorktreeLog("开始扫描工作树...")
+        worktreeOperation = OperationState(
+            isRunning: true,
+            title: "刷新工作树",
+            detail: "开始读取本地配置",
+            logs: worktreeOperation.logs
+        )
         globalErrorMessage = nil
 
         do {
+            if gitVersion == "Git" || gitVersion.isEmpty {
+                if let ver = try? GitCliService().gitVersion() {
+                    gitVersion = ver
+                }
+            }
+
             let snapshot = try await service.loadWorktreeSnapshot { [weak self] progress in
                 Task { @MainActor in
                     self?.worktreeOperation = OperationState(
                         isRunning: true,
                         title: progress.title,
                         detail: progress.detail,
-                        fractionCompleted: progress.fractionCompleted
+                        fractionCompleted: progress.fractionCompleted,
+                        logs: self?.worktreeOperation.logs ?? []
                     )
                 }
             }
 
-            gwtmConfig = snapshot.config
+            worktreeConfig = snapshot.config
             worktreeProjects = snapshot.projects
             worktrees = snapshot.worktrees
 
@@ -587,20 +843,25 @@ final class AppModel {
             }
 
             syncSelectedWorktreeDescriptionDraft()
+            syncSelectedWorktreeDetails()
             syncCreateWorktreeDefaults(resetBranchName: false)
 
+            appendWorktreeLog("工作树刷新完成：已同步 \(snapshot.projects.count) 个项目和 \(snapshot.worktrees.count) 个工作树")
             worktreeOperation = OperationState(
                 isRunning: false,
                 title: "工作树已刷新",
                 detail: "已同步 \(snapshot.projects.count) 个项目和 \(snapshot.worktrees.count) 个工作树",
                 fractionCompleted: 1,
+                logs: worktreeOperation.logs,
                 successMessage: "刷新完成"
             )
         } catch {
+            appendWorktreeLog("工作树刷新失败: \(error.localizedDescription)")
             worktreeOperation = OperationState(
                 isRunning: false,
                 title: "工作树刷新失败",
                 detail: error.localizedDescription,
+                logs: worktreeOperation.logs,
                 errorMessage: error.localizedDescription
             )
             globalErrorMessage = error.localizedDescription
@@ -608,7 +869,7 @@ final class AppModel {
     }
 
     func refreshLocalMergeProjects() async {
-        localOperation = OperationState(isRunning: true, title: "刷新分支同步项目", detail: "开始读取 gmux 本地配置")
+        localOperation = OperationState(isRunning: true, title: "刷新分支同步项目", detail: "开始读取本地配置")
         globalErrorMessage = nil
 
         do {
@@ -651,7 +912,7 @@ final class AppModel {
     }
 
     func refreshMergeProjects() async {
-        mrOperation = OperationState(isRunning: true, title: "刷新 gmux 项目", detail: "开始读取配置")
+        mrOperation = OperationState(isRunning: true, title: "刷新合并项目", detail: "开始读取配置")
         globalErrorMessage = nil
 
         do {
@@ -665,7 +926,7 @@ final class AppModel {
                     )
                 }
             }
-            gmuxContext = context
+            mergeRequestContext = context
             mergeProjects = context.projects
 
             if selectedMergeProjectID == nil || !mergeProjects.contains(where: { $0.id == selectedMergeProjectID }) {
@@ -676,7 +937,7 @@ final class AppModel {
         } catch {
             mrOperation = OperationState(
                 isRunning: false,
-                title: "gmux 项目刷新失败",
+                title: "合并项目刷新失败",
                 detail: error.localizedDescription,
                 errorMessage: error.localizedDescription
             )
@@ -685,7 +946,7 @@ final class AppModel {
     }
 
     func refreshMergeRequests() async {
-        guard let context = gmuxContext, let project = currentMergeProject else {
+        guard let context = mergeRequestContext, let project = currentMergeProject else {
             mergeRequests = []
             selectedMergeRequestID = nil
             return
@@ -735,6 +996,7 @@ final class AppModel {
             selectedWorktreeID = filteredWorktrees.first?.id
         }
         syncSelectedWorktreeDescriptionDraft()
+        syncSelectedWorktreeDetails()
         syncCreateWorktreeDefaults(resetBranchName: false)
     }
 
@@ -775,6 +1037,96 @@ final class AppModel {
         } else {
             localOperationCustomTargets.insert(target)
         }
+    }
+
+    func selectAllLocalCustomTargets() {
+        let targets = localTargetOptions.map(\.targetBranch)
+        localOperationCustomTargets = Set(targets)
+    }
+
+    func deselectAllLocalCustomTargets() {
+        localOperationCustomTargets.removeAll()
+    }
+
+    func selectCurrentHeadAsLocalSourceBranch() {
+        if let current = currentLocalMergeProject?.currentBranch, !current.isEmpty {
+            localOperationSourceBranch = current
+        } else if let first = currentLocalMergeProject?.localBranches.first {
+            localOperationSourceBranch = first
+        }
+    }
+
+    func appendLocalOperationLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        let timestamp = formatter.string(from: Date())
+        localOperation.logs.append("[\(timestamp)] \(message)")
+    }
+
+    func clearLocalOperationLogs() {
+        localOperation.logs.removeAll()
+    }
+
+    func copyLocalOperationLogs() {
+        let text = localOperation.logs.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func openProjectInIDE(_ project: MergeProject) {
+        guard let config = effectiveWorktreeConfig else { return }
+        do {
+            try service.openInIDE(config: config, path: project.path)
+            appendLocalOperationLog("已在 \(config.ideLabel) 中打开: \(project.displayName)")
+        } catch {
+            appendLocalOperationLog("打开 IDE 失败: \(error.localizedDescription)")
+        }
+    }
+
+    func openProjectInTerminal(_ project: MergeProject) {
+        let termName = appConfig?.terminalApp ?? settingsDraft.terminalApp
+        let bundleID = appConfig?.terminalBundleID ?? settingsDraft.terminalBundleID
+        let hookMode = appConfig?.terminalLaunchHookMode ?? settingsDraft.terminalLaunchHookMode
+        let hookCmd = appConfig?.terminalLaunchCommand ?? settingsDraft.terminalLaunchCommand
+        do {
+            try TerminalService.shared.openDirectoryWithHook(
+                path: project.path,
+                terminalName: termName,
+                bundleID: bundleID,
+                hookMode: hookMode,
+                hookCommand: hookCmd
+            )
+            appendLocalOperationLog("已在 \(termName) 中打开: \(project.displayName)")
+        } catch {
+            appendLocalOperationLog("打开终端失败: \(error.localizedDescription)")
+        }
+    }
+
+    func copyProjectPath(_ project: MergeProject) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(project.path, forType: .string)
+        appendLocalOperationLog("已复制物理路径: \(project.path)")
+    }
+
+    func openMRInBrowser(_ item: MergeRequestItem) {
+        if let url = URL(string: item.webURL) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func copyMRWebURL(_ item: MergeRequestItem) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.webURL, forType: .string)
+    }
+
+    func copyMRSourceBranch(_ item: MergeRequestItem) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.sourceBranch, forType: .string)
+    }
+
+    func copyMRTargetBranch(_ item: MergeRequestItem) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.targetBranch, forType: .string)
     }
 
     func syncCreateWorktreeDefaults(resetBranchName: Bool) {
@@ -845,84 +1197,442 @@ final class AppModel {
         worktreeDescriptionLoadedForID = item.id
     }
 
-    func createWorktree() async {
-        guard let config = gwtmConfig, let project = currentWorktreeProject else {
+    func appendWorktreeLog(_ message: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        let timestamp = formatter.string(from: Date())
+        worktreeOperation.logs.append("[\(timestamp)] \(message)")
+    }
+
+    func clearWorktreeLogs() {
+        worktreeOperation.logs.removeAll()
+    }
+
+    func openWorktreeInIDE(_ item: WorktreeItem) {
+        guard let config = effectiveWorktreeConfig else { return }
+        do {
+            try service.openInIDE(config: config, path: item.path)
+            appendWorktreeLog("已在 \(config.ideLabel) 中打开: \(item.branch) (\(item.path))")
             worktreeOperation = OperationState(
                 isRunning: false,
-                title: "无法创建工作树",
-                detail: "尚未读取到 gwtm 项目配置",
-                errorMessage: "尚未读取到 gwtm 项目配置"
+                title: "已打开 IDE",
+                detail: item.path,
+                logs: worktreeOperation.logs,
+                successMessage: "已使用 \(config.ideLabel) 打开"
             )
+        } catch {
+            appendWorktreeLog("打开 IDE 失败: \(error.localizedDescription)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "打开 IDE 失败",
+                detail: error.localizedDescription,
+                logs: worktreeOperation.logs,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func openWorktreeInTerminal(_ item: WorktreeItem) {
+        let termName = appConfig?.terminalApp ?? settingsDraft.terminalApp
+        let bundleID = appConfig?.terminalBundleID ?? settingsDraft.terminalBundleID
+        let hookMode = appConfig?.terminalLaunchHookMode ?? settingsDraft.terminalLaunchHookMode
+        let hookCmd = appConfig?.terminalLaunchCommand ?? settingsDraft.terminalLaunchCommand
+        do {
+            try TerminalService.shared.openDirectoryWithHook(
+                path: item.path,
+                terminalName: termName,
+                bundleID: bundleID,
+                hookMode: hookMode,
+                hookCommand: hookCmd
+            )
+            appendWorktreeLog("已在 \(termName) 中打开: \(item.branch) (\(item.path))")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "已打开终端",
+                detail: item.path,
+                logs: worktreeOperation.logs,
+                successMessage: "已在 \(termName) 中打开"
+            )
+        } catch {
+            appendWorktreeLog("打开终端失败: \(error.localizedDescription)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "打开终端失败",
+                detail: error.localizedDescription,
+                logs: worktreeOperation.logs,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func copyWorktreePath(_ item: WorktreeItem) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.path, forType: .string)
+        appendWorktreeLog("已复制物理路径: \(item.path)")
+    }
+
+    func copyWorktreeBranch(_ item: WorktreeItem) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(item.branch, forType: .string)
+        appendWorktreeLog("已复制分支名称: \(item.branch)")
+    }
+
+    func openFileInIDE(path: String) {
+        guard let item = selectedWorktree else { return }
+        let fullPath: String
+        if path.hasPrefix("/") {
+            fullPath = path
+        } else {
+            fullPath = URL(fileURLWithPath: item.path).appendingPathComponent(path).path
+        }
+        do {
+            if let config = effectiveWorktreeConfig {
+                try service.openInIDE(config: config, path: fullPath)
+                appendWorktreeLog("已在 \(config.ideLabel) 中打开: \(path)")
+            } else {
+                _ = try ProcessRunner.runCommand("open", arguments: [ProcessRunner.expandPath(fullPath)])
+                appendWorktreeLog("已打开文件: \(path)")
+            }
+        } catch {
+            appendWorktreeLog("打开文件失败: \(error.localizedDescription)")
+        }
+    }
+
+    func copyFilePath(_ path: String, relative: Bool = true) {
+        guard let item = selectedWorktree else { return }
+        let textToCopy = relative ? path : URL(fileURLWithPath: item.path).appendingPathComponent(path).path
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(textToCopy, forType: .string)
+        appendWorktreeLog("已复制文件路径: \(textToCopy)")
+    }
+
+    func runScriptInTerminal(command: String) {
+        guard let item = selectedWorktree else { return }
+        let termName = appConfig?.terminalApp ?? settingsDraft.terminalApp
+        do {
+            try TerminalService.shared.runScriptInTerminal(command: command, path: item.path, terminalName: termName)
+            appendWorktreeLog("已在 \(termName) 执行: \(command)")
+        } catch {
+            appendWorktreeLog("终端执行失败: \(error.localizedDescription)")
+        }
+    }
+
+    func fetchSelectedWorktree() async {
+        guard let item = selectedWorktree else { return }
+        let path = item.path
+        let branch = item.branch
+        appendWorktreeLog("开始 Git Fetch: \(branch)...")
+        worktreeOperation = OperationState(
+            isRunning: true,
+            title: "Git Fetch",
+            detail: branch,
+            logs: worktreeOperation.logs
+        )
+        let gitCli = service.gitCliService
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try gitCli.fetchWorktree(worktreePath: path)
+            }.value
+            appendWorktreeLog("Git Fetch 成功: \(branch)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "Git Fetch 成功",
+                detail: branch,
+                logs: worktreeOperation.logs,
+                successMessage: "Fetch 成功"
+            )
+            syncSelectedWorktreeDetails()
+        } catch {
+            appendWorktreeLog("Git Fetch 失败: \(error.localizedDescription)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "Git Fetch 失败",
+                detail: error.localizedDescription,
+                logs: worktreeOperation.logs,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func pullSelectedWorktree() async {
+        guard let item = selectedWorktree else { return }
+        let path = item.path
+        let branch = item.branch
+        appendWorktreeLog("开始 Git Pull: \(branch)...")
+        worktreeOperation = OperationState(
+            isRunning: true,
+            title: "Git Pull",
+            detail: branch,
+            logs: worktreeOperation.logs
+        )
+        let gitCli = service.gitCliService
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try gitCli.pullWorktree(worktreePath: path)
+            }.value
+            appendWorktreeLog("Git Pull 成功: \(branch)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "Git Pull 成功",
+                detail: branch,
+                logs: worktreeOperation.logs,
+                successMessage: "Pull 成功"
+            )
+            syncSelectedWorktreeDetails()
+        } catch {
+            appendWorktreeLog("Git Pull 失败: \(error.localizedDescription)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "Git Pull 失败",
+                detail: error.localizedDescription,
+                logs: worktreeOperation.logs,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func pushSelectedWorktree() async {
+        guard let item = selectedWorktree else { return }
+        let path = item.path
+        let branch = item.branch
+        appendWorktreeLog("开始 Git Push: \(branch)...")
+        worktreeOperation = OperationState(
+            isRunning: true,
+            title: "Git Push",
+            detail: branch,
+            logs: worktreeOperation.logs
+        )
+        let gitCli = service.gitCliService
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try gitCli.pushWorktree(worktreePath: path)
+            }.value
+            appendWorktreeLog("Git Push 成功: \(branch)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "Git Push 成功",
+                detail: branch,
+                logs: worktreeOperation.logs,
+                successMessage: "Push 成功"
+            )
+            syncSelectedWorktreeDetails()
+        } catch {
+            appendWorktreeLog("Git Push 失败: \(error.localizedDescription)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "Git Push 失败",
+                detail: error.localizedDescription,
+                logs: worktreeOperation.logs,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func syncSelectedWorktreeDetails() {
+        consoleDetailsTask?.cancel()
+        consoleDetailsGeneration &+= 1
+        let generation = consoleDetailsGeneration
+
+        guard let item = selectedWorktree else {
+            selectedWorktreeFileChanges = []
+            selectedWorktreeAheadBehind = nil
+            isLoadingConsoleDetails = false
             return
         }
 
-        worktreeOperation = OperationState(isRunning: true, title: "创建工作树", detail: "准备执行")
+        let worktreePath = item.path
+        let gitCli = service.gitCliService
+        isLoadingConsoleDetails = true
 
+        consoleDetailsTask = Task { [weak self] in
+            defer {
+                self?.isLoadingConsoleDetails = false
+            }
+
+            let (changes, aheadBehind) = await Task.detached(priority: .userInitiated) { () -> ([WorktreeFileChange], AheadBehindCount?) in
+                guard !Task.isCancelled else { return ([], nil) }
+                let c = (try? gitCli.worktreeDetailedChanges(worktreePath: worktreePath)) ?? []
+                guard !Task.isCancelled else { return (c, nil) }
+                let ab = try? gitCli.aheadBehindCount(worktreePath: worktreePath)
+                return (c, ab)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            guard let self, self.consoleDetailsGeneration == generation else { return }
+            self.selectedWorktreeFileChanges = changes
+            self.selectedWorktreeAheadBehind = aheadBehind
+        }
+    }
+
+    func removeWorktree(_ item: WorktreeItem, deleteLocalBranch: Bool = false, deleteRemoteBranch: Bool = false) async {
+        guard let config = effectiveWorktreeConfig else { return }
+        let branch = item.branch
+        appendWorktreeLog("开始删除工作树: \(branch) [\(item.path)]")
+        worktreeOperation = OperationState(
+            isRunning: true,
+            title: "删除工作树",
+            detail: branch,
+            logs: worktreeOperation.logs
+        )
         do {
-            let result = try await service.createWorktree(config: config, project: project, draft: createWorktreeDraft) { [weak self] progress in
+            try await service.removeWorktree(
+                config: config,
+                item: item,
+                deleteLocalBranch: deleteLocalBranch,
+                deleteRemoteBranch: deleteRemoteBranch
+            ) { [weak self] progress in
                 Task { @MainActor in
+                    self?.appendWorktreeLog("[\(progress.title)] \(progress.detail)")
                     self?.worktreeOperation = OperationState(
                         isRunning: true,
                         title: progress.title,
                         detail: progress.detail,
-                        fractionCompleted: progress.fractionCompleted
+                        fractionCompleted: progress.fractionCompleted,
+                        logs: self?.worktreeOperation.logs ?? []
+                    )
+                }
+            }
+            appendWorktreeLog("工作树已删除: \(branch)")
+            await refreshWorktrees()
+            worktreeOperation.successMessage = "已删除 \(branch)"
+        } catch {
+            appendWorktreeLog("删除工作树失败: \(error.localizedDescription)")
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "删除工作树失败",
+                detail: error.localizedDescription,
+                logs: worktreeOperation.logs,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func createWorktree() async {
+        guard let config = effectiveWorktreeConfig, let project = currentWorktreeProject else {
+            worktreeOperation = OperationState(
+                isRunning: false,
+                title: "无法创建工作树",
+                detail: "尚未读取到工作树项目配置",
+                errorMessage: "尚未读取到工作树项目配置"
+            )
+            return
+        }
+
+        appendWorktreeLog("开始创建工作树: \(createWorktreeDraft.branchName)")
+        worktreeOperation = OperationState(isRunning: true, title: "创建工作树", detail: "准备执行", logs: worktreeOperation.logs)
+
+        do {
+            let result = try await service.createWorktree(config: config, project: project, draft: createWorktreeDraft) { [weak self] progress in
+                Task { @MainActor in
+                    self?.appendWorktreeLog("[\(progress.title)] \(progress.detail)")
+                    self?.worktreeOperation = OperationState(
+                        isRunning: true,
+                        title: progress.title,
+                        detail: progress.detail,
+                        fractionCompleted: progress.fractionCompleted,
+                        logs: self?.worktreeOperation.logs ?? []
                     )
                 }
             }
 
+            for line in result.logs {
+                appendWorktreeLog(line)
+            }
+
             if createWorktreeDraft.openInIDE {
                 try service.openInIDE(config: config, path: result.path)
+                appendWorktreeLog("已在 \(config.ideLabel) 中打开: \(result.path)")
             }
 
             showingCreateWorktreeSheet = false
             await refreshWorktrees()
             selectedWorktreeID = worktrees.first(where: { $0.path == result.path })?.id
             worktreeOperation.successMessage = result.successMessage
-            worktreeOperation.logs = result.logs
         } catch {
+            appendWorktreeLog("创建工作树失败: \(error.localizedDescription)")
             worktreeOperation = OperationState(
                 isRunning: false,
                 title: "创建工作树失败",
                 detail: error.localizedDescription,
+                logs: worktreeOperation.logs,
                 errorMessage: error.localizedDescription
             )
         }
     }
 
     func openSelectedWorktreeInIDE() {
-        guard let config = gwtmConfig, let item = selectedWorktree else { return }
+        if let item = selectedWorktree {
+            openWorktreeInIDE(item)
+        }
+    }
+
+    func openSelectedWorktreeInTerminal() {
+        if let item = selectedWorktree {
+            openWorktreeInTerminal(item)
+        }
+    }
+
+    func refreshScannedTerminals() {
+        scannedTerminals = TerminalService.shared.scanInstalledTerminals()
+    }
+
+    func refreshScannedIDEs() {
+        scannedIDEs = IDEService.shared.scanInstalledIDEs()
+    }
+
+    func selectIDE(_ ide: InstalledIDEApp) {
+        settingsDraft.ideMode = "app"
+        settingsDraft.ideCommand = ide.name
+        settingsDraft.ideLabel = ide.displayName
+        Task {
+            await saveSettings()
+        }
+    }
+
+    func testOpenIDE() {
+        let mode = settingsDraft.ideMode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let command = settingsDraft.ideCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let testPath = currentWorktreeProject?.path ?? FileManager.default.homeDirectoryForCurrentUser.path
         do {
-            try service.openInIDE(config: config, path: item.path)
-            worktreeOperation = OperationState(
+            try IDEService.shared.openDirectory(path: testPath, ideMode: mode, ideCommand: command)
+            let label = settingsDraft.ideLabel.isEmpty ? command : settingsDraft.ideLabel
+            settingsOperation = OperationState(
                 isRunning: false,
                 title: "已打开 IDE",
-                detail: item.path,
-                successMessage: "已使用 \(config.ideLabel) 打开"
+                detail: "已使用 \(label) 打开目录 \(testPath)",
+                successMessage: "测试成功：已调起 \(label)"
             )
         } catch {
-            worktreeOperation = OperationState(
+            settingsOperation = OperationState(
                 isRunning: false,
-                title: "打开 IDE 失败",
+                title: "调起 IDE 失败",
                 detail: error.localizedDescription,
                 errorMessage: error.localizedDescription
             )
         }
     }
 
-    func openSelectedWorktreeInTerminal() {
-        guard let item = selectedWorktree else { return }
+    func selectTerminal(_ terminal: InstalledTerminalApp) {
+        settingsDraft.terminalApp = terminal.name
+        settingsDraft.terminalBundleID = terminal.bundleID
+    }
+
+    func testOpenTerminal() {
+        let termName = settingsDraft.terminalApp.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bundleID = settingsDraft.terminalBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let testPath = currentWorktreeProject?.path ?? FileManager.default.homeDirectoryForCurrentUser.path
         do {
-            try service.openInTerminal(path: item.path)
-            worktreeOperation = OperationState(
+            try TerminalService.shared.openDirectory(path: testPath, terminalName: termName, bundleID: bundleID)
+            settingsOperation = OperationState(
                 isRunning: false,
                 title: "已打开终端",
-                detail: item.path,
-                successMessage: "已在 Terminal 中打开"
+                detail: "已使用 \(termName) 打开目录 \(testPath)",
+                successMessage: "测试成功：已调起 \(termName)"
             )
         } catch {
-            worktreeOperation = OperationState(
+            settingsOperation = OperationState(
                 isRunning: false,
-                title: "打开终端失败",
+                title: "调起终端失败",
                 detail: error.localizedDescription,
                 errorMessage: error.localizedDescription
             )
@@ -930,41 +1640,19 @@ final class AppModel {
     }
 
     func removeSelectedWorktree() async {
-        guard let config = gwtmConfig, let item = selectedWorktree else { return }
-        do {
-            let branch = item.branch
-            worktreeOperation = OperationState(isRunning: true, title: "删除工作树", detail: branch)
-            try await service.removeWorktree(
-                config: config,
-                item: item,
+        if let item = selectedWorktree {
+            await removeWorktree(
+                item,
                 deleteLocalBranch: deleteLocalBranchOnRemove,
                 deleteRemoteBranch: deleteRemoteBranchOnRemove
-            ) { [weak self] progress in
-                Task { @MainActor in
-                    self?.worktreeOperation = OperationState(
-                        isRunning: true,
-                        title: progress.title,
-                        detail: progress.detail,
-                        fractionCompleted: progress.fractionCompleted
-                    )
-                }
-            }
+            )
             deleteLocalBranchOnRemove = false
             deleteRemoteBranchOnRemove = false
-            await refreshWorktrees()
-            worktreeOperation.successMessage = "已删除 \(branch)"
-        } catch {
-            worktreeOperation = OperationState(
-                isRunning: false,
-                title: "删除工作树失败",
-                detail: error.localizedDescription,
-                errorMessage: error.localizedDescription
-            )
         }
     }
 
     func saveSelectedWorktreeDescription() async {
-        guard let config = gwtmConfig, let item = selectedWorktree else { return }
+        guard let config = effectiveWorktreeConfig, let item = selectedWorktree else { return }
         guard item.kind == .worktree else {
             worktreeOperation = OperationState(
                 isRunning: false,
@@ -1010,18 +1698,20 @@ final class AppModel {
             localOperation = OperationState(
                 isRunning: false,
                 title: "无法执行分支同步",
-                detail: "尚未读取到 gmux 本地项目配置",
-                errorMessage: "尚未读取到 gmux 本地项目配置"
+                detail: "尚未读取到本地项目配置",
+                errorMessage: "尚未读取到本地项目配置"
             )
             return
         }
 
         let sourceBranch = localOperationSourceBranch.trimmingCharacters(in: .whitespacesAndNewlines)
         let targets = resolvedLocalOperationTargets
+        appendLocalOperationLog("开始执行: \(localOperationMode.rawValue) [\(project.displayName)]")
         localOperation = OperationState(
             isRunning: true,
             title: localOperationMode.rawValue,
-            detail: project.displayName
+            detail: project.displayName,
+            logs: localOperation.logs
         )
 
         do {
@@ -1030,15 +1720,17 @@ final class AppModel {
             case .syncEnvironments:
                 logs = try await service.executeLocalSync(context: context, project: project) { [weak self] progress in
                     Task { @MainActor in
+                        self?.appendLocalOperationLog("[\(progress.title)] \(progress.detail)")
                         self?.localOperation = OperationState(
                             isRunning: true,
                             title: progress.title,
                             detail: progress.detail,
-                            fractionCompleted: progress.fractionCompleted
+                            fractionCompleted: progress.fractionCompleted,
+                            logs: self?.localOperation.logs ?? []
                         )
                     }
                 }
-            case .mergeAll, .mergeSingle, .mergeCustom:
+            case .mergeAll, .mergeCustom:
                 guard !sourceBranch.isEmpty else {
                     throw WorkbenchError.message("请先选择一个源分支")
                 }
@@ -1052,14 +1744,20 @@ final class AppModel {
                     targets: targets
                 ) { [weak self] progress in
                     Task { @MainActor in
+                        self?.appendLocalOperationLog("[\(progress.title)] \(progress.detail)")
                         self?.localOperation = OperationState(
                             isRunning: true,
                             title: progress.title,
                             detail: progress.detail,
-                            fractionCompleted: progress.fractionCompleted
+                            fractionCompleted: progress.fractionCompleted,
+                            logs: self?.localOperation.logs ?? []
                         )
                     }
                 }
+            }
+
+            for line in logs {
+                appendLocalOperationLog(line)
             }
 
             let successCount = logs.filter { !$0.hasPrefix("失败:") && !$0.hasPrefix("错误:") }.count
@@ -1068,14 +1766,16 @@ final class AppModel {
                 title: "\(localOperationMode.rawValue)完成",
                 detail: "共返回 \(logs.count) 条执行结果",
                 fractionCompleted: 1,
-                logs: logs,
+                logs: localOperation.logs,
                 successMessage: "已完成 \(successCount) 项处理"
             )
         } catch {
+            appendLocalOperationLog("执行失败: \(error.localizedDescription)")
             localOperation = OperationState(
                 isRunning: false,
                 title: "\(localOperationMode.rawValue)失败",
                 detail: error.localizedDescription,
+                logs: localOperation.logs,
                 errorMessage: error.localizedDescription
             )
         }
@@ -1116,7 +1816,7 @@ final class AppModel {
     }
 
     func createMergeRequest() async {
-        guard let context = gmuxContext, let project = currentMergeProject else { return }
+        guard let context = mergeRequestContext, let project = currentMergeProject else { return }
         mrOperation = OperationState(isRunning: true, title: "创建 MR", detail: "\(createMRDraft.sourceBranch) -> \(createMRDraft.targetBranch)")
 
         do {
@@ -1140,7 +1840,7 @@ final class AppModel {
     }
 
     func createBatchMergeRequests() async {
-        guard let context = gmuxContext, let project = currentMergeProject else { return }
+        guard let context = mergeRequestContext, let project = currentMergeProject else { return }
         let mappings = selectedBatchMRMappings
         guard !mappings.isEmpty else {
             mrOperation = OperationState(
@@ -1179,7 +1879,7 @@ final class AppModel {
     }
 
     func approveAndMergeSelectedBatchMRs() async {
-        guard let context = gmuxContext else { return }
+        guard let context = mergeRequestContext else { return }
         let items = selectedBatchApproveMRs
         guard !items.isEmpty else {
             mrOperation = OperationState(
@@ -1228,7 +1928,7 @@ final class AppModel {
     }
 
     func approveAndMergeSelectedMR() async {
-        guard let context = gmuxContext, let item = selectedMergeRequest else { return }
+        guard let context = mergeRequestContext, let item = selectedMergeRequest else { return }
         mrOperation = OperationState(isRunning: true, title: "审批并合并", detail: "\(item.iidLabel) \(item.sourceBranch) -> \(item.targetBranch)")
 
         do {
@@ -1257,7 +1957,7 @@ final class AppModel {
     }
 
     func closeSelectedMR() async {
-        guard let context = gmuxContext, let item = selectedMergeRequest else { return }
+        guard let context = mergeRequestContext, let item = selectedMergeRequest else { return }
         mrOperation = OperationState(isRunning: true, title: "关闭 MR", detail: item.iidLabel)
 
         do {
@@ -1274,39 +1974,13 @@ final class AppModel {
         }
     }
 
-    func importLegacyConfigs() async {
-        settingsOperation = OperationState(isRunning: true, title: "导入旧配置", detail: "正在从 gwtm / gmux 导入")
-        do {
-            let config = try await service.importLegacyWorkbenchConfig()
-            appConfig = config
-            settingsDraft = SettingsDraft(config: config)
-            settingsTokenVisible = false
-            settingsOperation = OperationState(
-                isRunning: false,
-                title: "导入完成",
-                detail: "已写入 GWorkbench 独立配置",
-                fractionCompleted: 1,
-                successMessage: "导入成功"
-            )
-            await refreshWorktrees()
-            await refreshLocalMergeProjects()
-            await refreshMergeProjects()
-        } catch {
-            settingsOperation = OperationState(
-                isRunning: false,
-                title: "导入失败",
-                detail: error.localizedDescription,
-                errorMessage: error.localizedDescription
-            )
-        }
-    }
-
     func saveSettings() async {
         settingsOperation = OperationState(isRunning: true, title: "保存设置", detail: "正在校验并写入配置文件")
         do {
             let config = try makeConfigFromDraft()
             let saved = try await service.saveWorkbenchConfig(config)
             appConfig = saved
+            worktreeConfig = saved.asWorktreeConfig()
             settingsDraft = SettingsDraft(config: saved)
             settingsTokenVisible = false
             settingsOperation = OperationState(
@@ -1332,8 +2006,9 @@ final class AppModel {
     func reloadSettingsOnly() async {
         settingsOperation = OperationState(isRunning: true, title: "重新加载设置", detail: "正在从 GWorkbench 配置文件读取")
         do {
-            let config = try await service.reloadWorkbenchConfigWithoutImport()
+            let config = try await service.reloadWorkbenchConfig()
             appConfig = config
+            worktreeConfig = config.asWorktreeConfig()
             settingsDraft = SettingsDraft(config: config)
             settingsTokenVisible = false
             settingsOperation = OperationState(
@@ -1357,17 +2032,52 @@ final class AppModel {
     }
 
     private func suggestedWorktreePath(projectName: String, branchName: String) -> String {
-        let basePath = gwtmConfig?.worktreesRootDir
-            ?? appConfig?.worktreesRootDir
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("worktrees").path
+        let basePath: String
+        if let wtPath = worktreeConfig?.worktreesRootDir, !wtPath.isEmpty {
+            basePath = wtPath
+        } else if let appPath = appConfig?.worktreesRootDir, !appPath.isEmpty {
+            basePath = appPath
+        } else if !settingsDraft.worktreesRootDir.isEmpty {
+            basePath = settingsDraft.worktreesRootDir
+        } else {
+            basePath = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("worktrees").path
+        }
+        let template = appConfig?.worktreePathTemplate
+            ?? settingsDraft.worktreePathTemplate
         let safeBranch = branchName
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: " ", with: "-")
-        return URL(fileURLWithPath: basePath)
-            .appendingPathComponent(projectName)
-            .appendingPathComponent(safeBranch.isEmpty ? "new-worktree" : safeBranch)
-            .path
+        let branchValue = safeBranch.isEmpty ? "new-worktree" : safeBranch
+
+        return resolveWorktreePathTemplate(
+            template: template.isEmpty ? "${rootDir}/${project}/${branch}" : template,
+            rootDir: basePath,
+            projectName: projectName,
+            branchName: branchValue
+        )
+    }
+
+    func resolveWorktreePathTemplate(template: String, rootDir: String, projectName: String, branchName: String) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateValue = dateFormatter.string(from: Date())
+
+        let safeBranch = branchName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: " ", with: "-")
+
+        var result = template
+            .replacingOccurrences(of: "${rootDir}", with: rootDir)
+            .replacingOccurrences(of: "${project}", with: projectName)
+            .replacingOccurrences(of: "${branch}", with: safeBranch.isEmpty ? "feat-demo" : safeBranch)
+            .replacingOccurrences(of: "${date}", with: dateValue)
+
+        if !result.hasPrefix("/") {
+            result = URL(fileURLWithPath: rootDir).appendingPathComponent(result).path
+        }
+        return (result as NSString).standardizingPath
     }
 
     private func mergeRequests(for filter: MergeRequestFilter) -> [MergeRequestItem] {
@@ -1375,7 +2085,7 @@ final class AppModel {
         case .open:
             return mergeRequests.filter { [.open, .ready, .blocked, .draft].contains($0.status) }
         case .mine:
-            guard let currentUsername = gmuxContext?.currentUsername else { return [] }
+            guard let currentUsername = mergeRequestContext?.currentUsername else { return [] }
             return mergeRequests.filter { $0.authorUsername == currentUsername }
         case .awaitingMine:
             return mergeRequests.filter { !$0.approvedByMe && [.open, .ready].contains($0.status) }
@@ -1396,8 +2106,7 @@ final class AppModel {
     }
 
     private func mergeBranchName(envBranch: String, projectName: String, middle: String) -> String {
-        let actualMiddle = middle == "PROJECT_NAME" ? projectName : middle
-        return "\(envBranch)_\(actualMiddle)_meger"
+        BranchSyncService.mergeBranchName(envBranch: envBranch, middle: middle, projectName: projectName)
     }
 
     private func makeConfigFromDraft() throws -> GWorkbenchConfig {
@@ -1437,11 +2146,19 @@ final class AppModel {
             metadataPath: settingsDraft.metadataPath,
             worktreeProjectsRootDirs: worktreeRoots,
             worktreesRootDir: settingsDraft.worktreesRootDir.trimmingCharacters(in: .whitespacesAndNewlines),
+            worktreePathTemplate: settingsDraft.worktreePathTemplate.trimmingCharacters(in: .whitespacesAndNewlines),
             ideMode: settingsDraft.ideMode.trimmingCharacters(in: .whitespacesAndNewlines),
             ideCommand: settingsDraft.ideCommand.trimmingCharacters(in: .whitespacesAndNewlines),
             ideLabel: settingsDraft.ideLabel.trimmingCharacters(in: .whitespacesAndNewlines),
+            terminalApp: settingsDraft.terminalApp.trimmingCharacters(in: .whitespacesAndNewlines),
+            terminalBundleID: settingsDraft.terminalBundleID.trimmingCharacters(in: .whitespacesAndNewlines),
+            terminalLaunchHookMode: settingsDraft.terminalLaunchHookMode.trimmingCharacters(in: .whitespacesAndNewlines),
+            terminalLaunchCommand: settingsDraft.terminalLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines),
             gitlabHost: settingsDraft.gitlabHost.trimmingCharacters(in: .whitespacesAndNewlines),
             gitlabToken: settingsDraft.gitlabToken.trimmingCharacters(in: .whitespacesAndNewlines),
+            githubToken: settingsDraft.githubToken.trimmingCharacters(in: .whitespacesAndNewlines),
+            activeWorkflowPreset: settingsDraft.activeWorkflowPreset.trimmingCharacters(in: .whitespacesAndNewlines),
+            githubDefaultTargetBranch: settingsDraft.githubDefaultTargetBranch.trimmingCharacters(in: .whitespacesAndNewlines),
             mergeRootDirs: mergeRoots,
             mergeBranchMiddle: settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines),
             envBranches: envBranches,
@@ -1500,8 +2217,59 @@ final class AppModel {
         settingsDraft.mergeRootDirs.removeAll { $0.id == id }
     }
 
-    func addBranchMapping() {
-        settingsDraft.branchMappings.append(BranchMappingDraft())
+    var currentDraftTargetBranchOptions: [String] {
+        let envs = parseList(settingsDraft.envBranchesText)
+        let protectedTargets = parseList(settingsDraft.protectedTargetsText)
+        var list: [String] = []
+        for e in envs where !list.contains(e) {
+            list.append(e)
+        }
+        for p in protectedTargets where !list.contains(p) {
+            list.append(p)
+        }
+        return list.isEmpty ? ["uat", "test", "stage", "pre_prod", "master"] : list
+    }
+
+    func regenerateBranchMappingsFromEnvironment() {
+        let middle = settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "henry"
+            : settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let envs = parseList(settingsDraft.envBranchesText)
+        let protectedTargets = parseList(settingsDraft.protectedTargetsText)
+
+        guard !envs.isEmpty else { return }
+
+        var newMappings: [BranchMappingDraft] = []
+
+        // 如果配置了保护目标(如 master)，且最后一个高阶环境(如 pre_prod)存在，生成 pre_prod -> master
+        if let lastEnv = envs.last, let target = protectedTargets.first, lastEnv != target {
+            newMappings.append(BranchMappingDraft(source: lastEnv, target: target))
+        }
+
+        // 各环境分支的标准合并分支: ${env}_${middle}_meger -> ${env}
+        for env in envs.reversed() {
+            newMappings.append(BranchMappingDraft(
+                source: "\(env)_\(middle)_meger",
+                target: env
+            ))
+        }
+
+        settingsDraft.branchMappings = newMappings
+        settingsOperation = OperationState(
+            isRunning: false,
+            title: "映射已同步",
+            detail: "已根据环境分支列表生成 \(newMappings.count) 条映射",
+            successMessage: "已同步 \(newMappings.count) 条映射"
+        )
+    }
+
+    func addBranchMapping(target: String? = nil) {
+        let defaultTarget = target ?? currentDraftTargetBranchOptions.first ?? "uat"
+        let middle = settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "henry"
+            : settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultSource = "\(defaultTarget)_\(middle)_meger"
+        settingsDraft.branchMappings.append(BranchMappingDraft(source: defaultSource, target: defaultTarget))
     }
 
     func removeBranchMapping(id: UUID) {

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GWorkbench 全套 5 大 UI 设计方案交互选型中心</title>
+<style>
+  :root {
+    --bg-base: #0c0d10;
+    --bg-header: #14161c;
+    --border-color: rgba(255, 255, 255, 0.1);
+    --text-primary: #f5f5f7;
+    --text-secondary: #9ea0a8;
+    --accent: #3b82f6;
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .nav-header {
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    gap: 12px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  .tag {
+    font-size: 11px;
+    background: rgba(16, 185, 129, 0.18);
+    color: #34d399;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-weight: 500;
+  }
+
+  /* 切换标签按钮组 (全 5 项) */
+  .segmented-control {
+    display: flex;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    padding: 3px;
+    gap: 3px;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    padding: 6px 14px;
+    font-size: 12.5px;
+    font-weight: 500;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.15s;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .tab-btn:hover { color: var(--text-primary); }
+  .tab-btn.active {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+  }
+  .open-link {
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: rgba(59, 130, 246, 0.12);
+    transition: 0.15s;
+    font-weight: 500;
+  }
+  .open-link:hover { background: rgba(59, 130, 246, 0.25); }
+
+  /* 描述与交互指引栏 */
+  .desc-strip {
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px 20px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .badge-guide {
+    color: #60a5fa;
+    font-size: 12px;
+    white-space: nowrap;
+    margin-left: 12px;
+  }
+
+  /* 视窗容器 */
+  .preview-frame-wrap {
+    flex: 1;
+    width: 100%;
+    position: relative;
+    background: #000;
+  }
+  iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="nav-header">
+  <div class="brand">
+    <span>✨ GWorkbench UI 重构</span>
+    <span class="tag">5 大全交互范式</span>
+  </div>
+
+  <div class="segmented-control">
+    <button class="tab-btn active" onclick="switchTab('option-a-board.html', this)">
+      <span>📌 A. 看板泳道</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('option-b-studio.html', this)">
+      <span>🌿 B. 沉浸双面板</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('option-c-command.html', this)">
+      <span>⚡️ C. 极速命令流</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('option-d-topology.html', this)">
+      <span>🌐 D. 分支拓扑图谱</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('option-e-pro.html', this)">
+      <span>🖥 E. Apple 原生高密度专业面板</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('branch-sync-preview.html', this)">
+      <span>🔄 分支同步 Pro 原型</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('merge-request-preview.html', this)">
+      <span>🔀 合并请求 Pro 原型</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('settings-preview.html', this)">
+      <span>⚙️ 系统设置 Pro 原型</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('advanced-settings-preview.html', this)">
+      <span>🚀 1,2,4,5 灵活定制设计原型</span>
+    </button>
+  </div>
+
+  <div class="header-actions">
+    <a id="externalLink" href="option-a-board.html" target="_blank" class="open-link">↗ 独立全屏打开此方案</a>
+  </div>
+</div>
+
+<div class="desc-strip">
+  <span id="descText">📌 方案 A 交互提示：在搜索框键入实时过滤；点击右上角 '+ 新建工作树' 弹窗建卡片；点击各卡片按钮反馈；最后一列点击 '一键销毁' 体验带动画释放。</span>
+  <span class="badge-guide">💡 5 个方案均已配备完整真实的点击/输入/联动交互！</span>
+</div>
+
+<div class="preview-frame-wrap">
+  <iframe id="previewFrame" src="option-a-board.html"></iframe>
+</div>
+
+<script>
+  const descs = {
+    'option-a-board.html': '📌 方案 A [看板泳道]：可在搜索框键入实时过滤；点击右上角 "+ 新建工作树" 弹出模态窗口并在当前泳道动态生成新卡片；最后一列点击 "一键销毁" 体验动态淡出与空间释放。',
+    'option-b-studio.html': '🌿 方案 B [沉浸双面板]：点击左侧列表的不同分支（main / feat/pay-retry-v2 / fix/oauth-refresh 等），右侧宽屏主舞台实时联动切换全部指标与提交记录！备忘录文本框支持真实输入并有自动保存动效；点击 "+" 快速加分支。',
+    'option-c-command.html': '⚡️ 方案 C [极速命令流]：全键盘驱动！按键盘方向键 ↑ / ↓ 快速切换行；按 Enter 回车执行在 IDE 打开；在搜索框键入 "pay" 或 "sync" 模糊匹配；选中的行实时联动右侧 Inspector 预览！',
+    'option-d-topology.html': '🌐 方案 D [分支拓扑图谱]：点击画布上任意发光节点（main / feat/pay-retry-v2 等），右下角 HUD 悬浮遥测面板 100% 联动显示属性！点击右上角 "+ 分叉新建工作树" 在拓扑图上动态连线并长出新节点；节点支持一键销毁！',
+    'option-e-pro.html': '🖥 方案 E [Apple 原生高密度专业面板]：点击表格任一行高亮，底部 Console 执行日志抽屉实时联动打印对应的 Git 状态输出！支持搜索框实时过滤、顶部分类分段切换、点击 "+ 新建 Worktree" 插入数据行！',
+    'branch-sync-preview.html': '🔄 分支同步 Pro 原型：体验全新设计的工具栏、三大执行模式切换、源分支搜索与标签挑选、可视化目标流水线流向拓扑、实时控制台日志输出与右侧检查器联动！点击右上角 "▶ 模拟执行全流程" 感受完整执行动效。',
+    'merge-request-preview.html': '🔀 合并请求 Pro 原型：体验高密度原生 Table 表格视图（IID/标题、分支流向、审批进度、CI 流水线、作者、更新时间）、吸顶式批量审批合并操作条、双击在 GitLab 网页打开、右侧专业 Inspector 检查器与一键审批合流！',
+    'settings-preview.html': '⚙️ 系统设置 Pro 原型：将配置表单移回宽屏主舞台（本地项目/工作树/GitLab/环境规则/分支映射），右侧升级为配置健康雷达与文件概览，彻底告别侧边栏拥挤表单！',
+    'advanced-settings-preview.html': '🚀 1,2,4,5 灵活定制方案：多托管凭据池（私有 GitLab + GitHub 自动路由）、发布策略模板（公司环境流内嵌分支映射 vs GitHub 主干流）、终端启动动作/命令钩子、工作树存储路径通配符模板！'
+  };
+
+  function switchTab(file, btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('previewFrame').src = file;
+    document.getElementById('externalLink').href = file;
+    document.getElementById('descText').innerText = descs[file];
+  }
+</script>
+
+</body>
+</html>

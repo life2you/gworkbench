@@ -34,15 +34,13 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$BUILD_DIR/$EXECUTABLE_NAME" "$MACOS_DIR/$EXECUTABLE_NAME"
 chmod +x "$MACOS_DIR/$EXECUTABLE_NAME"
 
-if [[ -f "$ICON_SCRIPT" ]]; then
+if [[ -f "$ICON_FILE" ]]; then
+  echo "==> Reusing existing app icon: $ICON_FILE"
+elif [[ -f "$ICON_SCRIPT" ]]; then
   echo "==> Generating app icon"
   if command -v uv >/dev/null 2>&1; then
     uv run "$ICON_SCRIPT"
   elif python3 -c "import PIL" >/dev/null 2>&1; then
-    python3 "$ICON_SCRIPT"
-  elif [[ -f "$ICON_FILE" ]]; then
-    echo "PIL not found in python3; reusing existing $ICON_FILE"
-  else
     python3 "$ICON_SCRIPT"
   fi
 fi
@@ -79,7 +77,7 @@ cat > "$PLIST_PATH" <<PLIST
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.developer-tools</string>
   <key>LSMinimumSystemVersion</key>
-  <string>15.0</string>
+  <string>14.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>

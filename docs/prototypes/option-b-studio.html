@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案 B：沉浸双面板工作台 (全交互体验) - GWorkbench</title>
+<style>
+  :root {
+    --bg-window: #131417;
+    --bg-sidebar: #191b1f;
+    --bg-stage: #1e2025;
+    --bg-card: #26282f;
+    --border-color: rgba(255, 255, 255, 0.08);
+    --border-card: rgba(255, 255, 255, 0.05);
+    --text-primary: #f3f4f6;
+    --text-secondary: #9ca3af;
+    --text-muted: #6b7280;
+    --accent: #6366f1;
+    --accent-hover: #4f46e5;
+    --accent-glow: rgba(99, 102, 241, 0.25);
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background-color: var(--bg-window);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    height: 100vh;
+    display: flex;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 左侧极简沉浸栏 */
+  .sidebar {
+    width: 270px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-header {
+    height: 52px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .traffic-lights { display: flex; gap: 7px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot-red { background: #ff5f56; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #27c93f; }
+  
+  .repo-badge {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 6px;
+    color: var(--text-secondary);
+  }
+
+  .sidebar-nav {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  .nav-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
+  .nav-item.active { background: var(--accent); color: white; }
+
+  .sidebar-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    padding: 14px 14px 6px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .btn-plus {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+  }
+  .btn-plus:hover { background: var(--accent); color: white; }
+
+  .tree-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tree-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: 0.15s;
+    color: var(--text-secondary);
+  }
+  .tree-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+  }
+  .tree-item.selected {
+    background: rgba(99, 102, 241, 0.18);
+    color: #c7d2fe;
+    font-weight: 500;
+  }
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+  }
+  .status-dot.dirty { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; }
+  .status-dot.clean { background: #10b981; }
+
+  /* 右侧主舞台 */
+  .stage {
+    flex: 1;
+    background: var(--bg-stage);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .stage-header {
+    height: 52px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(30, 32, 37, 0.85);
+    backdrop-filter: blur(20px);
+  }
+  .stage-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .branch-badge {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: #f3f4f6;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .active-indicator {
+    font-size: 11px;
+    font-family: var(--font-sans);
+    font-weight: 500;
+    padding: 2px 8px;
+    background: rgba(99, 102, 241, 0.2);
+    color: #a5b4fc;
+    border-radius: 5px;
+  }
+
+  .stage-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-ide {
+    background: #6366f1;
+    color: white;
+    border: none;
+    border-radius: 7px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px var(--accent-glow);
+    transition: 0.15s;
+  }
+  .btn-ide:hover { background: #4f46e5; }
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 7px;
+    padding: 7px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  .btn-secondary:hover { background: rgba(255, 255, 255, 0.1); color: var(--text-primary); }
+
+  .stage-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 30px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* 概览统计条 */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat-label {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .stat-val {
+    font-size: 15px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+  }
+
+  /* 功能备忘卡片 */
+  .memo-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .memo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .memo-title {
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .save-status {
+    font-size: 11.5px;
+    color: var(--success);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .memo-input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: #e5e7eb;
+    font-size: 13.5px;
+    line-height: 1.6;
+    outline: none;
+    font-family: var(--font-sans);
+    resize: none;
+    transition: border 0.15s;
+  }
+  .memo-input:focus { border-color: var(--accent); }
+
+  /* 时间轴 */
+  .timeline-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .timeline-list {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    position: relative;
+    padding-left: 20px;
+  }
+  .timeline-list::before {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .commit-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .commit-dot {
+    position: absolute;
+    left: -20px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 2px solid var(--accent);
+  }
+  .commit-msg { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+  .commit-sub { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 3px; }
+  .commit-time { font-size: 12px; color: var(--text-muted); }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    background: #232530;
+    border: 1px solid var(--accent);
+    color: white;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.25s;
+    pointer-events: none;
+    z-index: 1000;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <div class="traffic-lights">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+    </div>
+    <span style="font-weight: 600; font-size: 13px;">GWorkbench</span>
+    <span class="repo-badge">frontend-portal</span>
+  </div>
+
+  <div class="sidebar-nav">
+    <div class="nav-item active" onclick="switchNav(this, '工作树')">🌿 工作树 (Worktrees)</div>
+    <div class="nav-item" onclick="switchNav(this, '环境同步')">🔀 分支环境同步 (Sync)</div>
+    <div class="nav-item" onclick="switchNav(this, '合并请求')">🚀 合并请求 (MR/PR)</div>
+    <div class="nav-item" onclick="switchNav(this, '配置')">⚙️ 配置与首选项</div>
+  </div>
+
+  <div class="sidebar-section-title">
+    <span>当前项目工作树 (4)</span>
+    <button class="btn-plus" title="快速新建工作树" onclick="quickAdd()">+</button>
+  </div>
+
+  <div class="tree-list" id="treeList">
+    <div class="tree-item" onclick="selectWorktree('main', this)">
+      <div class="status-dot clean"></div>
+      <span style="font-family: var(--font-mono);">main</span>
+      <span style="margin-left: auto; font-size: 10px; color: var(--text-muted);">Root</span>
+    </div>
+
+    <div class="tree-item selected" onclick="selectWorktree('feat/pay-retry-v2', this)">
+      <div class="status-dot dirty"></div>
+      <span style="font-family: var(--font-mono);">feat/pay-retry-v2</span>
+      <span style="margin-left: auto; font-size: 10px; color: #a5b4fc;">活跃</span>
+    </div>
+
+    <div class="tree-item" onclick="selectWorktree('fix/oauth-refresh', this)">
+      <div class="status-dot clean"></div>
+      <span style="font-family: var(--font-mono);">fix/oauth-refresh</span>
+    </div>
+
+    <div class="tree-item" onclick="selectWorktree('feat/dark-tokens', this)">
+      <div class="status-dot"></div>
+      <span style="font-family: var(--font-mono);">feat/dark-tokens</span>
+      <span style="margin-left: auto; font-size: 10px; color: #c084fc;">MR</span>
+    </div>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="stage-header">
+    <div class="stage-title">
+      <div class="branch-badge">
+        <span>🌿</span>
+        <span id="currentBranchTitle">feat/pay-retry-v2</span>
+      </div>
+      <span class="active-indicator" id="currentTag">当前选中</span>
+    </div>
+
+    <div class="stage-actions">
+      <button class="btn-ide" onclick="triggerIDE()">⚡️ 在 Cursor 中打开</button>
+      <button class="btn-secondary" onclick="triggerTerminal()">💻 终端</button>
+      <button class="btn-secondary" onclick="triggerFinder()">📂 访达</button>
+      <button class="btn-secondary" style="color: #f87171;" onclick="triggerDestroy()">🗑 销毁</button>
+    </div>
+  </div>
+
+  <div class="stage-body">
+
+    <!-- 四格核心指标卡 -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="stat-label">绝对物理路径</div>
+        <div class="stat-val" id="statPath" style="font-size: 12px; font-weight: normal; word-break: break-all;">~/worktrees/portal-pay-retry</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">工作区脏污状态</div>
+        <div class="stat-val" id="statDirty" style="color: var(--warning);">3 个未提交修改</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">远端追踪分支</div>
+        <div class="stat-val" id="statUpstream" style="font-size: 13px;">origin/feat/pay-retry</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">工作树磁盘占用</div>
+        <div class="stat-val" id="statSize">38.4 MB</div>
+      </div>
+    </div>
+
+    <!-- 任务备忘录卡片 -->
+    <div class="memo-card">
+      <div class="memo-header">
+        <div class="memo-title">
+          <span>📝 任务上下文与功能备忘 (即时自动保存)</span>
+        </div>
+        <span class="save-status" id="saveIndicator">✓ 已自动保存到 metadata.toml</span>
+      </div>
+      <textarea class="memo-input" id="memoText" rows="3" oninput="handleMemoInput()">正在改造结算重试策略，采用指数退避算法（Exponential Backoff）。
+依赖 backend-service 的 2.4.0 接口版本，合并前需在 staging 环境触发集成测试。</textarea>
+    </div>
+
+    <!-- 最近提交时间线 -->
+    <div class="timeline-card">
+      <div class="memo-title" style="margin-bottom: 8px;">
+        <span>🕒 最近提交时间轴 (Recent Commits)</span>
+      </div>
+
+      <div class="timeline-list" id="timelineList">
+        <div class="commit-row">
+          <div class="commit-dot"></div>
+          <div>
+            <div class="commit-msg">fix(retry): 修复重试计数器高并发偶发溢出问题</div>
+            <div class="commit-sub">commit 8a1b4d2 · Alex Lin</div>
+          </div>
+          <div class="commit-time">15 分钟前</div>
+        </div>
+
+        <div class="commit-row">
+          <div class="commit-dot"></div>
+          <div>
+            <div class="commit-msg">feat(queue): 新增指数退避队列调度核心实现</div>
+            <div class="commit-sub">commit 3f99e01 · Alex Lin</div>
+          </div>
+          <div class="commit-time">2 小时前</div>
+        </div>
+
+        <div class="commit-row">
+          <div class="commit-dot"></div>
+          <div>
+            <div class="commit-msg">test: 补充网络闪断下的退避重试单元测试套件</div>
+            <div class="commit-sub">commit c107da4 · Alex Lin</div>
+          </div>
+          <div class="commit-time">昨天</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast">已触发操作</div>
+
+<script>
+  // 模拟各个工作树的数据源
+  const worktreeData = {
+    'main': {
+      path: '~/vibeCodes/github/gworkbench',
+      dirty: '0 个未提交 (Clean)',
+      dirtyColor: 'var(--success)',
+      upstream: 'origin/main',
+      size: '118 MB',
+      tag: 'Root Repo',
+      memo: '主仓库基线，只允许通过 MR/PR 合并，不建议直接在此处进行业务代码开发。',
+      commits: [
+        { msg: 'chore(release): bump version to 0.1.9', sub: 'commit f910ab1 · life2you', time: '1 小时前' },
+        { msg: 'feat(services): modularize workbench services and abstractions', sub: 'commit 29dc41a · life2you', time: '3 小时前' }
+      ]
+    },
+    'feat/pay-retry-v2': {
+      path: '~/worktrees/portal-pay-retry',
+      dirty: '3 个未提交修改',
+      dirtyColor: 'var(--warning)',
+      upstream: 'origin/feat/pay-retry',
+      size: '38.4 MB',
+      tag: '活跃编辑中',
+      memo: '正在改造结算重试策略，采用指数退避算法（Exponential Backoff）。\n依赖 backend-service 的 2.4.0 接口版本，合并前需在 staging 环境触发集成测试。',
+      commits: [
+        { msg: 'fix(retry): 修复重试计数器高并发偶发溢出问题', sub: 'commit 8a1b4d2 · Alex Lin', time: '15 分钟前' },
+        { msg: 'feat(queue): 新增指数退避队列调度核心实现', sub: 'commit 3f99e01 · Alex Lin', time: '2 小时前' },
+        { msg: 'test: 补充网络闪断下的退避重试单元测试套件', sub: 'commit c107da4 · Alex Lin', time: '昨天' }
+      ]
+    },
+    'fix/oauth-refresh': {
+      path: '~/worktrees/portal-auth-fix',
+      dirty: 'Clean (0 dirty)',
+      dirtyColor: 'var(--success)',
+      upstream: 'origin/fix/oauth-refresh',
+      size: '34.1 MB',
+      tag: '就绪待提 PR',
+      memo: '修复移动端偶发刷新 Token 引起的死循环重试。已在本地 Safari 和 Chrome 验证通过。',
+      commits: [
+        { msg: 'fix(auth): 401 拦截器添加重试熔断防抖保护', sub: 'commit d401ae8 · Alex Lin', time: '3 小时前' }
+      ]
+    },
+    'feat/dark-tokens': {
+      path: '~/worktrees/portal-dark-mode',
+      dirty: '0 个修改 (Merged)',
+      dirtyColor: 'var(--text-muted)',
+      upstream: 'origin/feat/dark-tokens',
+      size: '48.2 MB',
+      tag: '已合并待清理',
+      memo: '全站深色模式色盘 Token 抽离，已通过设计团队验收并在生产发布。可以随时销毁此目录释放空间。',
+      commits: [
+        { msg: 'feat(tokens): 抽离全局深色背景色与文本色规范', sub: 'commit a781b22 · Designer', time: '3 天前' }
+      ]
+    }
+  };
+
+  let currentBranch = 'feat/pay-retry-v2';
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._tTimer);
+    window._tTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function selectWorktree(branch, el) {
+    document.querySelectorAll('.tree-item').forEach(i => i.classList.remove('selected'));
+    el.classList.add('selected');
+    currentBranch = branch;
+
+    const data = worktreeData[branch];
+    if (!data) return;
+
+    // 联动刷新主舞台
+    document.getElementById('currentBranchTitle').innerText = branch;
+    document.getElementById('currentTag').innerText = data.tag;
+    document.getElementById('statPath').innerText = data.path;
+    const dirtyEl = document.getElementById('statDirty');
+    dirtyEl.innerText = data.dirty;
+    dirtyEl.style.color = data.dirtyColor;
+    document.getElementById('statUpstream').innerText = data.upstream;
+    document.getElementById('statSize').innerText = data.size;
+    document.getElementById('memoText').value = data.memo;
+
+    // 联动刷新时间线
+    const tl = document.getElementById('timelineList');
+    tl.innerHTML = '';
+    data.commits.forEach(c => {
+      const row = document.createElement('div');
+      row.className = 'commit-row';
+      row.innerHTML = `
+        <div class="commit-dot"></div>
+        <div>
+          <div class="commit-msg">${c.msg}</div>
+          <div class="commit-sub">${c.sub}</div>
+        </div>
+        <div class="commit-time">${c.time}</div>
+      `;
+      tl.appendChild(row);
+    });
+
+    showToast(`🌿 已切换工作区到 [${branch}]`);
+  }
+
+  function handleMemoInput() {
+    const ind = document.getElementById('saveIndicator');
+    ind.style.color = 'var(--warning)';
+    ind.innerText = '● 正在自动保存...';
+    clearTimeout(window._saveTimer);
+    window._saveTimer = setTimeout(() => {
+      ind.style.color = 'var(--success)';
+      ind.innerText = '✓ 已自动保存到 metadata.toml (刚刚)';
+      if (worktreeData[currentBranch]) {
+        worktreeData[currentBranch].memo = document.getElementById('memoText').value;
+      }
+    }, 600);
+  }
+
+  function triggerIDE() {
+    showToast(`🚀 已通过系统唤起 Cursor 打开 [${currentBranch}] (PID: 88129)`);
+  }
+  function triggerTerminal() {
+    showToast(`💻 已在系统 Terminal 打开目录 [${worktreeData[currentBranch].path}]`);
+  }
+  function triggerFinder() {
+    showToast(`📂 已在访达中定位并选中此工作树目录`);
+  }
+  function triggerDestroy() {
+    if (confirm(`确定销毁工作树 [${currentBranch}] 吗？`)) {
+      showToast(`🗑 工作树 [${currentBranch}] 已删除并释放磁盘空间`);
+    }
+  }
+
+  function switchNav(el, title) {
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    el.classList.add('active');
+    showToast(`切换导航到: ${title}`);
+  }
+
+  function quickAdd() {
+    const b = prompt('请输入新工作树的分支名称 (例如: feat/new-page):', 'feat/quick-experiment');
+    if (b) {
+      worktreeData[b] = {
+        path: `~/worktrees/portal-${b.replace('/', '-')}`,
+        dirty: '0 个未提交 (Clean)',
+        dirtyColor: 'var(--success)',
+        upstream: `origin/${b}`,
+        size: '28.1 MB',
+        tag: '刚刚创建',
+        memo: '新建实验性工作树。',
+        commits: [{ msg: `feat: 初始化分支 ${b}`, sub: `commit 1000000 · You`, time: '刚刚' }]
+      };
+      const list = document.getElementById('treeList');
+      const item = document.createElement('div');
+      item.className = 'tree-item';
+      item.onclick = function() { selectWorktree(b, this); };
+      item.innerHTML = `
+        <div class="status-dot clean"></div>
+        <span style="font-family: var(--font-mono);">${b}</span>
+        <span style="margin-left: auto; font-size: 10px; color: #10b981;">New</span>
+      `;
+      list.appendChild(item);
+      item.click();
+    }
+  }
+</script>
+
+</body>
+</html>
