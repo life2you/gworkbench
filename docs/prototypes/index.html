@@ -171,7 +171,10 @@
       <span>⚙️ 系统设置 Pro 原型</span>
     </button>
     <button class="tab-btn" onclick="switchTab('advanced-settings-preview.html', this)">
-      <span>🚀 1,2,4,5 灵活定制设计原型</span>
+      <span>🚀 灵活定制原型</span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('worktree-sweeper-preview.html', this)">
+      <span>🧹 工作树空间回收站原型</span>
     </button>
   </div>
 
@@ -199,7 +202,8 @@
     'branch-sync-preview.html': '🔄 分支同步 Pro 原型：体验全新设计的工具栏、三大执行模式切换、源分支搜索与标签挑选、可视化目标流水线流向拓扑、实时控制台日志输出与右侧检查器联动！点击右上角 "▶ 模拟执行全流程" 感受完整执行动效。',
     'merge-request-preview.html': '🔀 合并请求 Pro 原型：体验高密度原生 Table 表格视图（IID/标题、分支流向、审批进度、CI 流水线、作者、更新时间）、吸顶式批量审批合并操作条、双击在 GitLab 网页打开、右侧专业 Inspector 检查器与一键审批合流！',
     'settings-preview.html': '⚙️ 系统设置 Pro 原型：将配置表单移回宽屏主舞台（本地项目/工作树/GitLab/环境规则/分支映射），右侧升级为配置健康雷达与文件概览，彻底告别侧边栏拥挤表单！',
-    'advanced-settings-preview.html': '🚀 1,2,4,5 灵活定制方案：多托管凭据池（私有 GitLab + GitHub 自动路由）、发布策略模板（公司环境流内嵌分支映射 vs GitHub 主干流）、终端启动动作/命令钩子、工作树存储路径通配符模板！'
+    'advanced-settings-preview.html': '🚀 灵活定制方案：多托管凭据池、发布策略模板、终端启动命令钩子、路径通配符模板！',
+    'worktree-sweeper-preview.html': '🧹 工作树空间回收站：全盘扫描陈旧与已合并工作树，精准计算可释放空间，智能排除未提交脏改动与主干基准，支持批量安全物理销毁与分支同步清理！'
   };
 
   function switchTab(file, btn) {

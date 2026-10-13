@@ -36,6 +36,9 @@ struct WorktreesListView: View {
         .sheet(isPresented: $appModel.showingCreateWorktreeSheet) {
             CreateWorktreeSheetView()
         }
+        .sheet(isPresented: $appModel.showingWorktreeSweeperSheet) {
+            WorktreeSweeperSheetView()
+        }
         .confirmationDialog(
             "删除工作树",
             isPresented: $showingDeleteAlert,
@@ -131,6 +134,13 @@ struct WorktreesListView: View {
                 Label("刷新", systemImage: "arrow.clockwise")
             }
             .help("重新扫描工作树状态")
+
+            Button {
+                appModel.openWorktreeSweeper()
+            } label: {
+                Label("空间清理", systemImage: "trash.circle")
+            }
+            .help("分析并一键回收已合并或休眠的陈旧工作树，释放磁盘空间")
 
             Button {
                 appModel.prepareCreateWorktree()

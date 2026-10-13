@@ -264,6 +264,29 @@ final class GitCliService: Sendable {
         return result.status == 0
     }
 
+    func checkBranchMerged(projectPath: String, branch: String, candidateBases: [String]) -> (isMerged: Bool, mergedTarget: String?) {
+        guard !branch.isEmpty && branch != "HEAD" && branch != "(detached)" else {
+            return (false, nil)
+        }
+        for base in candidateBases where base != branch {
+            let result = try? ProcessRunner.runGit(
+                arguments: ["-C", projectPath, "merge-base", "--is-ancestor", branch, base],
+                allowFailure: true
+            )
+            if result?.status == 0 {
+                return (true, base)
+            }
+        }
+        return (false, nil)
+    }
+
+    func pruneWorktrees(projectPath: String) {
+        _ = try? ProcessRunner.runGit(
+            arguments: ["-C", projectPath, "worktree", "prune"],
+            allowFailure: true
+        )
+    }
+
     func parseWorktreeList(projectPath: String) throws -> [ParsedWorktreeEntry] {
         let output = try ProcessRunner.runGit(
             arguments: ["-C", projectPath, "worktree", "list", "--porcelain"]

@@ -289,3 +289,33 @@ func normalizedGitLabHost(_ host: String) -> String {
     }
     return value
 }
+
+enum SweeperCategoryFilter: String, CaseIterable, Identifiable {
+    case all = "全部"
+    case merged = "已合并"
+    case stale = "休眠 >30天"
+    case protected = "受保护"
+
+    var id: String { rawValue }
+}
+
+enum WorktreeSweeperStatusType: Sendable, Hashable {
+    case mainRepo
+    case dirty
+    case merged(target: String)
+    case remoteDeleted
+    case stale(days: Int)
+    case active
+}
+
+struct WorktreeSweeperItem: Identifiable, Hashable, Sendable {
+    let id: String
+    let worktree: WorktreeItem
+    let statusType: WorktreeSweeperStatusType
+    let statusTitle: String
+    let statusDescription: String
+    let isProtected: Bool
+    let isRecommended: Bool
+    let diskUsageFormatted: String
+    let approxSizeMB: Double
+}

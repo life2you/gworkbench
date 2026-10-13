@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GWorkbench 工作树空间清理与回收站 (Worktree Sweeper) 交互原型</title>
+<style>
+  :root {
+    --bg-window: #1e1e20;
+    --bg-sidebar: #18181a;
+    --bg-toolbar: #26262a;
+    --bg-card: rgba(255, 255, 255, 0.045);
+    --bg-card-hover: rgba(255, 255, 255, 0.075);
+    --bg-input: rgba(0, 0, 0, 0.35);
+    --border-color: rgba(255, 255, 255, 0.09);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --text-primary: #f0f0f2;
+    --text-secondary: #9a9ba4;
+    --text-tertiary: #686973;
+    --accent: #0a84ff;
+    --accent-hover: #0071e3;
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --purple: #bf5af2;
+    --red: #ff453a;
+    --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Consolas, Monaco, monospace;
+    --radius-sm: 5px;
+    --radius-md: 8px;
+    --radius-lg: 11px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111113;
+    color: var(--text-primary);
+    font-family: var(--font-system);
+    font-size: 12.5px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .meta-topbar {
+    background: #0d0d0f;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    z-index: 100;
+  }
+  .meta-topbar strong { color: #fff; font-weight: 600; }
+  .badge-tag {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .window-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #161618;
+    position: relative;
+    padding: 24px;
+  }
+
+  /* 模拟 macOS Sheet 模态窗口 */
+  .sweeper-sheet {
+    width: 820px;
+    max-height: 90vh;
+    background: #1f1f23;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Sheet 顶栏 */
+  .sheet-header {
+    height: 48px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .sheet-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .sheet-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* 核心指标统计横幅 */
+  .summary-banner {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(10, 132, 255, 0.08) 100%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .summary-stat-group {
+    display: flex;
+    gap: 28px;
+  }
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .stat-val {
+    font-size: 19px;
+    font-weight: 700;
+    color: #fff;
+    font-family: var(--font-mono);
+  }
+  .stat-val.highlight {
+    color: #34d399;
+  }
+
+  /* 筛选与快速选择过滤条 */
+  .filter-strip {
+    background: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+  }
+  .filter-buttons {
+    display: flex;
+    gap: 8px;
+  }
+  .filter-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    padding: 3px 9px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: 0.12s;
+  }
+  .filter-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.1); }
+  .filter-btn.active {
+    background: rgba(10, 132, 255, 0.2);
+    border-color: rgba(10, 132, 255, 0.4);
+    color: #93c5fd;
+    font-weight: 500;
+  }
+
+  /* 列表表格 */
+  .table-scroll {
+    flex: 1;
+    overflow-y: auto;
+    background: #18181b;
+    max-height: 380px;
+  }
+  .sweeper-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    text-align: left;
+  }
+  .sweeper-table thead th {
+    background: #242428;
+    border-bottom: 1px solid var(--border-color);
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .sweeper-table tbody tr {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    transition: background 0.1s;
+  }
+  .sweeper-table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+  .sweeper-table tbody tr.row-protected {
+    opacity: 0.55;
+    background: rgba(0, 0, 0, 0.15);
+  }
+  .sweeper-table td {
+    padding: 9px 12px;
+    vertical-align: middle;
+  }
+
+  .mr-checkbox {
+    width: 15px;
+    height: 15px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 11px;
+    color: transparent;
+  }
+  .mr-checkbox.checked {
+    background: #059669;
+    border-color: #059669;
+    color: #fff;
+  }
+  .mr-checkbox.disabled {
+    cursor: not-allowed;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .branch-title {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: #fff;
+  }
+  .branch-desc {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 1px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 500;
+  }
+  .pill-green { background: rgba(48, 209, 88, 0.15); color: #34d399; border: 1px solid rgba(48, 209, 88, 0.25); }
+  .pill-orange { background: rgba(255, 159, 10, 0.15); color: #fbbf24; border: 1px solid rgba(255, 159, 10, 0.25); }
+  .pill-red { background: rgba(255, 69, 58, 0.15); color: #f87171; border: 1px solid rgba(255, 69, 58, 0.25); }
+  .pill-gray { background: rgba(255, 255, 255, 0.08); color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.15); }
+
+  /* 底部选项与动作栏 */
+  .sheet-footer {
+    background: #17171a;
+    border-top: 1px solid var(--border-color);
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .footer-options {
+    display: flex;
+    gap: 20px;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+  .opt-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+
+  .footer-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .btn {
+    border: 1px solid var(--border-color);
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: 0.15s;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+  .btn-danger {
+    background: #dc2626;
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-weight: 600;
+  }
+  .btn-danger:hover { background: #ef4444; }
+
+  .toast {
+    position: fixed;
+    bottom: 35px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #27272a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 11.5px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 999;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-5px); }
+</style>
+</head>
+<body>
+
+<div class="meta-topbar">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <strong>GWorkbench 工作树空间清理与回收站 (Worktree Sweeper) 原型设计</strong>
+    <span class="badge-tag">解决工作树堆积与磁盘占用痛点</span>
+  </div>
+  <div style="font-size:11px; color:#a1a1aa;">
+    💡 支持一键智能勾选已合并/休眠分支，绝不误伤主仓库与有未提交改动的工作树
+  </div>
+</div>
+
+<div class="window-container">
+
+  <!-- 模拟弹出的清理向导窗口 -->
+  <div class="sweeper-sheet">
+
+    <!-- 1. 顶栏 -->
+    <div class="sheet-header">
+      <div class="sheet-title">
+        <span>🧹</span>
+        <span>陈旧与已合并工作树智能回收站</span>
+      </div>
+      <div class="sheet-actions">
+        <span style="font-size:11px; color:var(--text-tertiary);">当前仓库: <strong>bizark_fin</strong> (含 11 个工作树)</span>
+      </div>
+    </div>
+
+    <!-- 2. 核心成果横幅 -->
+    <div class="summary-banner">
+      <div class="summary-stat-group">
+        <div class="stat-item">
+          <span class="stat-label">总工作树</span>
+          <span class="stat-val">11 个</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">建议安全回收</span>
+          <span class="stat-val highlight" id="rec-count">7 个</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">可释放磁盘空间</span>
+          <span class="stat-val highlight" id="rec-space">4.72 GB</span>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+        <span class="pill pill-green">🛡️ 智能保护：已自动排除主仓库与有脏改动的目录</span>
+      </div>
+    </div>
+
+    <!-- 3. 快捷筛选器 -->
+    <div class="filter-strip">
+      <div class="filter-buttons">
+        <button class="filter-btn active" onclick="filterTable('all', this)">全部 (11)</button>
+        <button class="filter-btn" onclick="filterTable('merged', this)">已在远端合并 (5)</button>
+        <button class="filter-btn" onclick="filterTable('stale', this)">长期休眠 >30天 (2)</button>
+        <button class="filter-btn" onclick="filterTable('dirty', this)">有未提交改动 (2 · 受保护)</button>
+      </div>
+
+      <div style="display:flex; gap:10px; align-items:center;">
+        <span style="color:var(--accent); cursor:pointer;" onclick="selectSmart()">⚡ 智能选择建议项</span>
+        <span style="color:var(--text-tertiary);">|</span>
+        <span style="color:var(--text-secondary); cursor:pointer;" onclick="clearAllSelection()">清空</span>
+      </div>
+    </div>
+
+    <!-- 4. 数据表格 -->
+    <div class="table-scroll">
+      <table class="sweeper-table">
+        <thead>
+          <tr>
+            <th style="width:36px; text-align:center;">选择</th>
+            <th style="min-width:260px;">工作树分支 & 描述</th>
+            <th style="width:130px;">合并状态</th>
+            <th style="width:110px;">最后提交</th>
+            <th style="width:90px;">工作区状态</th>
+            <th style="width:90px;">磁盘占用</th>
+          </tr>
+        </thead>
+        <tbody id="sweeper-tbody">
+
+          <!-- Item 1: 主仓库 (不可选) -->
+          <tr class="row-protected" data-type="main">
+            <td style="text-align:center;">
+              <div class="mr-checkbox disabled">✕</div>
+            </td>
+            <td>
+              <div class="branch-title">master <span class="pill pill-gray" style="font-size:9.5px;">主仓库 (基准)</span></div>
+              <div class="branch-desc">/Users/life2you/vibeCodes/hengjian/bizark_fin</div>
+            </td>
+            <td><span class="pill pill-gray">生产主干</span></td>
+            <td style="color:var(--text-secondary);">3 天前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#fff;">2.10 GB</td>
+          </tr>
+
+          <!-- Item 2: 已合并到 pre_prod -->
+          <tr data-type="merged" data-size="1056" onclick="toggleRow(this)">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <div class="mr-checkbox checked" onclick="toggleCheck(this)">✓</div>
+            </td>
+            <td>
+              <div class="branch-title">feat/henry/real-profit-add-fee</div>
+              <div class="branch-desc">利润重算实时费率补丁 (MR !198 已合入 pre_prod)</div>
+            </td>
+            <td><span class="pill pill-green">✓ 已合入 pre_prod</span></td>
+            <td style="color:var(--text-secondary);">1 个月前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#34d399;">1.05 GB</td>
+          </tr>
+
+          <!-- Item 3: 已合并到 uat -->
+          <tr data-type="merged" data-size="1120" onclick="toggleRow(this)">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <div class="mr-checkbox checked" onclick="toggleCheck(this)">✓</div>
+            </td>
+            <td>
+              <div class="branch-title">feat/henry/profit-cost-4-city</div>
+              <div class="branch-desc">四级城市结算成本分摊计算 (已完成测试合流)</div>
+            </td>
+            <td><span class="pill pill-green">✓ 已合入 uat</span></td>
+            <td style="color:var(--text-secondary);">2 个月前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#34d399;">1.12 GB</td>
+          </tr>
+
+          <!-- Item 4: 已合并 -->
+          <tr data-type="merged" data-size="1088" onclick="toggleRow(this)">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <div class="mr-checkbox checked" onclick="toggleCheck(this)">✓</div>
+            </td>
+            <td>
+              <div class="branch-title">feat/henry/del-nouse-api</div>
+              <div class="branch-desc">清理废弃旧版内部 RPC 接口</div>
+            </td>
+            <td><span class="pill pill-green">✓ 远端分支已删</span></td>
+            <td style="color:var(--text-secondary);">1 个月前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#34d399;">1.08 GB</td>
+          </tr>
+
+          <!-- Item 5: 休眠分支 -->
+          <tr data-type="stale" data-size="249" onclick="toggleRow(this)">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <div class="mr-checkbox checked" onclick="toggleCheck(this)">✓</div>
+            </td>
+            <td>
+              <div class="branch-title">refactor/henry/code-cleanup</div>
+              <div class="branch-desc">仓库代码分支整理</div>
+            </td>
+            <td><span class="pill pill-orange">⏳ 休眠未跟进</span></td>
+            <td style="color:var(--text-secondary);">45 天前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#34d399;">249 MB</td>
+          </tr>
+
+          <!-- Item 6: 休眠分支 -->
+          <tr data-type="stale" data-size="254" onclick="toggleRow(this)">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <div class="mr-checkbox checked" onclick="toggleCheck(this)">✓</div>
+            </td>
+            <td>
+              <div class="branch-title">refactor/henry/order-payment-receiver</div>
+              <div class="branch-desc">重构订单支付回调接收器</div>
+            </td>
+            <td><span class="pill pill-orange">⏳ 休眠未跟进</span></td>
+            <td style="color:var(--text-secondary);">38 天前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#34d399;">254 MB</td>
+          </tr>
+
+          <!-- Item 7: 已合并 -->
+          <tr data-type="merged" data-size="201" onclick="toggleRow(this)">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <div class="mr-checkbox checked" onclick="toggleCheck(this)">✓</div>
+            </td>
+            <td>
+              <div class="branch-title">fix/henry/payment-order-batch-update-validate</div>
+              <div class="branch-desc">平台结算中心交易明细批量修改校验调整</div>
+            </td>
+            <td><span class="pill pill-green">✓ 已合入 uat</span></td>
+            <td style="color:var(--text-secondary);">23 小时前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#34d399;">201 MB</td>
+          </tr>
+
+          <!-- Item 8: 已合并 -->
+          <tr data-type="merged" data-size="225" onclick="toggleRow(this)">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <div class="mr-checkbox checked" onclick="toggleCheck(this)">✓</div>
+            </td>
+            <td>
+              <div class="branch-title">feat/henry/add-poprofit-other-fee</div>
+              <div class="branch-desc">PO 利润计算新增其他杂项扣费</div>
+            </td>
+            <td><span class="pill pill-green">✓ 已合入 pre_prod</span></td>
+            <td style="color:var(--text-secondary);">19 小时前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#34d399;">225 MB</td>
+          </tr>
+
+          <!-- Item 9: 有未提交改动 (受保护，默认不选) -->
+          <tr class="row-protected" data-type="dirty">
+            <td style="text-align:center;">
+              <div class="mr-checkbox disabled">✕</div>
+            </td>
+            <td>
+              <div class="branch-title">feat/henry/real-profit-add-no-calc-conf</div>
+              <div class="branch-desc">待测试不参与利润计算规则</div>
+            </td>
+            <td><span class="pill pill-orange">开发中</span></td>
+            <td style="color:var(--text-secondary);">3 天前</td>
+            <td><span class="pill pill-red">⚠️ 4 处未提交修改</span></td>
+            <td style="font-family:var(--font-mono); color:#94a3b8;">1.20 GB</td>
+          </tr>
+
+          <!-- Item 10: 有未提交改动 (受保护) -->
+          <tr class="row-protected" data-type="dirty">
+            <td style="text-align:center;">
+              <div class="mr-checkbox disabled">✕</div>
+            </td>
+            <td>
+              <div class="branch-title">refactor/henry/bi-architecture-rewrite</div>
+              <div class="branch-desc">BI 架构重构原型</div>
+            </td>
+            <td><span class="pill pill-orange">开发中</span></td>
+            <td style="color:var(--text-secondary);">1 个月前</td>
+            <td><span class="pill pill-red">⚠️ 57 处未提交修改</span></td>
+            <td style="font-family:var(--font-mono); color:#94a3b8;">248 MB</td>
+          </tr>
+
+          <!-- Item 11: 活跃开发分支 -->
+          <tr data-type="active" data-size="121" onclick="toggleRow(this)">
+            <td style="text-align:center;" onclick="event.stopPropagation()">
+              <div class="mr-checkbox" onclick="toggleCheck(this)"></div>
+            </td>
+            <td>
+              <div class="branch-title">feat/henry/ppc-calc-commis-fee</div>
+              <div class="branch-desc">正在联调 PPC 提成佣金</div>
+            </td>
+            <td><span class="pill pill-orange">开发联调中</span></td>
+            <td style="color:var(--text-secondary);">3 天前</td>
+            <td><span class="pill pill-green">干净</span></td>
+            <td style="font-family:var(--font-mono); color:#94a3b8;">121 MB</td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 5. 底部安全保障与执行栏 -->
+    <div class="sheet-footer">
+      <div class="footer-options">
+        <label class="opt-label">
+          <input type="checkbox" checked disabled>
+          <span>删除物理工作树目录 (释放磁盘占用)</span>
+        </label>
+        <label class="opt-label">
+          <input type="checkbox" id="del-local-branch" checked>
+          <span>同步删除已合并的本地 Git 分支</span>
+        </label>
+        <label class="opt-label">
+          <input type="checkbox" id="del-remote-branch">
+          <span>同步清理远端跟踪分支 (谨慎)</span>
+        </label>
+      </div>
+
+      <div class="footer-actions">
+        <span style="font-size:11.5px; color:var(--text-tertiary);">
+          所有删除动作均会自动执行 git worktree prune 进行全局元数据清理
+        </span>
+
+        <div style="display:flex; gap:10px;">
+          <button class="btn" onclick="showToast('已取消清理')">取消</button>
+          <button class="btn btn-danger" id="btn-purge" onclick="executePurge()">
+            <span>🗑️</span> <span id="purge-text">一键回收选中的 7 个工作树 (释放 4.72 GB)</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="toast" id="toast">已操作</div>
+
+<script>
+  function toggleRow(tr) {
+    if (tr.classList.contains('row-protected')) return;
+    const box = tr.querySelector('.mr-checkbox');
+    toggleCheck(box);
+  }
+
+  function toggleCheck(box) {
+    if (box.classList.contains('disabled')) return;
+    box.classList.toggle('checked');
+    box.innerText = box.classList.contains('checked') ? '✓' : '';
+    calculateSelected();
+  }
+
+  function calculateSelected() {
+    let totalMB = 0;
+    let count = 0;
+    document.querySelectorAll('.sweeper-table tbody tr').forEach(tr => {
+      const box = tr.querySelector('.mr-checkbox');
+      if (box && box.classList.contains('checked')) {
+        count++;
+        const size = parseInt(tr.dataset.size || '0', 10);
+        totalMB += size;
+      }
+    });
+
+    const spaceText = totalMB >= 1024 ? (totalMB / 1024).toFixed(2) + ' GB' : totalMB + ' MB';
+    document.getElementById('rec-count').innerText = count + ' 个';
+    document.getElementById('rec-space').innerText = spaceText;
+    document.getElementById('purge-text').innerText = `一键回收选中的 ${count} 个工作树 (释放 ${spaceText})`;
+  }
+
+  function selectSmart() {
+    document.querySelectorAll('.sweeper-table tbody tr').forEach(tr => {
+      const type = tr.dataset.type;
+      const box = tr.querySelector('.mr-checkbox');
+      if (box && !box.classList.contains('disabled')) {
+        const shouldSelect = (type === 'merged' || type === 'stale');
+        box.classList.toggle('checked', shouldSelect);
+        box.innerText = shouldSelect ? '✓' : '';
+      }
+    });
+    calculateSelected();
+    showToast('已重新执行智能选择：自动勾选已合并与休眠分支');
+  }
+
+  function clearAllSelection() {
+    document.querySelectorAll('.sweeper-table tbody tr .mr-checkbox').forEach(box => {
+      if (!box.classList.contains('disabled')) {
+        box.classList.remove('checked');
+        box.innerText = '';
+      }
+    });
+    calculateSelected();
+    showToast('已清空全部勾选');
+  }
+
+  function filterTable(type, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    document.querySelectorAll('.sweeper-table tbody tr').forEach(tr => {
+      if (type === 'all') {
+        tr.style.display = '';
+      } else {
+        tr.style.display = (tr.dataset.type === type) ? '' : 'none';
+      }
+    });
+  }
+
+  function executePurge() {
+    const checked = document.querySelectorAll('.mr-checkbox.checked').length;
+    if (checked === 0) {
+      showToast('⚠️ 未勾选任何要回收的工作树');
+      return;
+    }
+    const space = document.getElementById('rec-space').innerText;
+    showToast(`🎉 成功回收 ${checked} 个工作树，已释放 ${space} 磁盘空间！`);
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.innerText = msg;
+    t.classList.add('show');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+      t.classList.remove('show');
+    }, 2400);
+  }
+</script>
+
+</body>
+</html>

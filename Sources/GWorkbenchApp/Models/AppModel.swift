@@ -372,6 +372,16 @@ final class AppModel {
     var scannedIDEs: [InstalledIDEApp] = []
     var deleteLocalBranchOnRemove = false
 
+    // MARK: - Worktree Sweeper State
+    var showingWorktreeSweeperSheet = false
+    var sweeperItems: [WorktreeSweeperItem] = []
+    var selectedSweeperIDs: Set<String> = []
+    var selectedSweeperCategory: SweeperCategoryFilter = .all
+    var sweeperDeleteLocalBranch: Bool = true
+    var sweeperDeleteRemoteBranch: Bool = false
+    var isSweeperAnalyzing: Bool = false
+    var sweeperOperation = OperationState.idle(title: "空间清理")
+
     init() {
         scannedTerminals = TerminalService.shared.scanInstalledTerminals()
         scannedIDEs = IDEService.shared.scanInstalledIDEs()
@@ -576,6 +586,277 @@ final class AppModel {
         byteCountFormatter.zeroPadsFractionDigits = false
         byteCountFormatter.includesActualByteCount = false
         return byteCountFormatter.string(fromByteCount: totalBytes)
+    }
+
+    // MARK: - Sweeper Computeds & Methods
+
+    var filteredSweeperItems: [WorktreeSweeperItem] {
+        sweeperItems.filter { item in
+            switch selectedSweeperCategory {
+            case .all:
+                return true
+            case .merged:
+                if case .merged = item.statusType { return true }
+                if case .remoteDeleted = item.statusType { return true }
+                return false
+            case .stale:
+                if case .stale = item.statusType { return true }
+                return false
+            case .protected:
+                return item.isProtected
+            }
+        }
+    }
+
+    var sweeperRecommendedCount: Int {
+        sweeperItems.filter(\.isRecommended).count
+    }
+
+    var sweeperRecommendedSpaceFormatted: String {
+        let totalMB = sweeperItems.filter(\.isRecommended).reduce(0.0) { $0 + $1.approxSizeMB }
+        return Self.formatSizeMB(totalMB)
+    }
+
+    var sweeperSelectedCount: Int {
+        sweeperItems.filter { selectedSweeperIDs.contains($0.id) }.count
+    }
+
+    var sweeperSelectedSpaceFormatted: String {
+        let totalMB = sweeperItems
+            .filter { selectedSweeperIDs.contains($0.id) }
+            .reduce(0.0) { $0 + $1.approxSizeMB }
+        return Self.formatSizeMB(totalMB)
+    }
+
+    func openWorktreeSweeper() {
+        showingWorktreeSweeperSheet = true
+        Task {
+            await analyzeCurrentProjectWorktrees()
+        }
+    }
+
+    func selectSmartSweeper() {
+        selectedSweeperIDs = Set(sweeperItems.filter(\.isRecommended).map(\.id))
+    }
+
+    func clearSweeperSelection() {
+        selectedSweeperIDs.removeAll()
+    }
+
+    func toggleSweeperSelection(id: String) {
+        guard let item = sweeperItems.first(where: { $0.id == id }), !item.isProtected else {
+            return
+        }
+        if selectedSweeperIDs.contains(id) {
+            selectedSweeperIDs.remove(id)
+        } else {
+            selectedSweeperIDs.insert(id)
+        }
+    }
+
+    func analyzeCurrentProjectWorktrees() async {
+        guard let project = currentWorktreeProject else { return }
+        isSweeperAnalyzing = true
+        sweeperOperation = OperationState(isRunning: true, title: "正在分析", detail: "正在比对分支合并状态与活跃度...")
+
+        let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
+        let gitCli = service.gitCliService
+        let projectPath = project.path
+        let baseBranches = project.baseBranches.isEmpty ? ["master", "main", "uat", "pre_prod"] : project.baseBranches
+
+        var results: [WorktreeSweeperItem] = []
+
+        for item in projectWorktrees {
+            let isMain = item.kind == .mainRepo
+            let isDirty = item.isDirty
+            let sizeMB = Self.parseDiskUsageToMB(item.diskUsage)
+
+            if isMain {
+                results.append(
+                    WorktreeSweeperItem(
+                        id: item.id,
+                        worktree: item,
+                        statusType: .mainRepo,
+                        statusTitle: "主仓库 (基准)",
+                        statusDescription: "生产代码基准目录，受系统强制保护",
+                        isProtected: true,
+                        isRecommended: false,
+                        diskUsageFormatted: item.diskUsage,
+                        approxSizeMB: sizeMB
+                    )
+                )
+                continue
+            }
+
+            if isDirty {
+                results.append(
+                    WorktreeSweeperItem(
+                        id: item.id,
+                        worktree: item,
+                        statusType: .dirty,
+                        statusTitle: "有未提交改动",
+                        statusDescription: item.dirtySummary,
+                        isProtected: true,
+                        isRecommended: false,
+                        diskUsageFormatted: item.diskUsage,
+                        approxSizeMB: sizeMB
+                    )
+                )
+                continue
+            }
+
+            // 检查是否已被 merge
+            let mergeCheck = gitCli.checkBranchMerged(projectPath: projectPath, branch: item.branch, candidateBases: baseBranches)
+            if mergeCheck.isMerged, let target = mergeCheck.mergedTarget {
+                results.append(
+                    WorktreeSweeperItem(
+                        id: item.id,
+                        worktree: item,
+                        statusType: .merged(target: target),
+                        statusTitle: "✓ 已合入 \(target)",
+                        statusDescription: "该分支代码已完整并入上游基准分支",
+                        isProtected: false,
+                        isRecommended: true,
+                        diskUsageFormatted: item.diskUsage,
+                        approxSizeMB: sizeMB
+                    )
+                )
+                continue
+            }
+
+            // 检查远端分支是否存在
+            let hasRemote = (try? gitCli.remoteBranchExists(projectPath: projectPath, branch: item.branch)) ?? true
+            if !hasRemote {
+                results.append(
+                    WorktreeSweeperItem(
+                        id: item.id,
+                        worktree: item,
+                        statusType: .remoteDeleted,
+                        statusTitle: "✓ 远端分支已删除",
+                        statusDescription: "远端 tracking 分支已移除，本地为残留工作树",
+                        isProtected: false,
+                        isRecommended: true,
+                        diskUsageFormatted: item.diskUsage,
+                        approxSizeMB: sizeMB
+                    )
+                )
+                continue
+            }
+
+            // 检查最后更新时间是否超过 30 天
+            let isOlderThan30Days = item.updatedAt.contains("月") || item.updatedAt.contains("年") || (item.updatedAt.contains("天") && (Int(item.updatedAt.prefix(2)) ?? 0) >= 30)
+            if isOlderThan30Days {
+                results.append(
+                    WorktreeSweeperItem(
+                        id: item.id,
+                        worktree: item,
+                        statusType: .stale(days: 30),
+                        statusTitle: "⏳ 长期休眠分支",
+                        statusDescription: "超过 30 天未更新，且工作区完全整洁",
+                        isProtected: false,
+                        isRecommended: true,
+                        diskUsageFormatted: item.diskUsage,
+                        approxSizeMB: sizeMB
+                    )
+                )
+                continue
+            }
+
+            // 活跃开发中的干净分支
+            results.append(
+                WorktreeSweeperItem(
+                    id: item.id,
+                    worktree: item,
+                    statusType: .active,
+                    statusTitle: "活跃开发中",
+                    statusDescription: "工作区整洁，尚未合入目标分支",
+                    isProtected: false,
+                    isRecommended: false,
+                    diskUsageFormatted: item.diskUsage,
+                    approxSizeMB: sizeMB
+                )
+            )
+        }
+
+        sweeperItems = results
+        selectedSweeperIDs = Set(results.filter(\.isRecommended).map(\.id))
+        isSweeperAnalyzing = false
+        sweeperOperation = OperationState(
+            isRunning: false,
+            title: "分析就绪",
+            detail: "发现 \(sweeperRecommendedCount) 个建议清理项，预计释放 \(sweeperRecommendedSpaceFormatted)"
+        )
+    }
+
+    func executeSweeperPurge() async {
+        guard let config = effectiveWorktreeConfig, let project = currentWorktreeProject else { return }
+        let toPurge = sweeperItems.filter { selectedSweeperIDs.contains($0.id) && !$0.isProtected }
+        guard !toPurge.isEmpty else { return }
+
+        sweeperOperation = OperationState(
+            isRunning: true,
+            title: "正在安全回收",
+            detail: "准备回收 \(toPurge.count) 个工作树..."
+        )
+
+        var purgedCount = 0
+        for (index, item) in toPurge.enumerated() {
+            sweeperOperation = OperationState(
+                isRunning: true,
+                title: "正在安全回收 (\(index + 1)/\(toPurge.count))",
+                detail: "正在删除: \(item.worktree.branch)",
+                fractionCompleted: Double(index + 1) / Double(toPurge.count)
+            )
+
+            do {
+                try await service.removeWorktree(
+                    config: config,
+                    item: item.worktree,
+                    deleteLocalBranch: sweeperDeleteLocalBranch,
+                    deleteRemoteBranch: sweeperDeleteRemoteBranch
+                ) { _ in }
+                purgedCount += 1
+            } catch {
+                appendWorktreeLog("回收工作树失败: \(item.worktree.branch) - \(error.localizedDescription)")
+            }
+        }
+
+        // 全局 prune
+        service.gitCliService.pruneWorktrees(projectPath: project.path)
+
+        await refreshWorktrees()
+        await analyzeCurrentProjectWorktrees()
+
+        sweeperOperation = OperationState(
+            isRunning: false,
+            title: "回收完成",
+            detail: "已成功释放 \(purgedCount) 个工作树目录与空间",
+            fractionCompleted: 1,
+            successMessage: "成功回收 \(purgedCount) 个工作树！"
+        )
+    }
+
+    static func parseDiskUsageToMB(_ usage: String) -> Double {
+        let trimmed = usage.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if trimmed.hasSuffix("G") || trimmed.hasSuffix("GB") {
+            let numStr = trimmed.replacingOccurrences(of: "GB", with: "").replacingOccurrences(of: "G", with: "").trimmingCharacters(in: .whitespaces)
+            return (Double(numStr) ?? 0) * 1024
+        } else if trimmed.hasSuffix("M") || trimmed.hasSuffix("MB") {
+            let numStr = trimmed.replacingOccurrences(of: "MB", with: "").replacingOccurrences(of: "M", with: "").trimmingCharacters(in: .whitespaces)
+            return Double(numStr) ?? 0
+        } else if trimmed.hasSuffix("K") || trimmed.hasSuffix("KB") {
+            let numStr = trimmed.replacingOccurrences(of: "KB", with: "").replacingOccurrences(of: "K", with: "").trimmingCharacters(in: .whitespaces)
+            return (Double(numStr) ?? 0) / 1024
+        }
+        return 0
+    }
+
+    static func formatSizeMB(_ totalMB: Double) -> String {
+        if totalMB >= 1024 {
+            return String(format: "%.2f GB", totalMB / 1024)
+        } else {
+            return String(format: "%.0f MB", totalMB)
+        }
     }
 
     var mrSortOrder = [KeyPathComparator(\MergeRequestItem.iid, order: .reverse)]
