@@ -1087,14 +1087,41 @@ final class AppModel {
         }
     }
 
-    func refreshWorktrees() async {
-        appendWorktreeLog("开始扫描工作树...")
-        worktreeOperation = OperationState(
-            isRunning: true,
-            title: "刷新工作树",
-            detail: "开始读取本地配置",
-            logs: worktreeOperation.logs
-        )
+    private var lastForegroundRefreshTime: Date = .distantPast
+
+    func handleWindowDidBecomeActive() async {
+        guard didBootstrap else { return }
+
+        // 防抖：3秒内重复切窗不重复触发，避免 Command+Tab 连续切换引发并发刷新
+        let now = Date()
+        guard now.timeIntervalSince(lastForegroundRefreshTime) >= 3.0 else { return }
+        lastForegroundRefreshTime = now
+
+        switch selectedSection ?? .worktrees {
+        case .worktrees:
+            // 立即刷新当前选中的工作树文件改动与 Ahead/Behind
+            syncSelectedWorktreeDetails()
+            // 同时静默刷新工作树状态与分支
+            await refreshWorktrees(silent: true)
+        case .branchSync:
+            await refreshLocalMergeProjects(silent: true)
+        case .mergeRequests:
+            await refreshMergeRequests(silent: true)
+        case .settings:
+            break
+        }
+    }
+
+    func refreshWorktrees(silent: Bool = false) async {
+        if !silent {
+            appendWorktreeLog("开始扫描工作树...")
+            worktreeOperation = OperationState(
+                isRunning: true,
+                title: "刷新工作树",
+                detail: "开始读取本地配置",
+                logs: worktreeOperation.logs
+            )
+        }
         globalErrorMessage = nil
 
         do {
@@ -1105,14 +1132,16 @@ final class AppModel {
             }
 
             let snapshot = try await service.loadWorktreeSnapshot { [weak self] progress in
-                Task { @MainActor in
-                    self?.worktreeOperation = OperationState(
-                        isRunning: true,
-                        title: progress.title,
-                        detail: progress.detail,
-                        fractionCompleted: progress.fractionCompleted,
-                        logs: self?.worktreeOperation.logs ?? []
-                    )
+                if !silent {
+                    Task { @MainActor in
+                        self?.worktreeOperation = OperationState(
+                            isRunning: true,
+                            title: progress.title,
+                            detail: progress.detail,
+                            fractionCompleted: progress.fractionCompleted,
+                            logs: self?.worktreeOperation.logs ?? []
+                        )
+                    }
                 }
             }
 
@@ -1132,41 +1161,49 @@ final class AppModel {
             syncSelectedWorktreeDetails()
             syncCreateWorktreeDefaults(resetBranchName: false)
 
-            appendWorktreeLog("工作树刷新完成：已同步 \(snapshot.projects.count) 个项目和 \(snapshot.worktrees.count) 个工作树")
-            worktreeOperation = OperationState(
-                isRunning: false,
-                title: "工作树已刷新",
-                detail: "已同步 \(snapshot.projects.count) 个项目和 \(snapshot.worktrees.count) 个工作树",
-                fractionCompleted: 1,
-                logs: worktreeOperation.logs,
-                successMessage: "刷新完成"
-            )
+            if !silent {
+                appendWorktreeLog("工作树刷新完成：已同步 \(snapshot.projects.count) 个项目和 \(snapshot.worktrees.count) 个工作树")
+                worktreeOperation = OperationState(
+                    isRunning: false,
+                    title: "工作树已刷新",
+                    detail: "已同步 \(snapshot.projects.count) 个项目和 \(snapshot.worktrees.count) 个工作树",
+                    fractionCompleted: 1,
+                    logs: worktreeOperation.logs,
+                    successMessage: "刷新完成"
+                )
+            }
         } catch {
-            appendWorktreeLog("工作树刷新失败: \(error.localizedDescription)")
-            worktreeOperation = OperationState(
-                isRunning: false,
-                title: "工作树刷新失败",
-                detail: error.localizedDescription,
-                logs: worktreeOperation.logs,
-                errorMessage: error.localizedDescription
-            )
-            globalErrorMessage = error.localizedDescription
+            if !silent {
+                appendWorktreeLog("工作树刷新失败: \(error.localizedDescription)")
+                worktreeOperation = OperationState(
+                    isRunning: false,
+                    title: "工作树刷新失败",
+                    detail: error.localizedDescription,
+                    logs: worktreeOperation.logs,
+                    errorMessage: error.localizedDescription
+                )
+                globalErrorMessage = error.localizedDescription
+            }
         }
     }
 
-    func refreshLocalMergeProjects() async {
-        localOperation = OperationState(isRunning: true, title: "刷新分支同步项目", detail: "开始读取本地配置")
+    func refreshLocalMergeProjects(silent: Bool = false) async {
+        if !silent {
+            localOperation = OperationState(isRunning: true, title: "刷新分支同步项目", detail: "开始读取本地配置")
+        }
         globalErrorMessage = nil
 
         do {
             let context = try await service.loadLocalMergeContext { [weak self] progress in
-                Task { @MainActor in
-                    self?.localOperation = OperationState(
-                        isRunning: true,
-                        title: progress.title,
-                        detail: progress.detail,
-                        fractionCompleted: progress.fractionCompleted
-                    )
+                if !silent {
+                    Task { @MainActor in
+                        self?.localOperation = OperationState(
+                            isRunning: true,
+                            title: progress.title,
+                            detail: progress.detail,
+                            fractionCompleted: progress.fractionCompleted
+                        )
+                    }
                 }
             }
 
@@ -1179,21 +1216,25 @@ final class AppModel {
 
             syncLocalOperationDefaults(resetSourceBranch: false)
 
-            localOperation = OperationState(
-                isRunning: false,
-                title: "分支同步项目已刷新",
-                detail: "已同步 \(context.projects.count) 个本地仓库",
-                fractionCompleted: 1,
-                successMessage: "刷新完成"
-            )
+            if !silent {
+                localOperation = OperationState(
+                    isRunning: false,
+                    title: "分支同步项目已刷新",
+                    detail: "已同步 \(context.projects.count) 个本地仓库",
+                    fractionCompleted: 1,
+                    successMessage: "刷新完成"
+                )
+            }
         } catch {
-            localOperation = OperationState(
-                isRunning: false,
-                title: "分支同步项目刷新失败",
-                detail: error.localizedDescription,
-                errorMessage: error.localizedDescription
-            )
-            globalErrorMessage = error.localizedDescription
+            if !silent {
+                localOperation = OperationState(
+                    isRunning: false,
+                    title: "分支同步项目刷新失败",
+                    detail: error.localizedDescription,
+                    errorMessage: error.localizedDescription
+                )
+                globalErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -1231,24 +1272,28 @@ final class AppModel {
         }
     }
 
-    func refreshMergeRequests() async {
+    func refreshMergeRequests(silent: Bool = false) async {
         guard let context = mergeRequestContext, let project = currentMergeProject else {
             mergeRequests = []
             selectedMergeRequestID = nil
             return
         }
 
-        mrOperation = OperationState(isRunning: true, title: "刷新待合并列表", detail: "正在读取 \(project.displayName)")
+        if !silent {
+            mrOperation = OperationState(isRunning: true, title: "刷新待合并列表", detail: "正在读取 \(project.displayName)")
+        }
 
         do {
             let items = try await service.loadPendingMergeRequests(context: context, project: project) { [weak self] progress in
-                Task { @MainActor in
-                    self?.mrOperation = OperationState(
-                        isRunning: true,
-                        title: progress.title,
-                        detail: progress.detail,
-                        fractionCompleted: progress.fractionCompleted
-                    )
+                if !silent {
+                    Task { @MainActor in
+                        self?.mrOperation = OperationState(
+                            isRunning: true,
+                            title: progress.title,
+                            detail: progress.detail,
+                            fractionCompleted: progress.fractionCompleted
+                        )
+                    }
                 }
             }
 
@@ -1258,21 +1303,25 @@ final class AppModel {
                 selectedMergeRequestID = filteredMergeRequests.first?.id
             }
 
-            mrOperation = OperationState(
-                isRunning: false,
-                title: "待合并列表已刷新",
-                detail: "当前项目共有 \(items.count) 条打开中的 MR",
-                fractionCompleted: 1,
-                successMessage: "刷新完成"
-            )
+            if !silent {
+                mrOperation = OperationState(
+                    isRunning: false,
+                    title: "待合并列表已刷新",
+                    detail: "当前项目共有 \(items.count) 条打开中的 MR",
+                    fractionCompleted: 1,
+                    successMessage: "刷新完成"
+                )
+            }
         } catch {
-            mrOperation = OperationState(
-                isRunning: false,
-                title: "待合并列表刷新失败",
-                detail: error.localizedDescription,
-                errorMessage: error.localizedDescription
-            )
-            globalErrorMessage = error.localizedDescription
+            if !silent {
+                mrOperation = OperationState(
+                    isRunning: false,
+                    title: "待合并列表刷新失败",
+                    detail: error.localizedDescription,
+                    errorMessage: error.localizedDescription
+                )
+                globalErrorMessage = error.localizedDescription
+            }
         }
     }
 
