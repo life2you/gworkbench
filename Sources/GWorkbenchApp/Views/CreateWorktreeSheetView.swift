@@ -31,28 +31,105 @@ struct CreateWorktreeSheetView: View {
                     }
                 }
 
-                if appModel.createWorktreeDraft.mode == .existingBranch, !appModel.availableExistingWorktreeBranchOptions.isEmpty {
-                    Picker("已有分支", selection: $appModel.createWorktreeDraft.branchName) {
-                        ForEach(appModel.availableExistingWorktreeBranchOptions) { option in
-                            Text(option.label).tag(option.name)
+                // 功能描述与 AI 智能建议
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("功能描述 / 需求背景")
+                            .font(.system(size: 11, weight: .medium))
+                        Spacer()
+
+                        Button {
+                            Task {
+                                await appModel.generateBranchNameWithAI()
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                if appModel.isAIGeneratingBranch {
+                                    ProgressView().controlSize(.small)
+                                    Text("AI 生成中...")
+                                } else {
+                                    Image(systemName: "sparkles")
+                                        .font(.system(size: 10))
+                                    Text("AI 生成分支名")
+                                }
+                            }
                         }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .tint(Color.blue)
+                        .disabled(appModel.createWorktreeDraft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || appModel.isAIGeneratingBranch)
                     }
-                    .onChange(of: appModel.createWorktreeDraft.branchName) {
-                        appModel.updateCreateWorktreePathFromBranch()
-                    }
-                } else {
-                    TextField(
-                        appModel.createWorktreeDraft.mode == .existingBranch ? "已有分支名" : "新分支名",
-                        text: $appModel.createWorktreeDraft.branchName
-                    )
-                    .onChange(of: appModel.createWorktreeDraft.branchName) {
-                        appModel.updateCreateWorktreePathFromBranch()
+
+                    TextField("简述需求或 Bug（如：修复退款回调重复扣除手续费的边界问题）...", text: $appModel.createWorktreeDraft.description, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(2, reservesSpace: true)
+                        .font(.system(size: 12))
+
+                    if let err = appModel.aiGenerationError {
+                        Text("AI 提示: \(err)")
+                            .font(.caption2)
+                            .foregroundStyle(Color.red)
                     }
                 }
 
-                TextField("功能描述（可选）", text: $appModel.createWorktreeDraft.description, axis: .vertical)
-                    .lineLimit(3, reservesSpace: true)
-                TextField("工作树路径", text: $appModel.createWorktreeDraft.path)
+                // 分支名输入
+                VStack(alignment: .leading, spacing: 6) {
+                    if appModel.createWorktreeDraft.mode == .existingBranch, !appModel.availableExistingWorktreeBranchOptions.isEmpty {
+                        Picker("已有分支", selection: $appModel.createWorktreeDraft.branchName) {
+                            ForEach(appModel.availableExistingWorktreeBranchOptions) { option in
+                                Text(option.label).tag(option.name)
+                            }
+                        }
+                        .onChange(of: appModel.createWorktreeDraft.branchName) {
+                            appModel.updateCreateWorktreePathFromBranch()
+                        }
+                    } else {
+                        HStack {
+                            Text(appModel.createWorktreeDraft.mode == .existingBranch ? "已有分支名" : "新分支名")
+                                .font(.system(size: 11, weight: .medium))
+                            Spacer()
+                        }
+
+                        TextField(
+                            "例如: feat/refund-fee-dedup",
+                            text: $appModel.createWorktreeDraft.branchName
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+                        .onChange(of: appModel.createWorktreeDraft.branchName) {
+                            appModel.updateCreateWorktreePathFromBranch()
+                        }
+
+                        // AI 备选分支胶囊栏
+                        if !appModel.aiSuggestedAlternatives.isEmpty {
+                            HStack(spacing: 6) {
+                                Text("候选分支:")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.secondary)
+
+                                ForEach(appModel.aiSuggestedAlternatives, id: \.self) { alt in
+                                    Button {
+                                        appModel.applyAISuggestedBranch(alt)
+                                    } label: {
+                                        Text(alt)
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.accentColor.opacity(0.12))
+                                            .foregroundStyle(Color.accentColor)
+                                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("点击应用此分支名")
+                                }
+                            }
+                            .padding(.top, 1)
+                        }
+                    }
+                }
+
+                TextField("工作树落盘路径", text: $appModel.createWorktreeDraft.path)
+                    .font(.system(size: 11.5, design: .monospaced))
 
                 Toggle("创建后用默认 IDE 打开", isOn: $appModel.createWorktreeDraft.openInIDE)
                 Toggle("创建后执行依赖安装", isOn: $appModel.createWorktreeDraft.installDependencies)

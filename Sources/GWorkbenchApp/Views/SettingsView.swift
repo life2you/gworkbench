@@ -544,6 +544,87 @@ struct SettingsView: View {
                             .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
                     )
 
+                    // 实例 3: AI 智能助手凭据与模型端点 (基于 OpenAI 规范)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                    .foregroundStyle(Color.blue)
+                                Text("AI 智能助手模型端点 (AI Branch Assistant)")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                StatusPill(title: appModel.settingsDraft.aiProvider.uppercased(), tint: .blue)
+                                StatusPill(title: appModel.settingsDraft.aiAPIKey.isEmpty ? "未配置 Key" : "已配置 Key", tint: appModel.settingsDraft.aiAPIKey.isEmpty ? .orange : .green)
+                            }
+                            Spacer()
+
+                            Button {
+                                Task {
+                                    await appModel.testAIConnection()
+                                }
+                            } label: {
+                                Label("测试 AI 握手", systemImage: "bolt.fill")
+                            }
+                            .controlSize(.small)
+                            .disabled(appModel.settingsDraft.aiBaseURL.isEmpty)
+                        }
+
+                        Text("为新建工作树提供根据功能描述自动生成 Git 英文规范分支名（支持 DeepSeek、OpenAI、Kimi、通义千问或本地私有 Ollama）。")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 12) {
+                            Picker("服务商预设", selection: aiProviderSelectionBinding) {
+                                ForEach(AIProviderPreset.allPresets) { preset in
+                                    Text(preset.displayName).tag(preset.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .frame(width: 220)
+
+                            TextField("API Base URL (如: https://api.deepseek.com)", text: $appModel.settingsDraft.aiBaseURL)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+
+                            TextField("模型名称 (如: deepseek-chat)", text: $appModel.settingsDraft.aiModel)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .frame(width: 170)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("API 密钥 (API Key / Bearer Token)")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+
+                            HStack(spacing: 8) {
+                                if appModel.settingsTokenVisible {
+                                    TextField("输入 API Key (如 sk-...)", text: $appModel.settingsDraft.aiAPIKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                } else {
+                                    SecureField("输入 API Key (如 sk-...)", text: $appModel.settingsDraft.aiAPIKey)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                }
+
+                                Button {
+                                    appModel.settingsTokenVisible.toggle()
+                                } label: {
+                                    Image(systemName: appModel.settingsTokenVisible ? "eye.slash" : "eye")
+                                        .font(.system(size: 11))
+                                }
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+                    )
+
                     // 智能路由机制提示卡片
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle.fill")
@@ -804,6 +885,19 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers & Bindings
+
+    private var aiProviderSelectionBinding: Binding<String> {
+        Binding(
+            get: { appModel.settingsDraft.aiProvider },
+            set: { newValue in
+                if let preset = AIProviderPreset.allPresets.first(where: { $0.id == newValue }) {
+                    appModel.selectAIProviderPreset(preset)
+                } else {
+                    appModel.settingsDraft.aiProvider = newValue
+                }
+            }
+        )
+    }
 
     private var currentPathTemplatePreview: String {
         appModel.resolveWorktreePathTemplate(

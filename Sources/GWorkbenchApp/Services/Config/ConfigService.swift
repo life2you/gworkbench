@@ -54,6 +54,13 @@ private struct GWorkbenchTomlConfig: Decodable {
         let token: String?
     }
 
+    struct AI: Decodable {
+        let provider: String?
+        let base_url: String?
+        let api_key: String?
+        let model: String?
+    }
+
     struct Merge: Decodable {
         let root_dirs: [String]
         let merge_branch_middle: String
@@ -71,6 +78,7 @@ private struct GWorkbenchTomlConfig: Decodable {
     let worktree: Worktree
     let gitlab: GitLab
     let github: GitHub?
+    let ai: AI?
     let merge: Merge
     let branch_map: [String: String]?
     let merge_policy: MergePolicy?
@@ -128,6 +136,10 @@ final class ConfigService: Sendable {
             gitlabHost: "",
             gitlabToken: "",
             githubToken: "",
+            aiProvider: "deepseek",
+            aiBaseURL: "https://api.deepseek.com",
+            aiAPIKey: "",
+            aiModel: "deepseek-chat",
             activeWorkflowPreset: "env_flow",
             githubDefaultTargetBranch: "main",
             mergeRootDirs: [],
@@ -184,6 +196,10 @@ final class ConfigService: Sendable {
             gitlabHost: config.gitlab.host,
             gitlabToken: config.gitlab.token,
             githubToken: config.github?.token ?? "",
+            aiProvider: config.ai?.provider ?? "deepseek",
+            aiBaseURL: config.ai?.base_url ?? "https://api.deepseek.com",
+            aiAPIKey: config.ai?.api_key ?? "",
+            aiModel: config.ai?.model ?? "deepseek-chat",
             activeWorkflowPreset: config.merge.active_preset ?? "env_flow",
             githubDefaultTargetBranch: config.merge.github_default_target_branch ?? "main",
             mergeRootDirs: config.merge.root_dirs.map(ProcessRunner.expandPath),
@@ -223,6 +239,10 @@ final class ConfigService: Sendable {
             gitlabHost: normalizedGitLabHost(config.gitlabHost),
             gitlabToken: config.gitlabToken.trimmingCharacters(in: .whitespacesAndNewlines),
             githubToken: config.githubToken.trimmingCharacters(in: .whitespacesAndNewlines),
+            aiProvider: config.aiProvider.trimmedNonEmpty ?? "deepseek",
+            aiBaseURL: config.aiBaseURL.trimmedNonEmpty ?? "https://api.deepseek.com",
+            aiAPIKey: config.aiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            aiModel: config.aiModel.trimmedNonEmpty ?? "deepseek-chat",
             activeWorkflowPreset: config.activeWorkflowPreset.trimmedNonEmpty ?? "env_flow",
             githubDefaultTargetBranch: config.githubDefaultTargetBranch.trimmedNonEmpty ?? "main",
             mergeRootDirs: dedupe(config.mergeRootDirs.map(ProcessRunner.expandPath).filterNonEmpty()),
@@ -266,6 +286,12 @@ final class ConfigService: Sendable {
             "",
             "[github]",
             "token = \"\(escapeTomlString(config.githubToken))\"",
+            "",
+            "[ai]",
+            "provider = \"\(escapeTomlString(config.aiProvider))\"",
+            "base_url = \"\(escapeTomlString(config.aiBaseURL))\"",
+            "api_key = \"\(escapeTomlString(config.aiAPIKey))\"",
+            "model = \"\(escapeTomlString(config.aiModel))\"",
             "",
             "[merge]",
             "active_preset = \"\(escapeTomlString(config.activeWorkflowPreset))\"",

@@ -89,6 +89,18 @@ struct SettingsDetailView: View {
                         }
 
                         HStack {
+                            Text("AI 智能分支模型")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            StatusPill(
+                                title: appModel.settingsDraft.aiModel.isEmpty ? "DeepSeek" : appModel.settingsDraft.aiModel,
+                                tint: appModel.settingsDraft.aiAPIKey.isEmpty ? .orange : .green,
+                                systemImage: "sparkles"
+                            )
+                        }
+
+                        HStack {
                             Text("路径命名模板")
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(.secondary)

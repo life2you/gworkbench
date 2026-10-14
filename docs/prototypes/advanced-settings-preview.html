@@ -317,6 +317,7 @@
   }
   .icon-gitlab { background: rgba(255, 159, 10, 0.15); border: 1px solid rgba(255, 159, 10, 0.3); color: #fbbf24; }
   .icon-github { background: rgba(191, 90, 242, 0.15); border: 1px solid rgba(191, 90, 242, 0.3); color: #c084fc; }
+  .icon-ai { background: rgba(10, 132, 255, 0.15); border: 1px solid rgba(10, 132, 255, 0.3); color: #60a5fa; }
 
   .provider-info {
     flex: 1;
@@ -777,6 +778,25 @@
               <div style="display:flex; gap:6px;">
                 <button class="btn" onclick="showToast('✅ GitHub REST API 握手成功 (@life2you)')">测试连接</button>
                 <button class="btn" onclick="showToast('编辑此连接')">编辑</button>
+              </div>
+            </div>
+
+            <!-- 实例 3: AI 智能分支助手模型 -->
+            <div class="provider-card">
+              <div class="provider-icon-circle icon-ai">✨</div>
+              <div class="provider-info">
+                <div class="provider-title">
+                  <span>AI 智能分支模型 (DeepSeek / OpenAI 规范)</span>
+                  <span class="pill pill-green">DEEPSEEK</span>
+                  <span class="pill pill-green">● deepseek-chat 已就绪</span>
+                </div>
+                <div class="provider-meta">
+                  Endpoint: <code>https://api.deepseek.com</code> • Model: <code>deepseek-chat</code> • 支持新建工作树一键推导规范分支名
+                </div>
+              </div>
+              <div style="display:flex; gap:6px;">
+                <button class="btn" onclick="showToast('✅ DeepSeek API 握手测试成功 (HTTP 200 OK)')">测试连接</button>
+                <button class="btn" onclick="showToast('编辑 AI 模型与 Key')">编辑</button>
               </div>
             </div>
 

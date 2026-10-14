@@ -382,6 +382,11 @@ final class AppModel {
     var isSweeperAnalyzing: Bool = false
     var sweeperOperation = OperationState.idle(title: "空间清理")
 
+    // MARK: - AI Branch Generator State
+    var isAIGeneratingBranch: Bool = false
+    var aiSuggestedAlternatives: [String] = []
+    var aiGenerationError: String? = nil
+
     init() {
         scannedTerminals = TerminalService.shared.scanInstalledTerminals()
         scannedIDEs = IDEService.shared.scanInstalledIDEs()
@@ -1304,6 +1309,8 @@ final class AppModel {
 
     func prepareCreateWorktree() {
         syncCreateWorktreeDefaults(resetBranchName: true)
+        aiSuggestedAlternatives = []
+        aiGenerationError = nil
         showingCreateWorktreeSheet = true
     }
 
@@ -1857,6 +1864,11 @@ final class AppModel {
         scannedTerminals = TerminalService.shared.scanInstalledTerminals()
     }
 
+    func selectTerminal(_ terminal: InstalledTerminalApp) {
+        settingsDraft.terminalApp = terminal.name
+        settingsDraft.terminalBundleID = terminal.bundleID
+    }
+
     func refreshScannedIDEs() {
         scannedIDEs = IDEService.shared.scanInstalledIDEs()
     }
@@ -1893,9 +1905,80 @@ final class AppModel {
         }
     }
 
-    func selectTerminal(_ terminal: InstalledTerminalApp) {
-        settingsDraft.terminalApp = terminal.name
-        settingsDraft.terminalBundleID = terminal.bundleID
+    func selectAIProviderPreset(_ preset: AIProviderPreset) {
+        settingsDraft.aiProvider = preset.id
+        if preset.id != "custom" {
+            settingsDraft.aiBaseURL = preset.defaultBaseURL
+            settingsDraft.aiModel = preset.defaultModel
+        }
+    }
+
+    func testAIConnection() async {
+        let baseURL = settingsDraft.aiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = settingsDraft.aiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = settingsDraft.aiModel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        settingsOperation = OperationState(isRunning: true, title: "测试 AI 连接", detail: "正在向 \(baseURL) 发起测试握手...")
+        do {
+            let msg = try await AIService.shared.testConnection(baseURL: baseURL, apiKey: apiKey, model: model)
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "AI 连接成功",
+                detail: "\(model) · \(msg)",
+                successMessage: "连接成功：\(msg)"
+            )
+        } catch {
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "AI 连接失败",
+                detail: error.localizedDescription,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func generateBranchNameWithAI() async {
+        let desc = createWorktreeDraft.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !desc.isEmpty else {
+            aiGenerationError = "请先填写功能描述"
+            return
+        }
+
+        let baseURL = appConfig?.aiBaseURL ?? settingsDraft.aiBaseURL
+        let apiKey = appConfig?.aiAPIKey ?? settingsDraft.aiAPIKey
+        let model = appConfig?.aiModel ?? settingsDraft.aiModel
+
+        let projectName = currentWorktreeProject?.name ?? "project"
+        let isEnterprise = currentWorktreeProject?.platform == .gitlab
+        let middle = appConfig?.mergeBranchMiddle ?? settingsDraft.mergeBranchMiddle
+
+        isAIGeneratingBranch = true
+        aiGenerationError = nil
+
+        do {
+            let result = try await AIService.shared.generateBranchName(
+                description: desc,
+                projectName: projectName,
+                isEnterprise: isEnterprise,
+                middle: middle,
+                baseURL: baseURL,
+                apiKey: apiKey,
+                model: model
+            )
+
+            createWorktreeDraft.branchName = result.recommended
+            updateCreateWorktreePathFromBranch()
+            aiSuggestedAlternatives = result.alternatives
+            isAIGeneratingBranch = false
+        } catch {
+            isAIGeneratingBranch = false
+            aiGenerationError = error.localizedDescription
+        }
+    }
+
+    func applyAISuggestedBranch(_ branch: String) {
+        createWorktreeDraft.branchName = branch
+        updateCreateWorktreePathFromBranch()
     }
 
     func testOpenTerminal() {
@@ -2438,6 +2521,10 @@ final class AppModel {
             gitlabHost: settingsDraft.gitlabHost.trimmingCharacters(in: .whitespacesAndNewlines),
             gitlabToken: settingsDraft.gitlabToken.trimmingCharacters(in: .whitespacesAndNewlines),
             githubToken: settingsDraft.githubToken.trimmingCharacters(in: .whitespacesAndNewlines),
+            aiProvider: settingsDraft.aiProvider.trimmingCharacters(in: .whitespacesAndNewlines),
+            aiBaseURL: settingsDraft.aiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+            aiAPIKey: settingsDraft.aiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
+            aiModel: settingsDraft.aiModel.trimmingCharacters(in: .whitespacesAndNewlines),
             activeWorkflowPreset: settingsDraft.activeWorkflowPreset.trimmingCharacters(in: .whitespacesAndNewlines),
             githubDefaultTargetBranch: settingsDraft.githubDefaultTargetBranch.trimmingCharacters(in: .whitespacesAndNewlines),
             mergeRootDirs: mergeRoots,
