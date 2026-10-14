@@ -1947,6 +1947,7 @@ final class AppModel {
         let baseURL = appConfig?.aiBaseURL ?? settingsDraft.aiBaseURL
         let apiKey = appConfig?.aiAPIKey ?? settingsDraft.aiAPIKey
         let model = appConfig?.aiModel ?? settingsDraft.aiModel
+        let customPrompt = appConfig?.aiCustomPrompt ?? settingsDraft.aiCustomPrompt
 
         let projectName = currentWorktreeProject?.name ?? "project"
         let isEnterprise = currentWorktreeProject?.platform == .gitlab
@@ -1963,7 +1964,8 @@ final class AppModel {
                 middle: middle,
                 baseURL: baseURL,
                 apiKey: apiKey,
-                model: model
+                model: model,
+                customPrompt: customPrompt
             )
 
             createWorktreeDraft.branchName = result.recommended
@@ -2525,6 +2527,7 @@ final class AppModel {
             aiBaseURL: settingsDraft.aiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             aiAPIKey: settingsDraft.aiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
             aiModel: settingsDraft.aiModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            aiCustomPrompt: settingsDraft.aiCustomPrompt.trimmingCharacters(in: .whitespacesAndNewlines),
             activeWorkflowPreset: settingsDraft.activeWorkflowPreset.trimmingCharacters(in: .whitespacesAndNewlines),
             githubDefaultTargetBranch: settingsDraft.githubDefaultTargetBranch.trimmingCharacters(in: .whitespacesAndNewlines),
             mergeRootDirs: mergeRoots,

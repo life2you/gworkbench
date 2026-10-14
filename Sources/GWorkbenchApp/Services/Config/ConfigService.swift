@@ -59,6 +59,7 @@ private struct GWorkbenchTomlConfig: Decodable {
         let base_url: String?
         let api_key: String?
         let model: String?
+        let custom_prompt: String?
     }
 
     struct Merge: Decodable {
@@ -140,6 +141,7 @@ final class ConfigService: Sendable {
             aiBaseURL: "https://api.deepseek.com",
             aiAPIKey: "",
             aiModel: "deepseek-chat",
+            aiCustomPrompt: "",
             activeWorkflowPreset: "env_flow",
             githubDefaultTargetBranch: "main",
             mergeRootDirs: [],
@@ -200,6 +202,7 @@ final class ConfigService: Sendable {
             aiBaseURL: config.ai?.base_url ?? "https://api.deepseek.com",
             aiAPIKey: config.ai?.api_key ?? "",
             aiModel: config.ai?.model ?? "deepseek-chat",
+            aiCustomPrompt: config.ai?.custom_prompt ?? "",
             activeWorkflowPreset: config.merge.active_preset ?? "env_flow",
             githubDefaultTargetBranch: config.merge.github_default_target_branch ?? "main",
             mergeRootDirs: config.merge.root_dirs.map(ProcessRunner.expandPath),
@@ -243,6 +246,7 @@ final class ConfigService: Sendable {
             aiBaseURL: config.aiBaseURL.trimmedNonEmpty ?? "https://api.deepseek.com",
             aiAPIKey: config.aiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
             aiModel: config.aiModel.trimmedNonEmpty ?? "deepseek-chat",
+            aiCustomPrompt: config.aiCustomPrompt.trimmingCharacters(in: .whitespacesAndNewlines),
             activeWorkflowPreset: config.activeWorkflowPreset.trimmedNonEmpty ?? "env_flow",
             githubDefaultTargetBranch: config.githubDefaultTargetBranch.trimmedNonEmpty ?? "main",
             mergeRootDirs: dedupe(config.mergeRootDirs.map(ProcessRunner.expandPath).filterNonEmpty()),
@@ -292,6 +296,7 @@ final class ConfigService: Sendable {
             "base_url = \"\(escapeTomlString(config.aiBaseURL))\"",
             "api_key = \"\(escapeTomlString(config.aiAPIKey))\"",
             "model = \"\(escapeTomlString(config.aiModel))\"",
+            "custom_prompt = \"\(escapeTomlString(config.aiCustomPrompt))\"",
             "",
             "[merge]",
             "active_preset = \"\(escapeTomlString(config.activeWorkflowPreset))\"",

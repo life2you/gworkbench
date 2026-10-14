@@ -616,6 +616,38 @@ struct SettingsView: View {
                                 .controlSize(.small)
                             }
                         }
+
+                        Divider().opacity(0.4)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("自定义提示词规则 / 偏好约定 (Custom System Prompt)")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                if !appModel.settingsDraft.aiCustomPrompt.isEmpty {
+                                    Button("恢复通用默认") {
+                                        appModel.settingsDraft.aiCustomPrompt = ""
+                                    }
+                                    .controlSize(.small)
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(Color.accentColor)
+                                }
+                            }
+
+                            TextField(
+                                "留空使用通用标准软件开发规范。可在此处填入您团队的特殊偏好（如：词汇映射、缩写口令、JIRA/TAPD 编号格式或特定技术栈约定）...",
+                                text: $appModel.settingsDraft.aiCustomPrompt,
+                                axis: .vertical
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(3, reservesSpace: true)
+                            .font(.system(size: 11.5, design: .monospaced))
+
+                            Text("留空时使用通用软件工程标准（核心动词 + 业务主体，全小写 kebab-case，不包含任何特定业务硬编码）。若填入内容则完全优先按您的自定义规则驱动。")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                     .padding(12)
                     .background(Color(NSColor.controlBackgroundColor).opacity(0.35))

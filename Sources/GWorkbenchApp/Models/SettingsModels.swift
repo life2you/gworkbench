@@ -42,6 +42,7 @@ struct GWorkbenchConfig: Sendable, Hashable {
     let aiBaseURL: String
     let aiAPIKey: String
     let aiModel: String
+    let aiCustomPrompt: String
     let activeWorkflowPreset: String
     let githubDefaultTargetBranch: String
     let mergeRootDirs: [String]
@@ -100,6 +101,7 @@ struct SettingsDraft: Sendable {
     var aiBaseURL: String = "https://api.deepseek.com"
     var aiAPIKey: String = ""
     var aiModel: String = "deepseek-chat"
+    var aiCustomPrompt: String = ""
     var activeWorkflowPreset: String = "env_flow"
     var githubDefaultTargetBranch: String = "main"
     var mergeRootDirs: [PathEntryDraft] = []
@@ -132,6 +134,7 @@ struct SettingsDraft: Sendable {
         aiBaseURL = config.aiBaseURL.isEmpty ? "https://api.deepseek.com" : config.aiBaseURL
         aiAPIKey = config.aiAPIKey
         aiModel = config.aiModel.isEmpty ? "deepseek-chat" : config.aiModel
+        aiCustomPrompt = config.aiCustomPrompt
         activeWorkflowPreset = config.activeWorkflowPreset.isEmpty ? "env_flow" : config.activeWorkflowPreset
         githubDefaultTargetBranch = config.githubDefaultTargetBranch.isEmpty ? "main" : config.githubDefaultTargetBranch
         mergeRootDirs = config.mergeRootDirs.map { PathEntryDraft(path: $0) }
