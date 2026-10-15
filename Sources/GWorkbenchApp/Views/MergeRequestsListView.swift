@@ -100,6 +100,14 @@ struct MergeRequestsListView: View {
             .help("从 GitLab 重新拉取当前项目的最新 MR 状态")
 
             Button {
+                appModel.copySelectedMRWebURL()
+            } label: {
+                Label("复制链接", systemImage: "link")
+            }
+            .disabled(appModel.selectedMergeRequest == nil)
+            .help(appModel.selectedMergeRequest != nil ? "复制当前选中的 MR 链接 (\(appModel.selectedMergeRequest!.iidLabel))" : "请先选择一条合并请求")
+
+            Button {
                 appModel.prepareBatchMergeRequests()
             } label: {
                 Label("批量创建", systemImage: "square.grid.3x1.folder.badge.plus")
@@ -267,6 +275,31 @@ struct MergeRequestsListView: View {
                     .lineLimit(1)
             }
             .width(min: 75, ideal: 90, max: 110)
+
+            TableColumn("操作") { item in
+                HStack(spacing: 8) {
+                    Button {
+                        appModel.copyMRWebURL(item)
+                    } label: {
+                        Image(systemName: "link")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                    .help("复制此 MR 链接 (\(item.iidLabel))")
+
+                    Button {
+                        appModel.openMRInBrowser(item)
+                    } label: {
+                        Image(systemName: "arrow.up.forward.app")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("在 GitLab 中打开 (\(item.iidLabel))")
+                }
+            }
+            .width(55)
         }
         .contextMenu(forSelectionType: MergeRequestItem.ID.self) { selection in
             if let id = selection.first, let item = appModel.mergeRequests.first(where: { $0.id == id }) {

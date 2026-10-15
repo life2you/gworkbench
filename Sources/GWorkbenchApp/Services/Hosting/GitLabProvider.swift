@@ -207,8 +207,7 @@ final class GitLabProvider: HostingProvider {
                         protectedTarget: protectedTargets.contains(mr.target_branch),
                         approvals: approvalEntries,
                         activity: [
-                            ActivityEntry(actor: mr.author.name, summary: "创建了这条 MR", relativeTime: DateFormatterUtils.relativeDateString(fromISO8601: mr.updated_at)),
-                            ActivityEntry(actor: "GitLab", summary: mr.web_url, relativeTime: "链接")
+                            ActivityEntry(actor: mr.author.name, summary: "创建了这条 MR", relativeTime: DateFormatterUtils.relativeDateString(fromISO8601: mr.updated_at))
                         ],
                         commits: commitEntries,
                         webURL: mr.web_url

@@ -1454,6 +1454,19 @@ final class AppModel {
     func copyMRWebURL(_ item: MergeRequestItem) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(item.webURL, forType: .string)
+        mrOperation = OperationState(
+            isRunning: false,
+            title: "已复制 MR 链接",
+            detail: item.webURL,
+            logs: mrOperation.logs,
+            successMessage: "已复制链接: \(item.iidLabel)"
+        )
+    }
+
+    func copySelectedMRWebURL() {
+        if let mr = selectedMergeRequest {
+            copyMRWebURL(mr)
+        }
     }
 
     func copyMRSourceBranch(_ item: MergeRequestItem) {

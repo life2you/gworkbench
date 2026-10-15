@@ -3,6 +3,7 @@ import AppKit
 
 struct MergeRequestDetailView: View {
     @Environment(AppModel.self) private var appModel
+    @State private var copiedLink: Bool = false
 
     var body: some View {
         Group {
@@ -23,6 +24,50 @@ struct MergeRequestDetailView: View {
                                 inspectorRow(label: "目标分支", value: mr.targetBranch, isMonospaced: true, canCopy: true)
                                 inspectorRow(label: "CI 流水线", value: mr.pipeline.rawValue)
                                 inspectorRow(label: "更新时间", value: mr.updatedAt)
+                                if !mr.webURL.isEmpty {
+                                    inspectorRow(label: "MR 链接", value: mr.webURL, isMonospaced: true, canCopy: true)
+                                }
+                            }
+                        }
+
+                        if !mr.webURL.isEmpty {
+                            inspectorCard(title: "GitLab 网页链接", systemImage: "link") {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(mr.webURL)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                        .lineLimit(2)
+
+                                    HStack(spacing: 8) {
+                                        Button {
+                                            appModel.copyMRWebURL(mr)
+                                            copiedLink = true
+                                            Task {
+                                                try? await Task.sleep(for: .seconds(2))
+                                                copiedLink = false
+                                            }
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: copiedLink ? "checkmark" : "doc.on.doc")
+                                                Text(copiedLink ? "已复制" : "复制链接")
+                                            }
+                                        }
+                                        .controlSize(.small)
+                                        .buttonStyle(.bordered)
+
+                                        Button {
+                                            appModel.openMRInBrowser(mr)
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: "arrow.up.forward.app")
+                                                Text("在浏览器打开")
+                                            }
+                                        }
+                                        .controlSize(.small)
+                                        .buttonStyle(.bordered)
+                                    }
+                                }
                             }
                         }
 
@@ -151,9 +196,26 @@ struct MergeRequestDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text("\(mr.iidLabel) · \(mr.title)")
-                .font(.system(size: 16, weight: .semibold))
-                .textSelection(.enabled)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("\(mr.iidLabel) · \(mr.title)")
+                    .font(.system(size: 16, weight: .semibold))
+                    .textSelection(.enabled)
+
+                Button {
+                    appModel.copyMRWebURL(mr)
+                    copiedLink = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        copiedLink = false
+                    }
+                } label: {
+                    Image(systemName: copiedLink ? "checkmark.circle.fill" : "link")
+                        .font(.system(size: 11))
+                        .foregroundStyle(copiedLink ? Color.green : Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .help("复制 MR 链接")
+            }
 
             HStack(spacing: 6) {
                 Text(mr.sourceBranch)
@@ -207,8 +269,18 @@ struct MergeRequestDetailView: View {
 
             Button {
                 appModel.copyMRWebURL(mr)
+                copiedLink = true
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    copiedLink = false
+                }
             } label: {
-                Label("复制链接", systemImage: "link")
+                if copiedLink {
+                    Label("已复制链接", systemImage: "checkmark")
+                        .foregroundStyle(.green)
+                } else {
+                    Label("复制链接", systemImage: "link")
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
