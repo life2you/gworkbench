@@ -101,7 +101,7 @@ final class GitCliService: Sendable {
         }
 
         var seen = Set<String>()
-        var projects: [(name: String, path: String, sourceRoot: String, currentBranch: String, baseBranches: [String], localBranches: [String], remoteURL: String?, platform: RepositoryPlatform)] = []
+        var candidates: [(name: String, path: String, sourceRoot: String)] = []
 
         for rootDir in rootDirs {
             let expandedRoot = ProcessRunner.expandPath(rootDir)
@@ -129,24 +129,55 @@ final class GitCliService: Sendable {
                     continue
                 }
 
-                let currentBranch = (try? currentLocalBranch(projectPath: normalized)) ?? "detached"
-                let baseBranches = (try? remoteBranches(projectPath: normalized)) ?? []
-                let localBranches = (try? localBranches(projectPath: normalized)) ?? []
-                let remoteURL = remoteOriginURL(projectPath: normalized)
-                let platform = RepositoryPlatform.detect(remoteURL: remoteURL)
-                projects.append((
+                candidates.append((
                     name: URL(fileURLWithPath: normalized).lastPathComponent,
                     path: normalized,
-                    sourceRoot: ProcessRunner.normalizePath(expandedRoot),
-                    currentBranch: currentBranch,
-                    baseBranches: baseBranches,
-                    localBranches: localBranches,
-                    remoteURL: remoteURL,
-                    platform: platform
+                    sourceRoot: ProcessRunner.normalizePath(expandedRoot)
                 ))
             }
         }
 
+        typealias ProjectRaw = (name: String, path: String, sourceRoot: String, currentBranch: String, baseBranches: [String], localBranches: [String], remoteURL: String?, platform: RepositoryPlatform)
+        
+        final class ProjectCollector: @unchecked Sendable {
+            private var items: [ProjectRaw] = []
+            private let lock = NSLock()
+            func append(_ item: ProjectRaw) {
+                lock.lock()
+                defer { lock.unlock() }
+                items.append(item)
+            }
+            var all: [ProjectRaw] {
+                lock.lock()
+                defer { lock.unlock() }
+                return items
+            }
+        }
+
+        let collector = ProjectCollector()
+        let immutableCandidates = candidates
+
+        DispatchQueue.concurrentPerform(iterations: immutableCandidates.count) { i in
+            let c = immutableCandidates[i]
+            let currentBranch = (try? self.currentLocalBranch(projectPath: c.path)) ?? "detached"
+            let baseBranches = (try? self.remoteBranches(projectPath: c.path)) ?? []
+            let localBranches = (try? self.localBranches(projectPath: c.path)) ?? []
+            let remoteURL = self.remoteOriginURL(projectPath: c.path)
+            let platform = RepositoryPlatform.detect(remoteURL: remoteURL)
+
+            collector.append((
+                name: c.name,
+                path: c.path,
+                sourceRoot: c.sourceRoot,
+                currentBranch: currentBranch,
+                baseBranches: baseBranches,
+                localBranches: localBranches,
+                remoteURL: remoteURL,
+                platform: platform
+            ))
+        }
+
+        let projects = collector.all
         let nameCounts = Dictionary(grouping: projects, by: \.name).mapValues(\.count)
         return projects
             .sorted {

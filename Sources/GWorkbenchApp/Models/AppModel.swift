@@ -230,7 +230,7 @@ struct WorktreeItem: Identifiable, Hashable, Sendable {
     let upstream: String
     let head: String
     let createdDetail: String
-    let diskUsage: String
+    var diskUsage: String
     let canRemoveRemoteBranch: Bool
     let commits: [CommitEntry]
     var isDirty: Bool = false
@@ -300,7 +300,19 @@ struct OperationState: Sendable {
 final class AppModel {
     private let service = WorkbenchService()
 
-    var selectedSection: AppSection? = .worktrees
+    var selectedSection: AppSection? = .worktrees {
+        didSet {
+            if selectedSection == .mergeRequests && (mergeRequestContext == nil || mergeProjects.isEmpty) && !mrOperation.isRunning {
+                Task {
+                    await refreshMergeProjects()
+                }
+            } else if selectedSection == .branchSync && (localMergeContext == nil || localMergeProjects.isEmpty) && !localOperation.isRunning {
+                Task {
+                    await refreshLocalMergeProjects()
+                }
+            }
+        }
+    }
 
     var worktreeProjects: [LocalProject] = []
     var localMergeProjects: [MergeProject] = []
@@ -1054,9 +1066,16 @@ final class AppModel {
             gitVersion = ver
         }
         await refreshSettings()
+        // 核心工作区（工作树）立即加载并渲染（并发并行扫描，只需 ~0.25s）
         await refreshWorktrees()
-        await refreshLocalMergeProjects()
-        await refreshMergeProjects()
+
+        // 分支同步与远程 GitLab 项目在后台异步并发加载，绝不拖慢首次打开速度
+        Task {
+            await refreshLocalMergeProjects(silent: true)
+        }
+        Task {
+            await refreshMergeProjects(silent: true)
+        }
     }
 
     func refreshSettings() async {
@@ -1160,6 +1179,7 @@ final class AppModel {
             syncSelectedWorktreeDescriptionDraft()
             syncSelectedWorktreeDetails()
             syncCreateWorktreeDefaults(resetBranchName: false)
+            refreshWorktreeDiskUsagesInBackground()
 
             if !silent {
                 appendWorktreeLog("工作树刷新完成：已同步 \(snapshot.projects.count) 个项目和 \(snapshot.worktrees.count) 个工作树")
@@ -1183,6 +1203,43 @@ final class AppModel {
                     errorMessage: error.localizedDescription
                 )
                 globalErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func refreshWorktreeDiskUsagesInBackground() {
+        let uncachedItems = worktrees.filter { $0.diskUsage == "-" || $0.diskUsage == "未知" || $0.diskUsage.isEmpty }
+        guard !uncachedItems.isEmpty else { return }
+
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            let gitCli = self.service.gitCliService
+
+            let updatedList: [(id: String, usage: String)] = await withTaskGroup(of: (String, String)?.self) { group in
+                for item in uncachedItems {
+                    group.addTask {
+                        let usage = (try? gitCli.diskUsage(path: item.path)) ?? "未知"
+                        DiskUsageStore.shared.set(usage, for: item.path)
+                        return (item.id, usage)
+                    }
+                }
+
+                var list: [(String, String)] = []
+                for await res in group {
+                    if let res {
+                        list.append(res)
+                    }
+                }
+                return list
+            }
+
+            await MainActor.run {
+                let map = Dictionary(uniqueKeysWithValues: updatedList)
+                for i in 0..<self.worktrees.count {
+                    if let newUsage = map[self.worktrees[i].id] {
+                        self.worktrees[i].diskUsage = newUsage
+                    }
+                }
             }
         }
     }
@@ -1238,19 +1295,23 @@ final class AppModel {
         }
     }
 
-    func refreshMergeProjects() async {
-        mrOperation = OperationState(isRunning: true, title: "刷新合并项目", detail: "开始读取配置")
+    func refreshMergeProjects(silent: Bool = false) async {
+        if !silent {
+            mrOperation = OperationState(isRunning: true, title: "刷新合并项目", detail: "开始读取配置")
+        }
         globalErrorMessage = nil
 
         do {
             let context = try await service.loadMergeContext { [weak self] progress in
-                Task { @MainActor in
-                    self?.mrOperation = OperationState(
-                        isRunning: true,
-                        title: progress.title,
-                        detail: progress.detail,
-                        fractionCompleted: progress.fractionCompleted
-                    )
+                if !silent {
+                    Task { @MainActor in
+                        self?.mrOperation = OperationState(
+                            isRunning: true,
+                            title: progress.title,
+                            detail: progress.detail,
+                            fractionCompleted: progress.fractionCompleted
+                        )
+                    }
                 }
             }
             mergeRequestContext = context
@@ -1260,19 +1321,25 @@ final class AppModel {
                 selectedMergeProjectID = mergeProjects.first?.id
             }
 
-            await refreshMergeRequests()
+            await refreshMergeRequests(silent: silent)
         } catch {
-            mrOperation = OperationState(
-                isRunning: false,
-                title: "合并项目刷新失败",
-                detail: error.localizedDescription,
-                errorMessage: error.localizedDescription
-            )
-            globalErrorMessage = error.localizedDescription
+            if !silent {
+                mrOperation = OperationState(
+                    isRunning: false,
+                    title: "合并项目刷新失败",
+                    detail: error.localizedDescription,
+                    errorMessage: error.localizedDescription
+                )
+                globalErrorMessage = error.localizedDescription
+            }
         }
     }
 
     func refreshMergeRequests(silent: Bool = false) async {
+        if mergeRequestContext == nil || mergeProjects.isEmpty {
+            await refreshMergeProjects()
+            return
+        }
         guard let context = mergeRequestContext, let project = currentMergeProject else {
             mergeRequests = []
             selectedMergeRequestID = nil

@@ -1,5 +1,23 @@
 import Foundation
 
+final class DiskUsageStore: @unchecked Sendable {
+    static let shared = DiskUsageStore()
+    private var cache: [String: String] = [:]
+    private let lock = NSLock()
+
+    func get(_ path: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return cache[path]
+    }
+
+    func set(_ usage: String, for path: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        cache[path] = usage
+    }
+}
+
 final class WorktreeService: Sendable {
     let gitCli: GitCliService
     let configService: ConfigService
@@ -17,65 +35,71 @@ final class WorktreeService: Sendable {
         onProgress: @escaping @Sendable (OperationProgress) -> Void
     ) async throws -> WorktreeSnapshot {
         try await Task.detached(priority: .userInitiated) {
-            onProgress(.init(title: "扫描项目", detail: "正在读取项目根目录中的 Git 仓库", current: 1, total: 4))
+            onProgress(.init(title: "扫描项目", detail: "正在快速扫描本地仓库", current: 1, total: 3))
             let projects = try self.gitCli.scanLocalProjects(rootDirs: config.projectsRootDirs)
             let metadataMap = try self.configService.loadWorktreeMetadataMap(metadataPath: config.metadataPath)
 
-            var worktrees: [WorktreeItem] = []
-            for (index, project) in projects.enumerated() {
-                onProgress(.init(
-                    title: "读取工作树",
-                    detail: "正在加载 \(project.displayName) 的工作树和提交信息",
-                    current: index + 2,
-                    total: max(projects.count + 1, 3)
-                ))
+            onProgress(.init(title: "读取工作树", detail: "正在并行解析工作树与提交信息", current: 2, total: 3))
 
-                let entries = try self.gitCli.parseWorktreeList(projectPath: project.path)
-                for entry in entries {
-                    var isDirectory: ObjCBool = false
-                    guard FileManager.default.fileExists(atPath: entry.path, isDirectory: &isDirectory),
-                          isDirectory.boolValue else {
-                        continue
+            let worktrees: [WorktreeItem] = await withTaskGroup(of: [WorktreeItem].self) { group in
+                for project in projects {
+                    group.addTask {
+                        let entries = (try? self.gitCli.parseWorktreeList(projectPath: project.path)) ?? []
+                        var projectWorktrees: [WorktreeItem] = []
+                        for entry in entries {
+                            var isDirectory: ObjCBool = false
+                            guard FileManager.default.fileExists(atPath: entry.path, isDirectory: &isDirectory),
+                                  isDirectory.boolValue else {
+                                continue
+                            }
+
+                            let branch = entry.branch ?? "(detached)"
+                            let description = entry.branch.flatMap {
+                                metadataMap["\(ProcessRunner.normalizePath(project.path))#\($0)"]
+                            }
+                            let commitInfo = (try? self.gitCli.loadCommitInfo(worktreePath: entry.path)) ?? CommitInfo(headLine: "尚无提交记录", updatedAt: "未提交", commits: [])
+                            let isMainRepo = ProcessRunner.normalizePath(entry.path) == ProcessRunner.normalizePath(project.path)
+                            let upstream = (try? self.gitCli.currentUpstream(worktreePath: entry.path)) ?? "未配置"
+                            let diskUsage = DiskUsageStore.shared.get(entry.path) ?? "-"
+                            let dirtyStatus = (try? self.gitCli.worktreeDirtyStatus(worktreePath: entry.path)) ?? (isDirty: false, summary: "未知")
+                            let summary = description?.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNonEmpty
+                                ?? (isMainRepo ? "主仓库" : "未填写功能描述")
+                            let createdDetail = isMainRepo
+                                ? "主仓库"
+                                : (description?.isEmpty == false ? "功能描述已写入工作树元数据" : "本地关联工作树")
+
+                            projectWorktrees.append(
+                                WorktreeItem(
+                                    id: ProcessRunner.normalizePath(entry.path),
+                                    project: project.displayName,
+                                    projectName: project.name,
+                                    projectPath: project.path,
+                                    branch: branch,
+                                    summary: summary,
+                                    updatedAt: commitInfo.updatedAt,
+                                    kind: isMainRepo ? .mainRepo : .worktree,
+                                    path: entry.path,
+                                    upstream: upstream,
+                                    head: commitInfo.headLine,
+                                    createdDetail: createdDetail,
+                                    diskUsage: diskUsage,
+                                    canRemoveRemoteBranch: !isMainRepo && entry.branch != nil,
+                                    commits: commitInfo.commits,
+                                    isDirty: dirtyStatus.isDirty,
+                                    dirtySummary: dirtyStatus.summary,
+                                    platform: project.platform
+                                )
+                            )
+                        }
+                        return projectWorktrees
                     }
-
-                    let branch = entry.branch ?? "(detached)"
-                    let description = entry.branch.flatMap {
-                        metadataMap["\(ProcessRunner.normalizePath(project.path))#\($0)"]
-                    }
-                    let commitInfo = try self.gitCli.loadCommitInfo(worktreePath: entry.path)
-                    let isMainRepo = ProcessRunner.normalizePath(entry.path) == ProcessRunner.normalizePath(project.path)
-                    let upstream = (try? self.gitCli.currentUpstream(worktreePath: entry.path)) ?? "未配置"
-                    let diskUsage = (try? self.gitCli.diskUsage(path: entry.path)) ?? "未知"
-                    let dirtyStatus = (try? self.gitCli.worktreeDirtyStatus(worktreePath: entry.path)) ?? (isDirty: false, summary: "未知")
-                    let summary = description?.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNonEmpty
-                        ?? (isMainRepo ? "主仓库" : "未填写功能描述")
-                    let createdDetail = isMainRepo
-                        ? "主仓库"
-                        : (description?.isEmpty == false ? "功能描述已写入工作树元数据" : "本地关联工作树")
-
-                    worktrees.append(
-                        WorktreeItem(
-                            id: ProcessRunner.normalizePath(entry.path),
-                            project: project.displayName,
-                            projectName: project.name,
-                            projectPath: project.path,
-                            branch: branch,
-                            summary: summary,
-                            updatedAt: commitInfo.updatedAt,
-                            kind: isMainRepo ? .mainRepo : .worktree,
-                            path: entry.path,
-                            upstream: upstream,
-                            head: commitInfo.headLine,
-                            createdDetail: createdDetail,
-                            diskUsage: diskUsage,
-                            canRemoveRemoteBranch: !isMainRepo && entry.branch != nil,
-                            commits: commitInfo.commits,
-                            isDirty: dirtyStatus.isDirty,
-                            dirtySummary: dirtyStatus.summary,
-                            platform: project.platform
-                        )
-                    )
                 }
+
+                var all: [WorktreeItem] = []
+                for await items in group {
+                    all.append(contentsOf: items)
+                }
+                return all
             }
 
             let sortedWorktrees = worktrees.sorted {
@@ -88,7 +112,7 @@ final class WorktreeService: Sendable {
                 return $0.branch.localizedStandardCompare($1.branch) == .orderedAscending
             }
 
-            onProgress(.init(title: "完成", detail: "已加载 \(projects.count) 个项目与 \(sortedWorktrees.count) 个工作树", current: 1, total: 1))
+            onProgress(.init(title: "完成", detail: "已加载 \(projects.count) 个项目与 \(sortedWorktrees.count) 个工作树", current: 3, total: 3))
             return WorktreeSnapshot(config: config, projects: projects, worktrees: sortedWorktrees)
         }.value
     }
