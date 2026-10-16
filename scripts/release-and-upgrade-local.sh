@@ -73,42 +73,33 @@ cat > "$RELEASE_NOTES_FILE" <<EOF
 
 ## English
 
-- **AI-Powered Branch Name Generator**:
-  - Automatically derives concise, standard Git branch names from natural language feature/bug descriptions with 2 candidate alternative pills.
-  - Multi-provider compatibility supporting DeepSeek, OpenAI, Kimi, Qwen, Ollama (local offline), and custom OpenAI-compatible proxies.
-  - Fully customizable System Prompt in Settings without domain-specific hardcoding.
-  - Intelligently isolated: only shown in "新建分支" mode, cleanly hidden in "已有分支" mode.
-- **Intelligent Worktree Sweeper & Space Reclaim Wizard**:
-  - Automatically identifies merged upstream branches (\`git merge-base --is-ancestor\`), deleted remote tracking branches, and stale branches (>30 days).
-  - Triple safety guard: strictly protects main repository base and uncommitted dirty worktrees from accidental deletion.
-  - Real-time disk space calculation with one-click bulk physical cleanup and automatic \`git worktree prune\`.
-- **Window Activation Foreground Auto-Refresh (\`scenePhase == .active\`)**:
-  - Automatically detects when switching back to GWorkbench from Zed, Otty, or browser with 3-second smart debouncing.
-  - Silently synchronizes modified files, ahead/behind commit telemetry, and branch states without interrupting the user.
-- **Modal Sheets Overhaul**:
-  - Completely redesigned "新建工作树 (New Worktree)", "新建 MR (New MR)", and "批量创建 MR (Batch Create MR)" sheets with modern macOS cards and clean visual hierarchy.
-  - Quick-mapping shortcut pills for one-click source/target branch population.
-- **Enhanced Tooling Support**:
-  - Native auto-detection and instant launching for **Zed** editor and **Otty** terminal.
+- **Massive Performance Boost: Initial Launch & Refresh from 15s to ~0.3s**
+  - Parallelized candidate repository inspection using concurrent workers (33 local repos: 3.8s → 0.06s)
+  - Parallelized worktree, commit log, and dirty-state parsing via Swift TaskGroup (44 worktrees: 1.84s → 0.34s)
+  - Introduced `DiskUsageStore` caching and moved heavy `du -sh` traversal to background async tasks (9.31s blocking → 0s main-thread)
+  - `bootstrap()` no longer blocks the window on remote GitLab requests; the worktree workspace renders immediately at launch
+  - Branch Sync & Merge Requests now load silently in the background, with automatic on-demand recovery when switching sections
+- **Copy Merge Request Link Everywhere**
+  - New '复制链接' action in the MR toolbar operating on the selected MR
+  - New '操作' column in the MR table with 1-click copy link and open-in-browser buttons
+  - Copy-link button beside the MR title, plus a dedicated GitLab web link card with copy & open actions
+  - 2-second green '已复制链接' visual feedback across all copy entry points
+  - Removed the redundant raw URL entry from the activity list
 
 ## 简体中文
 
-- **AI 智能分支名推导（多厂商兼容）**：
-  - 支持根据中文功能描述/Bug背景一键自动推导规范英文分支名，并附带 2 个候选分支小胶囊。
-  - 基于标准 OpenAI-Compatible 协议，原生支持 DeepSeek、OpenAI、Kimi、通义千问、Ollama（本地离线）及自定义代理。
-  - 设置中开放「自定义 System Prompt / 命名偏好约束」，无任何业务词库硬编码。
-  - 工作流隔离：仅在「新建分支」展示 AI 推导，在「已有分支」模式下保持纯净。
-- **陈旧工作树空间智能回收站 (Worktree Sweeper)**：
-  - 自动识别已并入上游基准（\`git merge-base --is-ancestor\`）、远端已删及长期休眠分支。
-  - 三道绝对安全防线：强制保护生产主干基准，强制保护含有未提交修改的脏工作区，绝不误伤代码。
-  - 实时精确换算可释放磁盘空间，支持批量安全物理释放并自动执行 \`git worktree prune\`。
-- **窗口切回前台静默感知与自动刷新 (\`scenePhase == .active\`)**：
-  - 从 Zed、Otty 或浏览器点回 GWorkbench 的瞬间，智能静默同步当前工作树改动、Ahead/Behind 提交数与最新分支状态（附带 3 秒防抖）。
-- **新建工作树与 MR 弹窗现代化重构**：
-  - 全面升级「新建工作树」、「新建 MR」、「按环境映射批量创建 MR」弹窗，去除突兀 iOS 表单气泡，采用原生精细卡片。
-  - 新建 MR 提供常用环境映射快捷胶囊，点击即可秒级同时填入来源分支与目标分支。
-- **工具链深度集成**：
-  - 原生深度适配 **Zed** 代码编辑器与 **Otty** 现代终端的自动探测与唤起联动。
+- **首次启动与刷新性能大幅提速：从 15 秒降至 ~0.3 秒**
+  - 使用多核并发并行扫描本地仓库（33 个仓库：3.8 秒 → 0.06 秒）
+  - 通过 Swift TaskGroup 并行解析工作树、提交记录与脏状态（44 个工作树：1.84 秒 → 0.34 秒）
+  - 引入 `DiskUsageStore` 缓存，将耗时的 `du -sh` 遍历彻底移至后台异步任务（9.31 秒阻塞 → 主线程零耗时）
+  - `bootstrap()` 不再因远程 GitLab 网络请求阻塞窗口，启动瞬间即可渲染工作树工作区
+  - 分支同步与合并请求改为后台静默加载，切换到对应页面时自动按需补全
+- **全场景“复制 MR 链接”能力**
+  - 合并请求顶栏新增「复制链接」按钮，作用于当前选中的 MR
+  - MR 表格新增「操作」列，提供一键复制链接与在浏览器打开按钮
+  - MR 标题旁新增复制链接按钮，并在检查器中新增独立的 GitLab 网页链接卡片
+  - 所有复制入口均提供 2 秒绿色“已复制链接”视觉反馈
+  - 清理了活动列表中冗余的原始 URL 条目
 EOF
 
 if [[ "$SKIP_PUSH" != "1" ]]; then
