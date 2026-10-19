@@ -311,6 +311,33 @@ final class GitCliService: Sendable {
         return (false, nil)
     }
 
+    /// 并行检测分支是否已经合入每个指定基线分支（不存在的基线会被跳过）
+    func checkBranchMergedTargets(
+        projectPath: String,
+        branch: String,
+        targets: [String],
+        existingBranches: Set<String>
+    ) -> [String: Bool] {
+        var result: [String: Bool] = [:]
+        guard !branch.isEmpty && branch != "HEAD" && branch != "(detached)" else {
+            for target in targets { result[target] = false }
+            return result
+        }
+
+        for target in targets {
+            guard target != branch, existingBranches.contains(target) else {
+                result[target] = false
+                continue
+            }
+            let check = try? ProcessRunner.runGit(
+                arguments: ["-C", projectPath, "merge-base", "--is-ancestor", branch, target],
+                allowFailure: true
+            )
+            result[target] = (check?.status == 0)
+        }
+        return result
+    }
+
     func pruneWorktrees(projectPath: String) {
         _ = try? ProcessRunner.runGit(
             arguments: ["-C", projectPath, "worktree", "prune"],

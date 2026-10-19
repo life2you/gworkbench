@@ -292,17 +292,32 @@ func normalizedGitLabHost(_ host: String) -> String {
 
 enum SweeperCategoryFilter: String, CaseIterable, Identifiable {
     case all = "全部"
-    case merged = "已合并"
+    case fullyMerged = "全部合入"
+    case partialMerged = "部分合入"
     case stale = "休眠 >30天"
     case protected = "受保护"
 
     var id: String { rawValue }
 }
 
+/// 固定的 4 个环境/基线合入热点
+enum SweeperMergeTarget: String, CaseIterable, Identifiable, Sendable {
+    case master = "master"
+    case stage = "stage"
+    case test = "test"
+    case uat = "uat"
+
+    var id: String { rawValue }
+
+    /// 主管线顺序：从高到低
+    static var ordered: [SweeperMergeTarget] { [.master, .stage, .test, .uat] }
+}
+
 enum WorktreeSweeperStatusType: Sendable, Hashable {
     case mainRepo
     case dirty
-    case merged(target: String)
+    case fullyMerged
+    case partiallyMerged(mergedCount: Int)
     case remoteDeleted
     case stale(days: Int)
     case active
@@ -318,4 +333,18 @@ struct WorktreeSweeperItem: Identifiable, Hashable, Sendable {
     let isRecommended: Bool
     let diskUsageFormatted: String
     let approxSizeMB: Double
+
+    /// 命中 master / stage / test / uat 的合入结果（顺序与 SweeperMergeTarget.ordered 一致）
+    let mergeTargets: [SweeperMergeTarget]
+    let mergeStatus: [SweeperMergeTarget: Bool]
+
+    var mergedCount: Int {
+        mergeTargets.filter { mergeStatus[$0] == true }.count
+    }
+
+    var totalMergeTargets: Int { mergeTargets.count }
+
+    var isFullyMerged: Bool {
+        !mergeTargets.isEmpty && mergedCount == mergeTargets.count
+    }
 }

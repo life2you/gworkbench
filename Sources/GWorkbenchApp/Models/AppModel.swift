@@ -612,9 +612,12 @@ final class AppModel {
             switch selectedSweeperCategory {
             case .all:
                 return true
-            case .merged:
-                if case .merged = item.statusType { return true }
+            case .fullyMerged:
+                if case .fullyMerged = item.statusType { return true }
                 if case .remoteDeleted = item.statusType { return true }
+                return item.isFullyMerged
+            case .partialMerged:
+                if case .partiallyMerged = item.statusType { return true }
                 return false
             case .stale:
                 if case .stale = item.statusType { return true }
@@ -623,6 +626,17 @@ final class AppModel {
                 return item.isProtected
             }
         }
+    }
+
+    var sweeperFullyMergedCount: Int {
+        sweeperItems.filter { $0.isFullyMerged && !$0.isProtected }.count
+    }
+
+    var sweeperPartiallyMergedCount: Int {
+        sweeperItems.filter {
+            if case .partiallyMerged = $0.statusType { return true }
+            return false
+        }.count
     }
 
     var sweeperRecommendedCount: Int {
@@ -674,126 +688,22 @@ final class AppModel {
     func analyzeCurrentProjectWorktrees() async {
         guard let project = currentWorktreeProject else { return }
         isSweeperAnalyzing = true
-        sweeperOperation = OperationState(isRunning: true, title: "正在分析", detail: "正在比对分支合并状态与活跃度...")
+        sweeperOperation = OperationState(
+            isRunning: true,
+            title: "正在分析",
+            detail: "正在比对 master / stage / test / uat 的合入状态..."
+        )
 
         let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
-        let gitCli = service.gitCliService
-        let projectPath = project.path
-        let baseBranches = project.baseBranches.isEmpty ? ["master", "main", "uat", "pre_prod"] : project.baseBranches
+        var existingBranches = Set(project.baseBranches)
+        existingBranches.formUnion(project.localBranches)
 
-        var results: [WorktreeSweeperItem] = []
-
-        for item in projectWorktrees {
-            let isMain = item.kind == .mainRepo
-            let isDirty = item.isDirty
-            let sizeMB = Self.parseDiskUsageToMB(item.diskUsage)
-
-            if isMain {
-                results.append(
-                    WorktreeSweeperItem(
-                        id: item.id,
-                        worktree: item,
-                        statusType: .mainRepo,
-                        statusTitle: "主仓库 (基准)",
-                        statusDescription: "生产代码基准目录，受系统强制保护",
-                        isProtected: true,
-                        isRecommended: false,
-                        diskUsageFormatted: item.diskUsage,
-                        approxSizeMB: sizeMB
-                    )
-                )
-                continue
-            }
-
-            if isDirty {
-                results.append(
-                    WorktreeSweeperItem(
-                        id: item.id,
-                        worktree: item,
-                        statusType: .dirty,
-                        statusTitle: "有未提交改动",
-                        statusDescription: item.dirtySummary,
-                        isProtected: true,
-                        isRecommended: false,
-                        diskUsageFormatted: item.diskUsage,
-                        approxSizeMB: sizeMB
-                    )
-                )
-                continue
-            }
-
-            // 检查是否已被 merge
-            let mergeCheck = gitCli.checkBranchMerged(projectPath: projectPath, branch: item.branch, candidateBases: baseBranches)
-            if mergeCheck.isMerged, let target = mergeCheck.mergedTarget {
-                results.append(
-                    WorktreeSweeperItem(
-                        id: item.id,
-                        worktree: item,
-                        statusType: .merged(target: target),
-                        statusTitle: "✓ 已合入 \(target)",
-                        statusDescription: "该分支代码已完整并入上游基准分支",
-                        isProtected: false,
-                        isRecommended: true,
-                        diskUsageFormatted: item.diskUsage,
-                        approxSizeMB: sizeMB
-                    )
-                )
-                continue
-            }
-
-            // 检查远端分支是否存在
-            let hasRemote = (try? gitCli.remoteBranchExists(projectPath: projectPath, branch: item.branch)) ?? true
-            if !hasRemote {
-                results.append(
-                    WorktreeSweeperItem(
-                        id: item.id,
-                        worktree: item,
-                        statusType: .remoteDeleted,
-                        statusTitle: "✓ 远端分支已删除",
-                        statusDescription: "远端 tracking 分支已移除，本地为残留工作树",
-                        isProtected: false,
-                        isRecommended: true,
-                        diskUsageFormatted: item.diskUsage,
-                        approxSizeMB: sizeMB
-                    )
-                )
-                continue
-            }
-
-            // 检查最后更新时间是否超过 30 天
-            let isOlderThan30Days = item.updatedAt.contains("月") || item.updatedAt.contains("年") || (item.updatedAt.contains("天") && (Int(item.updatedAt.prefix(2)) ?? 0) >= 30)
-            if isOlderThan30Days {
-                results.append(
-                    WorktreeSweeperItem(
-                        id: item.id,
-                        worktree: item,
-                        statusType: .stale(days: 30),
-                        statusTitle: "⏳ 长期休眠分支",
-                        statusDescription: "超过 30 天未更新，且工作区完全整洁",
-                        isProtected: false,
-                        isRecommended: true,
-                        diskUsageFormatted: item.diskUsage,
-                        approxSizeMB: sizeMB
-                    )
-                )
-                continue
-            }
-
-            // 活跃开发中的干净分支
-            results.append(
-                WorktreeSweeperItem(
-                    id: item.id,
-                    worktree: item,
-                    statusType: .active,
-                    statusTitle: "活跃开发中",
-                    statusDescription: "工作区整洁，尚未合入目标分支",
-                    isProtected: false,
-                    isRecommended: false,
-                    diskUsageFormatted: item.diskUsage,
-                    approxSizeMB: sizeMB
-                )
-            )
-        }
+        let results = await WorktreeSweeperAnalyzer.analyze(
+            projectWorktrees: projectWorktrees,
+            projectPath: project.path,
+            existingBranches: existingBranches,
+            gitCli: service.gitCliService
+        )
 
         sweeperItems = results
         selectedSweeperIDs = Set(results.filter(\.isRecommended).map(\.id))
@@ -853,22 +763,7 @@ final class AppModel {
         )
     }
 
-    static func parseDiskUsageToMB(_ usage: String) -> Double {
-        let trimmed = usage.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        if trimmed.hasSuffix("G") || trimmed.hasSuffix("GB") {
-            let numStr = trimmed.replacingOccurrences(of: "GB", with: "").replacingOccurrences(of: "G", with: "").trimmingCharacters(in: .whitespaces)
-            return (Double(numStr) ?? 0) * 1024
-        } else if trimmed.hasSuffix("M") || trimmed.hasSuffix("MB") {
-            let numStr = trimmed.replacingOccurrences(of: "MB", with: "").replacingOccurrences(of: "M", with: "").trimmingCharacters(in: .whitespaces)
-            return Double(numStr) ?? 0
-        } else if trimmed.hasSuffix("K") || trimmed.hasSuffix("KB") {
-            let numStr = trimmed.replacingOccurrences(of: "KB", with: "").replacingOccurrences(of: "K", with: "").trimmingCharacters(in: .whitespaces)
-            return (Double(numStr) ?? 0) / 1024
-        }
-        return 0
-    }
-
-    static func formatSizeMB(_ totalMB: Double) -> String {
+    nonisolated static func formatSizeMB(_ totalMB: Double) -> String {
         if totalMB >= 1024 {
             return String(format: "%.2f GB", totalMB / 1024)
         } else {

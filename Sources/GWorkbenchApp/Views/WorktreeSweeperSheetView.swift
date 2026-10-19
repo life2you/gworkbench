@@ -77,6 +77,24 @@ struct WorktreeSweeperSheetView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
+                Text("全部合入 (4/4)")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                Text("\(appModel.sweeperFullyMergedCount) 个")
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.green)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("部分合入")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                Text("\(appModel.sweeperPartiallyMergedCount) 个")
+                    .font(.system(size: 18, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color.blue)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text("建议安全回收")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
@@ -101,7 +119,7 @@ struct WorktreeSweeperSheetView: View {
                     Image(systemName: "checkmark.shield.fill")
                         .foregroundStyle(Color.green)
                         .font(.system(size: 11))
-                    Text("智能保护：已自动排除主仓库基准与有未提交改动的目录")
+                    Text("判定基线：master / stage / test / uat；已自动排除主仓库与未提交改动")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -189,6 +207,11 @@ struct WorktreeSweeperSheetView: View {
                 }
             }
             .width(min: 240, ideal: 300)
+
+            TableColumn("流程合入 (master / stage / test / uat)") { item in
+                mergeTargetLights(item)
+            }
+            .width(min: 235, ideal: 255)
 
             TableColumn("分析状态") { item in
                 sweeperStatusPill(item)
@@ -299,14 +322,56 @@ struct WorktreeSweeperSheetView: View {
             StatusPill(title: item.statusTitle, tint: .gray)
         case .dirty:
             StatusPill(title: item.statusTitle, tint: .red, systemImage: "exclamationmark.triangle.fill")
-        case .merged:
-            StatusPill(title: item.statusTitle, tint: .green, systemImage: "checkmark")
+        case .fullyMerged:
+            StatusPill(title: item.statusTitle, tint: .green, systemImage: "checkmark.circle.fill")
+        case .partiallyMerged(let count):
+            StatusPill(title: item.statusTitle, tint: count >= 2 ? .blue : .orange, systemImage: "circle.lefthalf.filled")
         case .remoteDeleted:
-            StatusPill(title: item.statusTitle, tint: .green, systemImage: "arrow.triangle.branch")
+            StatusPill(title: item.statusTitle, tint: .purple, systemImage: "arrow.triangle.branch")
         case .stale:
             StatusPill(title: item.statusTitle, tint: .orange, systemImage: "clock")
         case .active:
             StatusPill(title: item.statusTitle, tint: .blue, systemImage: "pencil")
+        }
+    }
+
+    /// 4 个亮点指示灯：master / stage / test / uat
+    private func mergeTargetLights(_ item: WorktreeSweeperItem) -> some View {
+        HStack(spacing: 6) {
+            ForEach(item.mergeTargets) { target in
+                let on = item.mergeStatus[target] == true
+
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(on ? Color.green : Color.secondary.opacity(0.22))
+                        .frame(width: 7, height: 7)
+
+                    Text(target.rawValue)
+                        .font(.system(size: 10.5, weight: on ? .semibold : .regular, design: .monospaced))
+                        .foregroundStyle(on ? Color.primary : Color.secondary.opacity(0.7))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(on ? Color.green.opacity(0.12) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(on ? Color.green.opacity(0.3) : Color.secondary.opacity(0.12), lineWidth: 0.5)
+                )
+                .help("\(target.rawValue): \(on ? "已合入" : "未合入")")
+            }
+
+            if item.isFullyMerged {
+                Text("全亮")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(Color.green)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Color.green.opacity(0.15))
+                    .clipShape(Capsule())
+            }
         }
     }
 
