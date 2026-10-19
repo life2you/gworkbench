@@ -695,8 +695,19 @@ final class AppModel {
         )
 
         let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
+        // 分支引用集合：包含本地名与 origin/* 远端引用
+        // baseBranches 来自 remoteBranches()，已去掉 origin/ 前缀，这里补回远端引用名
         var existingBranches = Set(project.baseBranches)
         existingBranches.formUnion(project.localBranches)
+        for name in project.baseBranches {
+            existingBranches.insert("origin/\(name)")
+        }
+        // 确保 master / stage / test / uat 的远端引用名一定参与解析
+        for target in SweeperMergeTarget.ordered.map(\.rawValue) {
+            if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: target)) == true {
+                existingBranches.insert("origin/\(target)")
+            }
+        }
 
         let results = await WorktreeSweeperAnalyzer.analyze(
             projectWorktrees: projectWorktrees,

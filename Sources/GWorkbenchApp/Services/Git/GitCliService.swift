@@ -311,7 +311,9 @@ final class GitCliService: Sendable {
         return (false, nil)
     }
 
-    /// 并行检测分支是否已经合入每个指定基线分支（不存在的基线会被跳过）
+    /// 并行检测分支是否已经合入每个指定基线分支（优先比对远端 origin/* 基线）
+    /// - 返回: [基线名: 是否已合入]
+    /// - 解析顺序: origin/<base> → <base>（本地），优先使用远端权威分支，避免本地基线落后导致误判
     func checkBranchMergedTargets(
         projectPath: String,
         branch: String,
@@ -325,12 +327,29 @@ final class GitCliService: Sendable {
         }
 
         for target in targets {
-            guard target != branch, existingBranches.contains(target) else {
+            guard target != branch else {
                 result[target] = false
                 continue
             }
+
+            // 优先远端权威基线，其次回退本地分支
+            let remoteRef = "origin/\(target)"
+            let resolvedRef: String?
+            if existingBranches.contains(remoteRef) {
+                resolvedRef = remoteRef
+            } else if existingBranches.contains(target) {
+                resolvedRef = target
+            } else {
+                resolvedRef = nil
+            }
+
+            guard let baseRef = resolvedRef else {
+                result[target] = false
+                continue
+            }
+
             let check = try? ProcessRunner.runGit(
-                arguments: ["-C", projectPath, "merge-base", "--is-ancestor", branch, target],
+                arguments: ["-C", projectPath, "merge-base", "--is-ancestor", branch, baseRef],
                 allowFailure: true
             )
             result[target] = (check?.status == 0)
