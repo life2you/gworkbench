@@ -208,6 +208,15 @@ struct WorktreeSweeperSheetView: View {
             }
             .width(min: 240, ideal: 300)
 
+            TableColumn("工作区") { item in
+                StatusPill(
+                    title: item.worktree.isDirty ? "未提交改动" : "干净",
+                    tint: item.worktree.isDirty ? .red : .green,
+                    systemImage: item.worktree.isDirty ? "exclamationmark.circle.fill" : "checkmark"
+                )
+            }
+            .width(min: 85, ideal: 95)
+
             TableColumn("流程合入 (master / stage / test / uat)") { item in
                 mergeTargetLights(item)
             }
@@ -224,15 +233,6 @@ struct WorktreeSweeperSheetView: View {
                     .foregroundStyle(.secondary)
             }
             .width(min: 80, ideal: 95)
-
-            TableColumn("工作区") { item in
-                StatusPill(
-                    title: item.worktree.isDirty ? "未提交改动" : "干净",
-                    tint: item.worktree.isDirty ? .red : .green,
-                    systemImage: item.worktree.isDirty ? "exclamationmark.circle.fill" : "checkmark"
-                )
-            }
-            .width(min: 85, ideal: 95)
 
             TableColumn("占用空间") { item in
                 Text(item.diskUsageFormatted)
