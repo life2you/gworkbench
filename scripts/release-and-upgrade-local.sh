@@ -73,33 +73,35 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **Massive Performance Boost: Initial Launch & Refresh from 15s to ~0.3s**
-  - Parallelized candidate repository inspection using concurrent workers (33 local repos: 3.8s -> 0.06s)
-  - Parallelized worktree, commit log, and dirty-state parsing via Swift TaskGroup (44 worktrees: 1.84s -> 0.34s)
-  - Introduced a DiskUsageStore cache and moved heavy disk-usage traversal to background async tasks (9.31s blocking -> 0s main-thread)
-  - bootstrap() no longer blocks the window on remote GitLab requests; the worktree workspace renders immediately at launch
-  - Branch Sync & Merge Requests now load silently in the background, with automatic on-demand recovery when switching sections
-- **Copy Merge Request Link Everywhere**
-  - New Copy Link action in the MR toolbar operating on the selected MR
-  - New operations column in the MR table with 1-click copy link and open-in-browser buttons
-  - Copy-link button beside the MR title, plus a dedicated GitLab web link card with copy & open actions
-  - 2-second green Copied visual feedback across all copy entry points
-  - Removed the redundant raw URL entry from the activity list
+- **Worktree Sweeper: 4-Baseline Merge Analysis with Lamp Indicators**
+  - Merge analysis now focuses on a fixed ordered baseline set: master, stage, test, uat
+  - New 4-lamp indicator column shows one green lamp per merged baseline; an "all lit" badge appears when merged into all four
+  - New statuses: fully merged (4/4), partially merged (n/4), remote-deleted, stale (>30d), active, protected
+  - Results sorted by merge completeness: fully merged > partially merged > remote deleted > stale > active > protected
+  - Summary banner now reports fully-merged and partially-merged counts separately
+  - Category filters updated to: All / Fully Merged / Partially Merged / Stale (>30d) / Protected
+  - Workspace cleanliness column moved next to branch identity for faster scanning
+- **Critical Fix: Compare Against Remote origin/* Baselines**
+  - Merge checks now prioritize the authoritative remote refs `origin/<base>` instead of stale local branches
+  - Falls back to the local branch only when the remote ref is unavailable
+  - Fixes false negatives where outdated local stage/test/uat branches made fully-merged worktrees appear unmerged
+  - Measured impact on a real repository: fully-merged count 6 -> 7, recommended cleanup 7 -> 8
 
 ## 简体中文
 
-- **首次启动与刷新性能大幅提速：从 15 秒降至约 0.3 秒**
-  - 使用多核并发并行扫描本地仓库（33 个仓库：3.8 秒 -> 0.06 秒）
-  - 通过 Swift TaskGroup 并行解析工作树、提交记录与脏状态（44 个工作树：1.84 秒 -> 0.34 秒）
-  - 引入磁盘占用缓存 DiskUsageStore，将耗时的磁盘遍历彻底移至后台异步任务（9.31 秒阻塞 -> 主线程零耗时）
-  - 启动流程不再因远程 GitLab 网络请求阻塞窗口，启动瞬间即可渲染工作树工作区
-  - 分支同步与合并请求改为后台静默加载，切换到对应页面时自动按需补全
-- **全场景“复制 MR 链接”能力**
-  - 合并请求顶栏新增「复制链接」按钮，作用于当前选中的 MR
-  - MR 表格新增「操作」列，提供一键复制链接与在浏览器打开按钮
-  - MR 标题旁新增复制链接按钮，并在检查器中新增独立的 GitLab 网页链接卡片
-  - 所有复制入口均提供 2 秒绿色“已复制链接”视觉反馈
-  - 清理了活动列表中冗余的原始 URL 条目
+- **工作树回收站：以 4 条基线为核心的合入分析与亮点指示灯**
+  - 合入分析聚焦固定有序的 4 条基线：master、stage、test、uat
+  - 新增 4 亮点指示灯列，每条基线合入后点亮一个绿灯；4 条全部合入时额外显示“全亮”徽标
+  - 新增状态：全部合入 (4/4)、部分合入 (n/4)、远端已删除、休眠 (>30天)、活跃开发、受保护
+  - 结果按合入完整度排序：全部合入 > 部分合入 > 远端删除 > 休眠 > 活跃 > 受保护
+  - 顶部横幅分别统计“全部合入”与“部分合入”数量
+  - 筛选分类更新为：全部 / 全部合入 / 部分合入 / 休眠 >30天 / 受保护
+  - “工作区”干净/脏状态列前移至分支名右侧，横向扫读更高效
+- **关键修复：改为与远端 origin/* 基线比对**
+  - 合入判定优先使用远端权威引用 `origin/<base>`，而非可能落后的本地分支
+  - 仅在远端引用不存在时才回退到本地分支
+  - 修复了本地 stage/test/uat 落后导致已完全合入的工作树被误判为“未合入”的问题
+  - 真实仓库实测：全部合入数量由 6 提升至 7，建议清理项由 7 提升至 8
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content
