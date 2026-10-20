@@ -63,24 +63,44 @@ enum ProcessRunner {
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        let stdoutBuffer = CommandOutputBuffer()
-        let stderrBuffer = CommandOutputBuffer()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
-        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            stdoutBuffer.append(handle.availableData)
-        }
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            stderrBuffer.append(handle.availableData)
-        }
+
+        // 通过独立的调度队列完整读取两个管道。
+        // 不使用 readabilityHandler：它与 waitUntilExit() 组合存在竞态，
+        // 并发调用时会丢失输出（实测约 25% 概率返回空字符串）。
+        let stdoutBuffer = CommandOutputBuffer()
+        let stderrBuffer = CommandOutputBuffer()
 
         try process.run()
-        process.waitUntilExit()
 
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-        stdoutBuffer.append(stdoutPipe.fileHandleForReading.readDataToEndOfFile())
-        stderrBuffer.append(stderrPipe.fileHandleForReading.readDataToEndOfFile())
+        let group = DispatchGroup()
+        let queue = DispatchQueue.global(qos: .userInitiated)
+
+        group.enter()
+        queue.async {
+            let handle = stdoutPipe.fileHandleForReading
+            while true {
+                let chunk = handle.availableData
+                if chunk.isEmpty { break }
+                stdoutBuffer.append(chunk)
+            }
+            group.leave()
+        }
+
+        group.enter()
+        queue.async {
+            let handle = stderrPipe.fileHandleForReading
+            while true {
+                let chunk = handle.availableData
+                if chunk.isEmpty { break }
+                stderrBuffer.append(chunk)
+            }
+            group.leave()
+        }
+
+        process.waitUntilExit()
+        group.wait()
 
         let stdout = stdoutBuffer.stringValue()
         let stderr = stderrBuffer.stringValue()

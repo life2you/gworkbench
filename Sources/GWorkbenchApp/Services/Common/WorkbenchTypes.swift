@@ -54,6 +54,13 @@ enum RepositoryPlatform: String, CaseIterable, Identifiable, Hashable, Sendable 
         }
     }
 
+    /// 探测计划：区分「确定无远端」与「读取失败」两种结果
+    enum RemoteURLProbe {
+        case url(String)
+        case noRemoteConfigured
+        case probeFailed
+    }
+
     static func detect(remoteURL: String?, gitlabHost: String? = nil) -> RepositoryPlatform {
         guard let url = remoteURL?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty else {
             return .local
@@ -75,6 +82,25 @@ enum RepositoryPlatform: String, CaseIterable, Identifiable, Hashable, Sendable 
             return .gitlab
         }
         return .local
+    }
+
+    /// 远端读取失败时的兜底判定：
+    /// 若仓库存在 origin/* 远端跟踪分支，说明它一定托管在某个平台，
+    /// 优先根据已知的 GitLab 主机推断，否则归为 GitHub（除非明确匹配 GitLab）。
+    static func fallbackPlatform(existingBranchRefs: [String], gitlabHost: String?) -> RepositoryPlatform? {
+        let hasOriginRefs = existingBranchRefs.contains { $0.hasPrefix("origin/") && $0.count > "origin/".count }
+        guard hasOriginRefs else { return nil }
+
+        if let host = gitlabHost?.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNonEmpty {
+            let hostDomain = host
+                .replacingOccurrences(of: "http://", with: "")
+                .replacingOccurrences(of: "https://", with: "")
+                .split(separator: ":").first.map(String.init) ?? host
+            if !hostDomain.isEmpty {
+                return .gitlab
+            }
+        }
+        return .github
     }
 }
 

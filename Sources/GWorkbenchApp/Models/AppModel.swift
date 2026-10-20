@@ -992,6 +992,8 @@ final class AppModel {
             let config = try await service.loadWorkbenchConfig()
             appConfig = config
             worktreeConfig = config.asWorktreeConfig()
+            // 让平台判定兜底逻辑拿到当前配置的 GitLab 主机
+            GitLabHostStore.shared.update(config.gitlabHost)
             settingsDraft = SettingsDraft(config: config)
             settingsTokenVisible = false
             settingsOperation = OperationState(
@@ -2382,6 +2384,7 @@ final class AppModel {
             let saved = try await service.saveWorkbenchConfig(config)
             appConfig = saved
             worktreeConfig = saved.asWorktreeConfig()
+            GitLabHostStore.shared.update(saved.gitlabHost)
             settingsDraft = SettingsDraft(config: saved)
             settingsTokenVisible = false
             settingsOperation = OperationState(
@@ -2410,6 +2413,7 @@ final class AppModel {
             let config = try await service.reloadWorkbenchConfig()
             appConfig = config
             worktreeConfig = config.asWorktreeConfig()
+            GitLabHostStore.shared.update(config.gitlabHost)
             settingsDraft = SettingsDraft(config: config)
             settingsTokenVisible = false
             settingsOperation = OperationState(

@@ -92,12 +92,143 @@ struct AheadBehindCount: Equatable, Sendable {
     let behind: Int
 }
 
+/// 仓库平台判定缓存：避免偶发探测失败导致仓库被错误归类为「本地」
+final class PlatformCache: @unchecked Sendable {
+    static let shared = PlatformCache()
+
+    private struct Entry {
+        let url: String?
+        let platform: RepositoryPlatform
+    }
+
+    private var entries: [String: Entry] = [:]
+    private let lock = NSLock()
+
+    func set(_ url: String?, for path: String) {
+        let platform = RepositoryPlatform.detect(remoteURL: url)
+        lock.lock()
+        defer { lock.unlock() }
+        entries[path] = Entry(url: url, platform: platform)
+    }
+
+    func set(platform: RepositoryPlatform, url: String?, for path: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        entries[path] = Entry(url: url, platform: platform)
+    }
+
+    func platform(for path: String) -> RepositoryPlatform? {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries[path]?.platform
+    }
+
+    func url(for path: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries[path]?.url
+    }
+}
+
+/// 本地项目扫描结果的短期共享缓存（单飞 + TTL）
+/// 避免工作树 / 分支同步 / 合并请求三个调用方在同一时间各自拉起一次全量 git 扫描，
+/// 造成瞬时进程风暴与偶发 fork 失败（进而导致仓库平台被误判为「本地」）。
+final class ProjectScanCache: @unchecked Sendable {
+    static let shared = ProjectScanCache()
+
+    private struct Cached {
+        let roots: [String]
+        let projects: [LocalProject]
+        let timestamp: Date
+    }
+
+    private var cached: Cached?
+    private let lock = NSLock()
+    private let ttl: TimeInterval = 1.5
+
+    func cachedProjects(rootDirs: [String]) -> [LocalProject]? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let cached else { return nil }
+        guard cached.roots == rootDirs else { return nil }
+        guard Date().timeIntervalSince(cached.timestamp) <= ttl else { return nil }
+        return cached.projects
+    }
+
+    func store(_ projects: [LocalProject], rootDirs: [String]) {
+        lock.lock()
+        defer { lock.unlock() }
+        cached = Cached(roots: rootDirs, projects: projects, timestamp: Date())
+    }
+
+    /// 单飞：同一时刻只允许一个真实扫描，其余调用者等待并复用同一结果
+    private var inFlight = false
+    private let flightCondition = NSCondition()
+
+    func beginOrWait() -> Bool {
+        flightCondition.lock()
+        defer { flightCondition.unlock() }
+        if inFlight {
+            // 已有扫描在进行，等待它结束
+            flightCondition.wait()
+            return false
+        }
+        inFlight = true
+        return true
+    }
+
+    func finish() {
+        flightCondition.lock()
+        defer { flightCondition.unlock() }
+        inFlight = false
+        flightCondition.broadcast()
+    }
+}
+
+/// 全局 GitLab 主机提示（配置加载后写入），用于远端探测失败时的平台兜底判定
+final class GitLabHostStore: @unchecked Sendable {
+    static let shared = GitLabHostStore()
+    private var host: String?
+    private let lock = NSLock()
+
+    func update(_ value: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        host = value?.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNonEmpty
+    }
+
+    var current: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return host
+    }
+}
+
 final class GitCliService: Sendable {
     init() {}
 
     func scanLocalProjects(rootDirs: [String]) throws -> [LocalProject] {
         guard !rootDirs.isEmpty else {
             throw WorkbenchError.message("至少需要一个项目根目录")
+        }
+
+        // 短期缓存：三个调用方在极短时间内请求同一批根目录时直接复用结果
+        if let cached = ProjectScanCache.shared.cachedProjects(rootDirs: rootDirs) {
+            return cached
+        }
+
+        // 单飞：已有扫描在进行时，等待它完成并复用其结果，避免并发拉起两次全量 git 扫描
+        if !ProjectScanCache.shared.beginOrWait() {
+            if let cached = ProjectScanCache.shared.cachedProjects(rootDirs: rootDirs) {
+                return cached
+            }
+            // 等待结束后缓存可能刚好过期，兜底再走一次真实扫描
+        } else {
+            defer { ProjectScanCache.shared.finish() }
+        }
+
+        if let cached = ProjectScanCache.shared.cachedProjects(rootDirs: rootDirs) {
+            return cached
         }
 
         var seen = Set<String>()
@@ -157,29 +288,74 @@ final class GitCliService: Sendable {
         let collector = ProjectCollector()
         let immutableCandidates = candidates
 
-        DispatchQueue.concurrentPerform(iterations: immutableCandidates.count) { i in
-            let c = immutableCandidates[i]
-            let currentBranch = (try? self.currentLocalBranch(projectPath: c.path)) ?? "detached"
-            let baseBranches = (try? self.remoteBranches(projectPath: c.path)) ?? []
-            let localBranches = (try? self.localBranches(projectPath: c.path)) ?? []
-            let remoteURL = self.remoteOriginURL(projectPath: c.path)
-            let platform = RepositoryPlatform.detect(remoteURL: remoteURL)
+        // 限制并发度，避免一次拉起过多 git 进程导致瞬时启动失败
+        let maxConcurrent = max(2, min(6, ProcessInfo.processInfo.activeProcessorCount))
+        let semaphore = DispatchSemaphore(value: maxConcurrent)
+        let queue = DispatchQueue(label: "gworkbench.scanLocalProjects", attributes: .concurrent)
 
-            collector.append((
-                name: c.name,
-                path: c.path,
-                sourceRoot: c.sourceRoot,
-                currentBranch: currentBranch,
-                baseBranches: baseBranches,
-                localBranches: localBranches,
-                remoteURL: remoteURL,
-                platform: platform
-            ))
+        for c in immutableCandidates {
+            queue.async {
+                semaphore.wait()
+                defer { semaphore.signal() }
+
+                let currentBranch = (try? self.currentLocalBranch(projectPath: c.path)) ?? "detached"
+                let baseBranches = (try? self.remoteBranches(projectPath: c.path)) ?? []
+                let localBranches = (try? self.localBranches(projectPath: c.path)) ?? []
+
+                // 平台判定：优先缓存，其次真实探测，失败时用远端跟踪分支兜底
+                let probe = self.probeRemoteOriginURL(projectPath: c.path)
+                let remoteURL: String?
+                let platform: RepositoryPlatform
+
+                switch probe {
+                case .url(let value):
+                    remoteURL = value
+                    platform = RepositoryPlatform.detect(remoteURL: value)
+                    PlatformCache.shared.set(value, for: c.path)
+                case .noRemoteConfigured:
+                    remoteURL = nil
+                    platform = .local
+                    PlatformCache.shared.set(nil, for: c.path)
+                case .probeFailed:
+                    // 探测失败：绝不因为偶发进程失败就把仓库降级为「本地」
+                    // 优先级：历史缓存 → 直接解析 .git/config → 远端跟踪分支兜底
+                    if let cached = PlatformCache.shared.platform(for: c.path) {
+                        remoteURL = PlatformCache.shared.url(for: c.path)
+                        platform = cached
+                    } else if let urlFromFile = Self.readOriginURLFromGitConfig(projectPath: c.path) {
+                        remoteURL = urlFromFile
+                        platform = RepositoryPlatform.detect(remoteURL: urlFromFile)
+                        PlatformCache.shared.set(urlFromFile, for: c.path)
+                    } else if let fallback = RepositoryPlatform.fallbackPlatform(
+                        existingBranchRefs: baseBranches.map { "origin/\($0)" },
+                        gitlabHost: GitLabHostStore.shared.current
+                    ) {
+                        remoteURL = nil
+                        platform = fallback
+                        PlatformCache.shared.set(platform: fallback, url: nil, for: c.path)
+                    } else {
+                        remoteURL = nil
+                        platform = .local
+                    }
+                }
+
+                collector.append((
+                    name: c.name,
+                    path: c.path,
+                    sourceRoot: c.sourceRoot,
+                    currentBranch: currentBranch,
+                    baseBranches: baseBranches,
+                    localBranches: localBranches,
+                    remoteURL: remoteURL,
+                    platform: platform
+                ))
+            }
         }
+        queue.sync(flags: .barrier) {}
 
         let projects = collector.all
         let nameCounts = Dictionary(grouping: projects, by: \.name).mapValues(\.count)
-        return projects
+        let result = projects
             .sorted {
                 if $0.name != $1.name {
                     return $0.name < $1.name
@@ -206,17 +382,100 @@ final class GitCliService: Sendable {
                     platform: project.platform
                 )
             }
+
+        ProjectScanCache.shared.store(result, rootDirs: rootDirs)
+        return result
+    }
+
+    /// 直接解析 .git/config 读取 remote.origin.url。
+    /// 纯文件读取，不依赖子进程，因此不会出现并发 fork 失败导致的误判。
+    static func readOriginURLFromGitConfig(projectPath: String) -> String? {
+        let configPath = URL(fileURLWithPath: projectPath)
+            .appendingPathComponent(".git")
+            .appendingPathComponent("config")
+            .path
+
+        guard let content = try? String(contentsOfFile: configPath, encoding: .utf8) else {
+            return nil
+        }
+
+        var inOriginSection = false
+        for rawLine in content.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inOriginSection = line.replacingOccurrences(of: " ", with: "") == "[remote\"origin\"]"
+                continue
+            }
+            guard inOriginSection else { continue }
+            if line.hasPrefix("url") {
+                guard let eqIndex = line.firstIndex(of: "=") else { continue }
+                let value = line[line.index(after: eqIndex)...]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    return value
+                }
+            }
+        }
+        return nil
     }
 
     func remoteOriginURL(projectPath: String) -> String? {
-        let result = try? ProcessRunner.runGit(
-            arguments: ["-C", projectPath, "config", "--get", "remote.origin.url"],
-            allowFailure: true
-        )
-        guard let output = result?.stdout.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty else {
+        switch probeRemoteOriginURL(projectPath: projectPath) {
+        case .url(let value):
+            return value
+        case .noRemoteConfigured, .probeFailed:
             return nil
         }
-        return output
+    }
+
+    /// 精确探测 remote.origin.url，并区分三种结果：
+    /// - `.url`            读取成功
+    /// - `.noRemoteConfigured` git 正常退出（exit=1），确实未配置 origin
+    /// - `.probeFailed`    进程启动失败 / 超时 / 输出异常，属于可重试的偶发错误
+    func probeRemoteOriginURL(projectPath: String) -> RepositoryPlatform.RemoteURLProbe {
+        let maxAttempts = 3
+
+        for attempt in 1...maxAttempts {
+            guard let result = try? ProcessRunner.runGit(
+                arguments: ["-C", projectPath, "config", "--get", "remote.origin.url"],
+                allowFailure: true
+            ) else {
+                // 进程未能启动（资源瞬时不足等）：短暂让出后重试
+                if attempt < maxAttempts {
+                    Thread.sleep(forTimeInterval: 0.05 * Double(attempt))
+                    continue
+                }
+                return .probeFailed
+            }
+
+            let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if result.status == 0 {
+                if !output.isEmpty {
+                    return .url(output)
+                }
+                // exit=0 但输出为空：异常情况，重试
+                if attempt < maxAttempts {
+                    Thread.sleep(forTimeInterval: 0.05 * Double(attempt))
+                    continue
+                }
+                return .probeFailed
+            }
+
+            if result.status == 1 {
+                // git config 在 key 不存在时返回 1，这是明确的「未配置」
+                return .noRemoteConfigured
+            }
+
+            // 其它退出码：视为偶发失败并重试
+            if attempt < maxAttempts {
+                Thread.sleep(forTimeInterval: 0.05 * Double(attempt))
+                continue
+            }
+            return .probeFailed
+        }
+
+        return .probeFailed
     }
 
     func currentLocalBranch(projectPath: String) throws -> String {
