@@ -73,35 +73,41 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **Worktree Sweeper: 4-Baseline Merge Analysis with Lamp Indicators**
-  - Merge analysis now focuses on a fixed ordered baseline set: master, stage, test, uat
-  - New 4-lamp indicator column shows one green lamp per merged baseline; an "all lit" badge appears when merged into all four
-  - New statuses: fully merged (4/4), partially merged (n/4), remote-deleted, stale (>30d), active, protected
-  - Results sorted by merge completeness: fully merged > partially merged > remote deleted > stale > active > protected
-  - Summary banner now reports fully-merged and partially-merged counts separately
-  - Category filters updated to: All / Fully Merged / Partially Merged / Stale (>30d) / Protected
-  - Workspace cleanliness column moved next to branch identity for faster scanning
-- **Critical Fix: Compare Against Remote origin/* Baselines**
-  - Merge checks now prioritize the authoritative remote refs `origin/<base>` instead of stale local branches
-  - Falls back to the local branch only when the remote ref is unavailable
-  - Fixes false negatives where outdated local stage/test/uat branches made fully-merged worktrees appear unmerged
-  - Measured impact on a real repository: fully-merged count 6 -> 7, recommended cleanup 7 -> 8
+- **Fixed: Repositories intermittently misclassified into the Local group**
+  - Symptom: some GitLab/GitHub repositories briefly appeared under "本地仓库" and jumped back on the next refresh
+  - Cause: bootstrap ran three independent full scans (worktrees, branch sync, merge requests) at once, spawning hundreds of git processes in a burst; intermittent fork/exec failures made `git config --get remote.origin.url` return nothing, and `try?` silently treated that as "no remote configured", falling back to Local
+  - Platform probing is now tri-state: resolved URL / genuinely no remote (git exit 1) / probe failed
+  - Transient probe failures retry up to 3 times with backoff
+  - Added a pure file-based `.git/config` parser as fallback, immune to process launch failure
+  - Added per-repository platform cache so a known GitLab/GitHub repo can never be downgraded to Local by a transient error
+  - Added inference from `origin/*` tracked refs and the configured GitLab host when probing fails
+- **Performance and robustness**
+  - Project scan now uses a 1.5s TTL cache plus a single-flight guard, so all three callers share one scan instead of spawning concurrent process storms
+  - Scan concurrency is bounded to min(6, CPU count) instead of an unbounded parallel loop
+  - Fixed a pipe-read race in `ProcessRunner` (readabilityHandler + waitUntilExit could drop output); replaced with dedicated reader threads coordinated by a DispatchGroup
+- **Verification**
+  - 600 concurrent origin probes: 0 launch failures, 0 empty-but-successful outputs
+  - 200 rounds of high-concurrency scanning across 6 repositories: 0 platform flicker
+  - Fallback chain verified end to end: cache -> .git/config -> remote-tracked refs
 
 ## 简体中文
 
-- **工作树回收站：以 4 条基线为核心的合入分析与亮点指示灯**
-  - 合入分析聚焦固定有序的 4 条基线：master、stage、test、uat
-  - 新增 4 亮点指示灯列，每条基线合入后点亮一个绿灯；4 条全部合入时额外显示“全亮”徽标
-  - 新增状态：全部合入 (4/4)、部分合入 (n/4)、远端已删除、休眠 (>30天)、活跃开发、受保护
-  - 结果按合入完整度排序：全部合入 > 部分合入 > 远端删除 > 休眠 > 活跃 > 受保护
-  - 顶部横幅分别统计“全部合入”与“部分合入”数量
-  - 筛选分类更新为：全部 / 全部合入 / 部分合入 / 休眠 >30天 / 受保护
-  - “工作区”干净/脏状态列前移至分支名右侧，横向扫读更高效
-- **关键修复：改为与远端 origin/* 基线比对**
-  - 合入判定优先使用远端权威引用 `origin/<base>`，而非可能落后的本地分支
-  - 仅在远端引用不存在时才回退到本地分支
-  - 修复了本地 stage/test/uat 落后导致已完全合入的工作树被误判为“未合入”的问题
-  - 真实仓库实测：全部合入数量由 6 提升至 7，建议清理项由 7 提升至 8
+- **修复：仓库偶发被错误归入「本地仓库」分组**
+  - 现象：部分 GitLab/GitHub 仓库会短暂出现在「本地仓库」分组，过一会又跳回原分组
+  - 原因：启动时工作树、分支同步、合并请求三个模块各自执行一次全量扫描，短时间拉起数百个 git 进程；偶发的 fork/exec 失败使 `git config --get remote.origin.url` 读不到内容，而 `try?` 把它静默当成「未配置远端」，于是回退为本地
+  - 远端探测改为三态：读取成功 / 确实未配置（git 退出码 1）/ 探测失败
+  - 偶发失败自动退避重试，最多 3 次
+  - 新增纯文件解析 `.git/config` 的兜底路径，不受进程启动失败影响
+  - 新增每个仓库的平台缓存，已知的 GitLab/GitHub 仓库绝不会因偶发错误被降级为本地
+  - 探测失败时根据 `origin/*` 远端跟踪分支与配置的 GitLab 主机进行兜底推断
+- **性能与健壮性**
+  - 项目扫描引入 1.5 秒 TTL 缓存与单飞保护，三个调用方共享同一次扫描，不再重复拉起并发进程风暴
+  - 扫描并发度收敛为 min(6, CPU 核数)，替代原先无上限的并行循环
+  - 修复 `ProcessRunner` 的管道读取竞态（readabilityHandler 配合 waitUntilExit 可能丢输出），改用独立读取线程 + DispatchGroup 协调
+- **验证**
+  - 600 次并发远端探测：0 次启动失败，0 次「退出码 0 但输出为空」
+  - 6 个仓库各 200 轮高并发扫描：0 次平台抖动
+  - 兜底链完整验证：平台缓存 -> `.git/config` 文件解析 -> 远端跟踪分支推断
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content
