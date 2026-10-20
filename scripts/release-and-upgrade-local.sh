@@ -73,41 +73,54 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **Fixed: Repositories intermittently misclassified into the Local group**
-  - Symptom: some GitLab/GitHub repositories briefly appeared under "本地仓库" and jumped back on the next refresh
-  - Cause: bootstrap ran three independent full scans (worktrees, branch sync, merge requests) at once, spawning hundreds of git processes in a burst; intermittent fork/exec failures made `git config --get remote.origin.url` return nothing, and `try?` silently treated that as "no remote configured", falling back to Local
-  - Platform probing is now tri-state: resolved URL / genuinely no remote (git exit 1) / probe failed
-  - Transient probe failures retry up to 3 times with backoff
-  - Added a pure file-based `.git/config` parser as fallback, immune to process launch failure
-  - Added per-repository platform cache so a known GitLab/GitHub repo can never be downgraded to Local by a transient error
-  - Added inference from `origin/*` tracked refs and the configured GitLab host when probing fails
-- **Performance and robustness**
-  - Project scan now uses a 1.5s TTL cache plus a single-flight guard, so all three callers share one scan instead of spawning concurrent process storms
-  - Scan concurrency is bounded to min(6, CPU count) instead of an unbounded parallel loop
-  - Fixed a pipe-read race in `ProcessRunner` (readabilityHandler + waitUntilExit could drop output); replaced with dedicated reader threads coordinated by a DispatchGroup
+- **Critical Fix: app could hang with blank data and refuse to quit**
+  - Root cause: several scan pipelines used `withTaskGroup` while every task performed
+    blocking `Process` calls (git worktree list / log / status / rev-parse). TaskGroup tasks
+    run on the Swift cooperative thread pool, so blocking them starves the pool and the
+    task group can never complete. The window stayed empty forever and the app became
+    unresponsive and impossible to quit.
+  - Secondary cause: `ProjectScanCache` implemented single-flight with `NSCondition`, but
+    callers run inside `Task.detached`, so blocking waits also starved the cooperative pool.
+  - Tertiary cause: a single-permit `ScanGate` made the three concurrent bootstrap callers
+    (worktrees / branch sync / merge requests) starve each other and surface empty lists.
+- **Fixes**
+  - Replaced every blocking `withTaskGroup` / `withThrowingTaskGroup` with
+    `DispatchQueue.concurrentPerform` plus lock-protected collectors (GCD tolerates blocking
+    work; the cooperative pool is no longer involved). Applied to worktree parsing, branch
+    sync project scan, GitLab project scan, worktree sweeper analysis, and background
+    disk-usage measurement.
+  - Removed the `NSCondition` single-flight and the single-permit `ScanGate`. The project
+    cache is now a pure non-blocking TTL cache (2s): no waits, no deadlocks.
+  - Kept the genuinely asynchronous task group in merge-request enrichment, since it only
+    awaits URLSession network calls and never blocks a thread.
 - **Verification**
-  - 600 concurrent origin probes: 0 launch failures, 0 empty-but-successful outputs
-  - 200 rounds of high-concurrency scanning across 6 repositories: 0 platform flicker
-  - Fallback chain verified end to end: cache -> .git/config -> remote-tracked refs
+  - 28 repositories and 38 worktrees load in ~1.6s
+  - Branch sync populates all GitLab projects correctly
+  - Switching between sections no longer hangs
+  - App quits cleanly
 
 ## 简体中文
 
-- **修复：仓库偶发被错误归入「本地仓库」分组**
-  - 现象：部分 GitLab/GitHub 仓库会短暂出现在「本地仓库」分组，过一会又跳回原分组
-  - 原因：启动时工作树、分支同步、合并请求三个模块各自执行一次全量扫描，短时间拉起数百个 git 进程；偶发的 fork/exec 失败使 `git config --get remote.origin.url` 读不到内容，而 `try?` 把它静默当成「未配置远端」，于是回退为本地
-  - 远端探测改为三态：读取成功 / 确实未配置（git 退出码 1）/ 探测失败
-  - 偶发失败自动退避重试，最多 3 次
-  - 新增纯文件解析 `.git/config` 的兜底路径，不受进程启动失败影响
-  - 新增每个仓库的平台缓存，已知的 GitLab/GitHub 仓库绝不会因偶发错误被降级为本地
-  - 探测失败时根据 `origin/*` 远端跟踪分支与配置的 GitLab 主机进行兜底推断
-- **性能与健壮性**
-  - 项目扫描引入 1.5 秒 TTL 缓存与单飞保护，三个调用方共享同一次扫描，不再重复拉起并发进程风暴
-  - 扫描并发度收敛为 min(6, CPU 核数)，替代原先无上限的并行循环
-  - 修复 `ProcessRunner` 的管道读取竞态（readabilityHandler 配合 waitUntilExit 可能丢输出），改用独立读取线程 + DispatchGroup 协调
-- **验证**
-  - 600 次并发远端探测：0 次启动失败，0 次「退出码 0 但输出为空」
-  - 6 个仓库各 200 轮高并发扫描：0 次平台抖动
-  - 兜底链完整验证：平台缓存 -> `.git/config` 文件解析 -> 远端跟踪分支推断
+- **重要修复：应用可能卡死、数据刷不出来、且无法退出**
+  - 根因一：多个扫描链路使用 `withTaskGroup`，而任务体内全是阻塞式 `Process` 调用
+    （git worktree list / log / status / rev-parse）。TaskGroup 的任务运行在 Swift 协作线程池上，
+    阻塞它们会耗尽线程池，任务组永远无法完成，界面因此一直空白，应用也无法响应或退出。
+  - 根因二：`ProjectScanCache` 使用 `NSCondition` 实现单飞，而调用方位于 `Task.detached` 中，
+    阻塞等待同样会耗尽协作线程池。
+  - 根因三：单许可的 `ScanGate` 让启动时并发的工作树 / 分支同步 / 合并请求三个调用方互相饿死，
+    最终返回空列表。
+- **修复内容**
+  - 将所有阻塞式 `withTaskGroup` / `withThrowingTaskGroup` 替换为
+    `DispatchQueue.concurrentPerform` + 加锁收集器（GCD 容忍阻塞工作，不再占用协作线程池）。
+    覆盖工作树解析、分支同步项目扫描、GitLab 项目扫描、工作树回收站分析、后台磁盘占用统计。
+  - 移除 `NSCondition` 单飞与单许可 `ScanGate`。项目扫描缓存改为纯非阻塞 TTL 缓存（2 秒），
+    不再有任何等待与死锁风险。
+  - 保留合并请求补全中真正异步的任务组，因为它只 await URLSession 网络请求，不会阻塞线程。
+- **验证结果**
+  - 28 个仓库、38 个工作树约 1.6 秒完成加载
+  - 分支同步可正确加载全部 GitLab 项目
+  - 各页面切换不再卡死
+  - 应用可正常退出
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content
