@@ -93,34 +93,50 @@ final class GitLabProvider: HostingProvider {
 
         onProgress(.init(title: "整理映射", detail: "生成可创建 MR 的分支映射", current: 3, total: 4))
         let gitCli = self.gitCli
-        let mergeProjects = try await withThrowingTaskGroup(of: MergeProject.self) { group in
-            for project in localProjects {
-                group.addTask {
-                    let remoteBranches = try gitCli.remoteBranches(projectPath: project.path)
-                    let localBranches = try gitCli.localBranches(projectPath: project.path)
-                    return MergeProject(
-                        id: project.id,
-                        name: project.name,
-                        displayName: project.displayName,
-                        path: project.path,
-                        sourceRoot: project.sourceRoot,
-                        currentBranch: project.currentBranch,
-                        gitLabProjectID: remoteByName[project.name],
-                        branchMappings: branchMappings,
-                        remoteBranches: remoteBranches,
-                        localBranches: localBranches,
-                        remoteURL: project.remoteURL,
-                        platform: project.platform
-                    )
-                }
-            }
 
-            var results: [MergeProject] = []
-            for try await project in group {
-                results.append(project)
+        // 使用 concurrentPerform 而非 withThrowingTaskGroup：任务内含阻塞式 git 子进程，
+        // 放到协作线程池上可能占满线程并导致任务组永不完成。
+        final class MergeProjectCollector: @unchecked Sendable {
+            private var items: [MergeProject] = []
+            private let lock = NSLock()
+            func append(_ item: MergeProject) {
+                lock.lock()
+                defer { lock.unlock() }
+                items.append(item)
             }
-            return results.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+            var all: [MergeProject] {
+                lock.lock()
+                defer { lock.unlock() }
+                return items
+            }
         }
+
+        let collector = MergeProjectCollector()
+        let targets = localProjects
+
+        DispatchQueue.concurrentPerform(iterations: targets.count) { index in
+            let project = targets[index]
+            let remoteBranches = (try? gitCli.remoteBranches(projectPath: project.path)) ?? []
+            let localBranches = (try? gitCli.localBranches(projectPath: project.path)) ?? []
+            collector.append(
+                MergeProject(
+                    id: project.id,
+                    name: project.name,
+                    displayName: project.displayName,
+                    path: project.path,
+                    sourceRoot: project.sourceRoot,
+                    currentBranch: project.currentBranch,
+                    gitLabProjectID: remoteByName[project.name],
+                    branchMappings: branchMappings,
+                    remoteBranches: remoteBranches,
+                    localBranches: localBranches,
+                    remoteURL: project.remoteURL,
+                    platform: project.platform
+                )
+            )
+        }
+
+        let mergeProjects = collector.all.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
 
         onProgress(.init(title: "完成", detail: "已加载 \(mergeProjects.count) 个合并项目", current: 4, total: 4))
         return MergeRequestContext(config: config, currentUsername: currentUserResponse.username, projects: mergeProjects)

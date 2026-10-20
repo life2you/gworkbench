@@ -130,9 +130,17 @@ final class PlatformCache: @unchecked Sendable {
     }
 }
 
-/// 本地项目扫描结果的短期共享缓存（单飞 + TTL）
-/// 避免工作树 / 分支同步 / 合并请求三个调用方在同一时间各自拉起一次全量 git 扫描，
-/// 造成瞬时进程风暴与偶发 fork 失败（进而导致仓库平台被误判为「本地」）。
+/// 本地项目扫描结果的短期缓存（纯 TTL，无阻塞、无单飞）
+///
+/// 设计取舍：
+/// 早期版本在这里使用了 NSCondition 实现「单飞 + 等待」，但调用方位于
+/// `Task.detached` 中，阻塞等待会占满 Swift 并发线程池，进而饿死其它任务，
+/// 表现为应用卡死、数据刷不出来、甚至无法退出。
+///
+/// 现在改为完全无阻塞的纯缓存：
+/// - 命中有效缓存 → 直接返回
+/// - 未命中 → 由调用方各自扫描；扫描完成后写入缓存
+/// 配合下面「全局扫描闸门」限制同时进行的真实扫描数量，避免进程风暴。
 final class ProjectScanCache: @unchecked Sendable {
     static let shared = ProjectScanCache()
 
@@ -142,9 +150,9 @@ final class ProjectScanCache: @unchecked Sendable {
         let timestamp: Date
     }
 
-    private var cached: Cached?
     private let lock = NSLock()
-    private let ttl: TimeInterval = 1.5
+    private var cached: Cached?
+    private let ttl: TimeInterval = 2.0
 
     func cachedProjects(rootDirs: [String]) -> [LocalProject]? {
         lock.lock()
@@ -161,27 +169,10 @@ final class ProjectScanCache: @unchecked Sendable {
         cached = Cached(roots: rootDirs, projects: projects, timestamp: Date())
     }
 
-    /// 单飞：同一时刻只允许一个真实扫描，其余调用者等待并复用同一结果
-    private var inFlight = false
-    private let flightCondition = NSCondition()
-
-    func beginOrWait() -> Bool {
-        flightCondition.lock()
-        defer { flightCondition.unlock() }
-        if inFlight {
-            // 已有扫描在进行，等待它结束
-            flightCondition.wait()
-            return false
-        }
-        inFlight = true
-        return true
-    }
-
-    func finish() {
-        flightCondition.lock()
-        defer { flightCondition.unlock() }
-        inFlight = false
-        flightCondition.broadcast()
+    func invalidate() {
+        lock.lock()
+        defer { lock.unlock() }
+        cached = nil
     }
 }
 
@@ -217,19 +208,10 @@ final class GitCliService: Sendable {
             return cached
         }
 
-        // 单飞：已有扫描在进行时，等待它完成并复用其结果，避免并发拉起两次全量 git 扫描
-        if !ProjectScanCache.shared.beginOrWait() {
-            if let cached = ProjectScanCache.shared.cachedProjects(rootDirs: rootDirs) {
-                return cached
-            }
-            // 等待结束后缓存可能刚好过期，兜底再走一次真实扫描
-        } else {
-            defer { ProjectScanCache.shared.finish() }
-        }
-
-        if let cached = ProjectScanCache.shared.cachedProjects(rootDirs: rootDirs) {
-            return cached
-        }
+        // 直接扫描。不使用任何跨线程闸门/等待：
+        // 之前的 NSCondition 单飞会阻塞 Swift 并发线程池导致应用卡死；
+        // 而单一许可的闸门会让并发的三个模块互相饿死。
+        // 扫描本身已是并发 + 轻量（git 调用），少量重复扫描的代价远小于卡死风险。
 
         var seen = Set<String>()
         var candidates: [(name: String, path: String, sourceRoot: String)] = []
@@ -286,18 +268,14 @@ final class GitCliService: Sendable {
         }
 
         let collector = ProjectCollector()
-        let immutableCandidates = candidates
+        let scanTargets = candidates
 
-        // 限制并发度，避免一次拉起过多 git 进程导致瞬时启动失败
-        let maxConcurrent = max(2, min(6, ProcessInfo.processInfo.activeProcessorCount))
-        let semaphore = DispatchSemaphore(value: maxConcurrent)
-        let queue = DispatchQueue(label: "gworkbench.scanLocalProjects", attributes: .concurrent)
-
-        for c in immutableCandidates {
-            queue.async {
-                semaphore.wait()
-                defer { semaphore.signal() }
-
+        // 使用 concurrentPerform：由系统线程池自行限流（上限约为 CPU 核数）。
+        // 不使用「并发队列 + 信号量 + queue.sync(barrier)」组合：
+        // 那种写法会让阻塞的线程占满线程池，导致 barrier 永远等不到执行，整个扫描永久挂起。
+        DispatchQueue.concurrentPerform(iterations: scanTargets.count) { index in
+            let c = scanTargets[index]
+            if true {
                 let currentBranch = (try? self.currentLocalBranch(projectPath: c.path)) ?? "detached"
                 let baseBranches = (try? self.remoteBranches(projectPath: c.path)) ?? []
                 let localBranches = (try? self.localBranches(projectPath: c.path)) ?? []
@@ -351,7 +329,6 @@ final class GitCliService: Sendable {
                 ))
             }
         }
-        queue.sync(flags: .barrier) {}
 
         let projects = collector.all
         let nameCounts = Dictionary(grouping: projects, by: \.name).mapValues(\.count)

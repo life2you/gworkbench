@@ -1123,23 +1123,34 @@ final class AppModel {
             guard let self else { return }
             let gitCli = self.service.gitCliService
 
-            let updatedList: [(id: String, usage: String)] = await withTaskGroup(of: (String, String)?.self) { group in
-                for item in uncachedItems {
-                    group.addTask {
-                        let usage = (try? gitCli.diskUsage(path: item.path)) ?? "未知"
-                        DiskUsageStore.shared.set(usage, for: item.path)
-                        return (item.id, usage)
-                    }
+            // 使用 concurrentPerform：du -sh 是阻塞式子进程调用，
+            // 放在 withTaskGroup 里会占满 Swift 协作线程池并可能导致任务组永不完成。
+            final class UsageCollector: @unchecked Sendable {
+                private var items: [(String, String)] = []
+                private let lock = NSLock()
+                func append(id: String, usage: String) {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    items.append((id, usage))
                 }
-
-                var list: [(String, String)] = []
-                for await res in group {
-                    if let res {
-                        list.append(res)
-                    }
+                var all: [(String, String)] {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    return items
                 }
-                return list
             }
+
+            let collector = UsageCollector()
+            let targets = uncachedItems
+
+            DispatchQueue.concurrentPerform(iterations: targets.count) { index in
+                let item = targets[index]
+                let usage = (try? gitCli.diskUsage(path: item.path)) ?? "未知"
+                DiskUsageStore.shared.set(usage, for: item.path)
+                collector.append(id: item.id, usage: usage)
+            }
+
+            let updatedList = collector.all
 
             await MainActor.run {
                 let map = Dictionary(uniqueKeysWithValues: updatedList)

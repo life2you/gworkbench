@@ -38,29 +38,40 @@ enum WorktreeSweeperAnalyzer {
         let mergeTargets = SweeperMergeTarget.ordered
         let targetNames = mergeTargets.map(\.rawValue)
 
-        let analyzed: [WorktreeSweeperItem] = await withTaskGroup(
-            of: WorktreeSweeperItem.self,
-            returning: [WorktreeSweeperItem].self
-        ) { group in
-            for item in projectWorktrees {
-                group.addTask {
-                    analyzeOne(
-                        item: item,
-                        projectPath: projectPath,
-                        existingBranches: existingBranches,
-                        mergeTargets: mergeTargets,
-                        targetNames: targetNames,
-                        gitCli: gitCli
-                    )
-                }
+        // 使用 concurrentPerform：每个分析都会执行阻塞式 git 子进程，
+        // 放在 withTaskGroup 会占满 Swift 协作线程池，可能导致任务组永不完成。
+        final class AnalysisCollector: @unchecked Sendable {
+            private var items: [WorktreeSweeperItem] = []
+            private let lock = NSLock()
+            func append(_ item: WorktreeSweeperItem) {
+                lock.lock()
+                defer { lock.unlock() }
+                items.append(item)
             }
-
-            var results: [WorktreeSweeperItem] = []
-            for await result in group {
-                results.append(result)
+            var all: [WorktreeSweeperItem] {
+                lock.lock()
+                defer { lock.unlock() }
+                return items
             }
-            return results
         }
+
+        let collector = AnalysisCollector()
+        let targets = projectWorktrees
+
+        DispatchQueue.concurrentPerform(iterations: targets.count) { index in
+            let item = targets[index]
+            let result = analyzeOne(
+                item: item,
+                projectPath: projectPath,
+                existingBranches: existingBranches,
+                mergeTargets: mergeTargets,
+                targetNames: targetNames,
+                gitCli: gitCli
+            )
+            collector.append(result)
+        }
+
+        let analyzed = collector.all
 
         return analyzed.sorted { lhs, rhs in
             if lhs.isProtected != rhs.isProtected {
