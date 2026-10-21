@@ -274,6 +274,7 @@ struct CreateWorktreeDraft: Sendable {
     var path: String = ""
     var openInIDE: Bool = true
     var installDependencies: Bool = false
+    var syncIDEConfigs: Bool = false
 }
 
 struct CreateMRDraft: Sendable {
@@ -365,6 +366,7 @@ final class AppModel {
     var worktreeSearchText = ""
     var localBranchSearchText = ""
     var mergeRequestSearchText = ""
+    var existingBranchSearchText = ""
 
     var showingCreateWorktreeSheet = false
     var showingCreateMRSheet = false
@@ -828,6 +830,20 @@ final class AppModel {
             }
             return ExistingWorktreeBranchOption(name: name, source: source)
         }
+    }
+
+    var filteredExistingWorktreeBranchOptions: [ExistingWorktreeBranchOption] {
+        let all = availableExistingWorktreeBranchOptions
+        let keyword = existingBranchSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return all }
+
+        let matched = all.filter { $0.name.localizedCaseInsensitiveContains(keyword) }
+        // 当前选中项始终保留在列表中，否则 Picker 的 selection 找不到对应 tag 会显示空白
+        if let selected = all.first(where: { $0.name == createWorktreeDraft.branchName }),
+           !matched.contains(where: { $0.name == selected.name }) {
+            return [selected] + matched
+        }
+        return matched
     }
 
     var availableMRMappings: [BranchMapping] {
@@ -1346,6 +1362,7 @@ final class AppModel {
         syncCreateWorktreeDefaults(resetBranchName: true)
         aiSuggestedAlternatives = []
         aiGenerationError = nil
+        existingBranchSearchText = ""
         showingCreateWorktreeSheet = true
     }
 
@@ -1484,6 +1501,9 @@ final class AppModel {
             createWorktreeDraft.branchName = availableExistingWorktreeBranchOptions.first?.name ?? ""
         }
         createWorktreeDraft.path = suggestedWorktreePath(projectName: projectName, branchName: createWorktreeDraft.branchName)
+        if resetBranchName {
+            createWorktreeDraft.syncIDEConfigs = effectiveWorktreeConfig?.syncIDEConfigs ?? false
+        }
     }
 
     func syncLocalOperationDefaults(resetSourceBranch: Bool) {
@@ -2586,7 +2606,9 @@ final class AppModel {
             branchMap: branchMap,
             protectedTargets: protectedTargets,
             autoMergeDelaySeconds: delay,
-            autoMergeRetryCount: retry
+            autoMergeRetryCount: retry,
+            syncIDEConfigs: settingsDraft.syncIDEConfigs,
+            ideConfigSyncItems: parseList(settingsDraft.ideConfigSyncItemsText)
         )
     }
 

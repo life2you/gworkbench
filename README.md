@@ -8,6 +8,7 @@
 
 - Scans local repositories and worktrees from configurable root directories
 - Creates, opens, deletes, and annotates Git worktrees
+- Optionally copies a whitelisted set of IDE project settings (for example the JDK version and compiler heap size) from the main repository into a new worktree, so they do not need to be reconfigured
 - Supports local branch sync, one-source multi-target merge, and push flows
 - Loads GitLab MR queues, shows approvals and authors, and supports approve/merge/close
 - Supports one-click batch approve-and-merge for the current MR list

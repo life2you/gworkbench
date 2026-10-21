@@ -43,6 +43,8 @@ private struct GWorkbenchTomlConfig: Decodable {
         let terminal_bundle_id: String?
         let terminal_launch_hook_mode: String?
         let terminal_launch_command: String?
+        let sync_ide_configs: Bool?
+        let ide_config_sync_items: [String]?
     }
 
     struct GitLab: Decodable {
@@ -86,6 +88,18 @@ private struct GWorkbenchTomlConfig: Decodable {
 }
 
 final class ConfigService: Sendable {
+    /// IDE 目录配置同步默认白名单。仅包含可以安全跨 worktree 复用的文件，
+    /// 排除 workspace.xml（个人会话状态）、shelf/（本地暂存改动）、
+    /// .cache/（插件二进制缓存）以及带凭据的插件配置文件。
+    static let defaultIDEConfigSyncItems: [String] = [
+        ".gitignore",
+        "misc.xml",
+        "compiler.xml",
+        "encodings.xml",
+        "jarRepositories.xml",
+        "vcs.xml"
+    ]
+
     init() {}
 
     func resolveConfigPath(appName: String, fileName: String) -> String {
@@ -150,7 +164,9 @@ final class ConfigService: Sendable {
             branchMap: [:],
             protectedTargets: ["main", "master"],
             autoMergeDelaySeconds: 5,
-            autoMergeRetryCount: 3
+            autoMergeRetryCount: 3,
+            syncIDEConfigs: false,
+            ideConfigSyncItems: ConfigService.defaultIDEConfigSyncItems
         )
     }
 
@@ -211,7 +227,9 @@ final class ConfigService: Sendable {
             branchMap: branchMap,
             protectedTargets: config.merge_policy?.protected_targets ?? ["master", "main"],
             autoMergeDelaySeconds: config.merge_policy?.auto_merge_delay_seconds ?? 10,
-            autoMergeRetryCount: config.merge_policy?.auto_merge_retry_count ?? 3
+            autoMergeRetryCount: config.merge_policy?.auto_merge_retry_count ?? 3,
+            syncIDEConfigs: config.worktree.sync_ide_configs ?? false,
+            ideConfigSyncItems: config.worktree.ide_config_sync_items ?? ConfigService.defaultIDEConfigSyncItems
         )
     }
 
@@ -256,7 +274,13 @@ final class ConfigService: Sendable {
                 .filter { !$0.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
             protectedTargets: dedupe(config.protectedTargets.filterNonEmpty()),
             autoMergeDelaySeconds: max(config.autoMergeDelaySeconds, 0),
-            autoMergeRetryCount: max(config.autoMergeRetryCount, 0)
+            autoMergeRetryCount: max(config.autoMergeRetryCount, 0),
+            syncIDEConfigs: config.syncIDEConfigs,
+            ideConfigSyncItems: dedupe(
+                config.ideConfigSyncItems
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filterNonEmpty()
+            )
         )
     }
 
@@ -283,6 +307,8 @@ final class ConfigService: Sendable {
             "terminal_bundle_id = \"\(escapeTomlString(config.terminalBundleID))\"",
             "terminal_launch_hook_mode = \"\(escapeTomlString(config.terminalLaunchHookMode))\"",
             "terminal_launch_command = \"\(escapeTomlString(config.terminalLaunchCommand))\"",
+            "sync_ide_configs = \(config.syncIDEConfigs)",
+            "ide_config_sync_items = \(tomlArray(config.ideConfigSyncItems))",
             "",
             "[gitlab]",
             "host = \"\(escapeTomlString(config.gitlabHost))\"",

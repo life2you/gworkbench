@@ -240,6 +240,43 @@ struct CreateWorktreeSheetView: View {
 
         return SectionCard(title: "已有分支配置") {
             VStack(alignment: .leading, spacing: 14) {
+                // 已有分支搜索
+                if !appModel.availableExistingWorktreeBranchOptions.isEmpty {
+                    HStack(spacing: 8) {
+                        Text("搜索过滤")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 70, alignment: .leading)
+
+                        HStack(spacing: 6) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("输入关键词筛选分支...", text: existingBranchSearchBinding)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12, design: .monospaced))
+                            if !appModel.existingBranchSearchText.isEmpty {
+                                Button {
+                                    appModel.existingBranchSearchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color(NSColor.textBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
+                        )
+                    }
+                }
+
                 // 已有分支选择
                 HStack(spacing: 12) {
                     Text("已有分支")
@@ -247,9 +284,9 @@ struct CreateWorktreeSheetView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 70, alignment: .leading)
 
-                    if !appModel.availableExistingWorktreeBranchOptions.isEmpty {
+                    if !appModel.filteredExistingWorktreeBranchOptions.isEmpty {
                         Picker("已有分支", selection: $appModel.createWorktreeDraft.branchName) {
-                            ForEach(appModel.availableExistingWorktreeBranchOptions) { option in
+                            ForEach(appModel.filteredExistingWorktreeBranchOptions) { option in
                                 Text(option.label).tag(option.name)
                             }
                         }
@@ -259,13 +296,22 @@ struct CreateWorktreeSheetView: View {
                         .onChange(of: appModel.createWorktreeDraft.branchName) {
                             appModel.updateCreateWorktreePathFromBranch()
                         }
-                    } else {
+                    } else if appModel.availableExistingWorktreeBranchOptions.isEmpty {
                         TextField("输入已有分支名", text: $appModel.createWorktreeDraft.branchName)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 12, design: .monospaced))
                             .onChange(of: appModel.createWorktreeDraft.branchName) {
                                 appModel.updateCreateWorktreePathFromBranch()
                             }
+                    } else {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            Text("没有匹配的分支，请调整搜索关键词")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -356,6 +402,19 @@ struct CreateWorktreeSheetView: View {
                             .font(.system(size: 11.5))
                     }
                 }
+
+                if let config = appModel.effectiveWorktreeConfig, !config.ideConfigSyncItems.isEmpty {
+                    Toggle(isOn: $appModel.createWorktreeDraft.syncIDEConfigs) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.accentColor)
+                            Text("复制主仓库的 IDE 项目配置 (\(config.ideConfigSyncItems.count) 项)")
+                                .font(.system(size: 11.5))
+                        }
+                    }
+                    .help(config.ideConfigSyncItems.joined(separator: ", "))
+                }
             }
         }
     }
@@ -408,6 +467,13 @@ struct CreateWorktreeSheetView: View {
         Binding(
             get: { appModel.createWorktreeDraft.mode },
             set: { appModel.setCreateWorktreeMode($0) }
+        )
+    }
+
+    private var existingBranchSearchBinding: Binding<String> {
+        Binding(
+            get: { appModel.existingBranchSearchText },
+            set: { appModel.existingBranchSearchText = $0 }
         )
     }
 

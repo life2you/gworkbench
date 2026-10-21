@@ -439,6 +439,48 @@ struct SettingsView: View {
                         }
                         .padding(.top, 1)
                     }
+
+                    Divider().opacity(0.4)
+
+                    // IDE 项目配置同步
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: $appModel.settingsDraft.syncIDEConfigs) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.on.doc")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.accentColor)
+                                Text("新建工作树时复制主仓库的 IDE 项目配置")
+                                    .font(.system(size: 11.5))
+                            }
+                        }
+
+                        Text("将主仓库 `.idea` 下指定的配置文件复制到新工作树，避免 JDK 版本、编译堆大小等设置在新工作树中丢失。仅在「在 IDE 中打开」之前生效。")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+
+                        if appModel.settingsDraft.syncIDEConfigs {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("同步项白名单")
+                                        .font(.system(size: 10.5, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button("恢复默认") {
+                                        appModel.settingsDraft.ideConfigSyncItemsText = ConfigService.defaultIDEConfigSyncItems.joined(separator: ", ")
+                                    }
+                                    .controlSize(.mini)
+                                }
+
+                                TextField("misc.xml, compiler.xml, ...", text: $appModel.settingsDraft.ideConfigSyncItemsText)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 11, design: .monospaced))
+
+                                Text("逗号分隔，相对 `.idea` 目录的文件名。默认不包含 workspace.xml（个人会话）、shelf/（本地暂存）、.cache/ 以及含凭据的插件配置。")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
                 }
             }
         }

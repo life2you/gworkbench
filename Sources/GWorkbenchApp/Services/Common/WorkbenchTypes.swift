@@ -157,6 +157,8 @@ struct WorktreeConfig: Sendable, Hashable {
     let ideMode: String
     let ideCommand: String
     let ideLabel: String
+    let syncIDEConfigs: Bool
+    let ideConfigSyncItems: [String]
 }
 
 struct MergeWorkflowConfig: Sendable, Hashable {

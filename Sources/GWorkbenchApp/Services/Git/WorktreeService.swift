@@ -142,7 +142,10 @@ final class WorktreeService: Sendable {
             let newBranch = draft.branchName.trimmingCharacters(in: .whitespacesAndNewlines)
             let targetPath = ProcessRunner.expandPath(draft.path)
             let shouldPushRemote = draft.mode == .newBranch
-            let totalSteps = 4 + (shouldPushRemote ? 1 : 0) + (draft.installDependencies ? 1 : 0)
+            let totalSteps = 4
+                + (shouldPushRemote ? 1 : 0)
+                + (draft.installDependencies ? 1 : 0)
+                + (draft.syncIDEConfigs ? 1 : 0)
             var currentStep = 0
             var logs: [String] = [
                 "项目: \(project.displayName)",
@@ -230,6 +233,17 @@ final class WorktreeService: Sendable {
                 logs.append("依赖安装已完成")
             }
 
+            if draft.syncIDEConfigs {
+                currentStep += 1
+                onProgress(.init(title: "同步 IDE 配置", detail: "正在复制主仓库的 IDE 项目设置", current: currentStep, total: totalSteps))
+                let syncLines = self.syncIDEConfigs(
+                    items: config.ideConfigSyncItems,
+                    sourceProjectPath: project.path,
+                    targetPath: targetPath
+                )
+                logs.append(contentsOf: syncLines)
+            }
+
             return CreateWorktreeResult(
                 path: targetPath,
                 logs: logs,
@@ -293,6 +307,74 @@ final class WorktreeService: Sendable {
                 )
             }
         }.value
+    }
+
+    /// 将主仓库的 IDE 项目配置按白名单复制到新工作树，避免新工作树打开 IDE 后需要重新配置。
+    /// 仅负责复制文件，不解析内容；不存在或不可读的项会被跳过并记入日志。
+    /// - Returns: 供 UI 展示的日志行
+    @discardableResult
+    func syncIDEConfigs(
+        items: [String],
+        sourceProjectPath: String,
+        targetPath: String
+    ) -> [String] {
+        guard !items.isEmpty else {
+            return ["IDE 配置同步已开启，但白名单为空，已跳过"]
+        }
+
+        let fileManager = FileManager.default
+        let sourceDirectory = URL(fileURLWithPath: sourceProjectPath).appendingPathComponent(".idea", isDirectory: true)
+        let targetDirectory = URL(fileURLWithPath: targetPath).appendingPathComponent(".idea", isDirectory: true)
+
+        guard fileManager.fileExists(atPath: sourceDirectory.path) else {
+            return ["主仓库未包含 .idea 目录，已跳过 IDE 配置同步"]
+        }
+
+        var logs: [String] = []
+        var copied: [String] = []
+        var skipped: [String] = []
+
+        do {
+            try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        } catch {
+            return ["创建目标 .idea 目录失败，已跳过 IDE 配置同步: \(error.localizedDescription)"]
+        }
+
+        for item in items {
+            let sourceFile = sourceDirectory.appendingPathComponent(item)
+            let targetFile = targetDirectory.appendingPathComponent(item)
+
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: sourceFile.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else {
+                skipped.append(item)
+                continue
+            }
+
+            // 目标位置已存在同名项时先移除，保证复制结果与主仓库一致
+            if fileManager.fileExists(atPath: targetFile.path) {
+                try? fileManager.removeItem(at: targetFile)
+            }
+
+            do {
+                try fileManager.copyItem(at: sourceFile, to: targetFile)
+                copied.append(item)
+            } catch {
+                skipped.append(item)
+            }
+        }
+
+        if !copied.isEmpty {
+            logs.append("已同步 IDE 配置 \(copied.count) 项: \(copied.joined(separator: ", "))")
+        }
+        if !skipped.isEmpty {
+            logs.append("已跳过不存在或复制失败的 IDE 配置项: \(skipped.joined(separator: ", "))")
+        }
+        if copied.isEmpty && skipped.isEmpty {
+            logs.append("未找到可同步的 IDE 配置项")
+        }
+
+        return logs
     }
 
     func installDependencies(at path: String) throws {

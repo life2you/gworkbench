@@ -52,6 +52,8 @@ struct GWorkbenchConfig: Sendable, Hashable {
     let protectedTargets: [String]
     let autoMergeDelaySeconds: Int
     let autoMergeRetryCount: Int
+    let syncIDEConfigs: Bool
+    let ideConfigSyncItems: [String]
 
     func asWorktreeConfig() -> WorktreeConfig {
         WorktreeConfig(
@@ -61,7 +63,9 @@ struct GWorkbenchConfig: Sendable, Hashable {
             worktreesRootDir: worktreesRootDir,
             ideMode: ideMode,
             ideCommand: ideCommand,
-            ideLabel: ideLabel
+            ideLabel: ideLabel,
+            syncIDEConfigs: syncIDEConfigs,
+            ideConfigSyncItems: ideConfigSyncItems
         )
     }
 
@@ -111,6 +115,8 @@ struct SettingsDraft: Sendable {
     var autoMergeDelaySecondsText: String = "10"
     var autoMergeRetryCountText: String = "3"
     var branchMappings: [BranchMappingDraft] = []
+    var syncIDEConfigs: Bool = false
+    var ideConfigSyncItemsText: String = ""
 
     init() {}
 
@@ -143,6 +149,8 @@ struct SettingsDraft: Sendable {
         protectedTargetsText = config.protectedTargets.joined(separator: ", ")
         autoMergeDelaySecondsText = String(config.autoMergeDelaySeconds)
         autoMergeRetryCountText = String(config.autoMergeRetryCount)
+        syncIDEConfigs = config.syncIDEConfigs
+        ideConfigSyncItemsText = config.ideConfigSyncItems.joined(separator: ", ")
         branchMappings = config.branchMap
             .sorted { lhs, rhs in
                 if lhs.key != rhs.key {
