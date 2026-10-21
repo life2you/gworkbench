@@ -73,54 +73,53 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **Critical Fix: app could hang with blank data and refuse to quit**
-  - Root cause: several scan pipelines used `withTaskGroup` while every task performed
-    blocking `Process` calls (git worktree list / log / status / rev-parse). TaskGroup tasks
-    run on the Swift cooperative thread pool, so blocking them starves the pool and the
-    task group can never complete. The window stayed empty forever and the app became
-    unresponsive and impossible to quit.
-  - Secondary cause: `ProjectScanCache` implemented single-flight with `NSCondition`, but
-    callers run inside `Task.detached`, so blocking waits also starved the cooperative pool.
-  - Tertiary cause: a single-permit `ScanGate` made the three concurrent bootstrap callers
-    (worktrees / branch sync / merge requests) starve each other and surface empty lists.
-- **Fixes**
-  - Replaced every blocking `withTaskGroup` / `withThrowingTaskGroup` with
-    `DispatchQueue.concurrentPerform` plus lock-protected collectors (GCD tolerates blocking
-    work; the cooperative pool is no longer involved). Applied to worktree parsing, branch
-    sync project scan, GitLab project scan, worktree sweeper analysis, and background
-    disk-usage measurement.
-  - Removed the `NSCondition` single-flight and the single-permit `ScanGate`. The project
-    cache is now a pure non-blocking TTL cache (2s): no waits, no deadlocks.
-  - Kept the genuinely asynchronous task group in merge-request enrichment, since it only
-    awaits URLSession network calls and never blocks a thread.
-- **Verification**
-  - 28 repositories and 38 worktrees load in ~1.6s
-  - Branch sync populates all GitLab projects correctly
-  - Switching between sections no longer hangs
-  - App quits cleanly
+- **New: copy IDE project settings into new worktrees**
+  - Creating a worktree now optionally copies a whitelist of `.idea` config files from the
+    main repository into the new worktree, so IDE state no longer has to be reconfigured
+    every time.
+  - Default whitelist: `.gitignore`, `misc.xml`, `compiler.xml`, `encodings.xml`,
+    `jarRepositories.xml`, `vcs.xml`. Only 4.2 KB in total.
+  - Deliberately excluded: `workspace.xml` (personal session state, breakpoints, absolute
+    paths), `shelf/` (local shelved patches), `.cache/` (plugin binary caches), and plugin
+    config files that embed plaintext access tokens.
+  - The copy runs before the IDE is launched. This matters: IntelliJ IDEA reads
+    `compiler.xml` and `misc.xml` at startup and rewrites them afterwards, so copying later
+    would be overwritten.
+  - Configurable in Settings → IDE Integration: master toggle plus an editable
+    comma-separated whitelist with a "restore defaults" button. Also toggleable per
+    creation in the new-worktree sheet.
+  - New config keys under `[worktree]`: `sync_ide_configs` (default `false`) and
+    `ide_config_sync_items`.
+- **New: search filter for the "existing branch" mode when creating a worktree**
+  - The existing-branch picker previously listed every local and remote branch with no way
+    to filter. A large repository can easily have hundreds of branches.
+  - Added a search field above the picker with case-insensitive substring matching and a
+    clear button, matching the interaction style already used elsewhere in the app.
+  - The currently selected branch is always kept in the filtered result, so the picker never
+    renders blank when the active selection does not match the keyword.
+  - Shows an inline hint when the keyword matches nothing.
 
 ## 简体中文
 
-- **重要修复：应用可能卡死、数据刷不出来、且无法退出**
-  - 根因一：多个扫描链路使用 `withTaskGroup`，而任务体内全是阻塞式 `Process` 调用
-    （git worktree list / log / status / rev-parse）。TaskGroup 的任务运行在 Swift 协作线程池上，
-    阻塞它们会耗尽线程池，任务组永远无法完成，界面因此一直空白，应用也无法响应或退出。
-  - 根因二：`ProjectScanCache` 使用 `NSCondition` 实现单飞，而调用方位于 `Task.detached` 中，
-    阻塞等待同样会耗尽协作线程池。
-  - 根因三：单许可的 `ScanGate` 让启动时并发的工作树 / 分支同步 / 合并请求三个调用方互相饿死，
-    最终返回空列表。
-- **修复内容**
-  - 将所有阻塞式 `withTaskGroup` / `withThrowingTaskGroup` 替换为
-    `DispatchQueue.concurrentPerform` + 加锁收集器（GCD 容忍阻塞工作，不再占用协作线程池）。
-    覆盖工作树解析、分支同步项目扫描、GitLab 项目扫描、工作树回收站分析、后台磁盘占用统计。
-  - 移除 `NSCondition` 单飞与单许可 `ScanGate`。项目扫描缓存改为纯非阻塞 TTL 缓存（2 秒），
-    不再有任何等待与死锁风险。
-  - 保留合并请求补全中真正异步的任务组，因为它只 await URLSession 网络请求，不会阻塞线程。
-- **验证结果**
-  - 28 个仓库、38 个工作树约 1.6 秒完成加载
-  - 分支同步可正确加载全部 GitLab 项目
-  - 各页面切换不再卡死
-  - 应用可正常退出
+- **新增：新建工作树时复制 IDE 项目配置**
+  - 新建工作树时可选择性从主仓库复制白名单内的 `.idea` 配置文件到新工作树，
+    不必再为每个新工作树重新配置 IDE。
+  - 默认白名单：`.gitignore`、`misc.xml`、`compiler.xml`、`encodings.xml`、
+    `jarRepositories.xml`、`vcs.xml`，合计仅 4.2 KB。
+  - 默认排除：`workspace.xml`（个人会话状态、断点、绝对路径）、`shelf/`（本地暂存改动）、
+    `.cache/`（插件二进制缓存），以及内嵌明文访问令牌的插件配置文件。
+  - 复制发生在拉起 IDE 之前。这一点很关键：IntelliJ IDEA 启动时会读取并随后重写
+    `compiler.xml` 与 `misc.xml`，复制过晚会被覆盖。
+  - 可在「设置 → IDE 编辑器外部集成」中配置：总开关 + 可编辑的逗号分隔白名单 +
+    「恢复默认」按钮；新建工作树弹窗中也可按次开关。
+  - 新增配置项（位于 `[worktree]`）：`sync_ide_configs`（默认 `false`）、
+    `ide_config_sync_items`。
+- **新增：新建工作树「已有分支」模式支持搜索**
+  - 已有分支下拉框原先会列出全部本地与远端分支且无法过滤，大仓库动辄数百条。
+  - 在下拉框上方增加搜索框，支持大小写不敏感的子串匹配与一键清空，
+    交互风格与 App 内其它搜索框保持一致。
+  - 当前已选中的分支始终保留在过滤结果中，避免选中项不匹配关键词时下拉框显示空白。
+  - 关键词无匹配时展示行内提示。
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content
