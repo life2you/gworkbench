@@ -73,35 +73,19 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **Fix: merge detection now recognizes environment integration branches**
-  - In branch-sync workflows, feature branches are merged into environment-specific
-    integration branches (e.g., `stage_<middle>_meger`, `test_<middle>_meger`, `uat_<middle>_meger`).
-  - Previously, merge detection strictly compared against bare `origin/<baseline>` refs,
-    falsely reporting branches as not merged even though they were pushed to their integration branches.
-  - Merge detection now resolves candidate bases using `merge_branch_middle` and `branch_map`
-    configurations, accurately detecting merges into integration branches.
-  - Hover tooltips and the detail panel now display the exact matched branch name (e.g.,
-    `stage: merged into origin/stage_henry_meger`).
-  - Space Cleanup Sweeper also adopts the same baseline candidate resolution.
-- **Fix: eliminate violent flickering on dashboard refresh**
-  - Previously, refreshing cleared all items and rendered a full-screen loading spinner,
-    causing cards, tables, and the detail inspector to abruptly disappear and re-appear.
-  - Implemented smooth in-place refresh (stale-while-revalidate): existing cards and tables stay
-    rendered while a background refresh runs, with a subtle inline progress indicator in the toolbar.
-  - Clicking the currently active project in the sidebar no longer clears or flashes the screen.
+- **Fix: strictly compare against canonical baseline branches**
+  - Merge status is now strictly checked against authoritative baseline branches (`master`, `stage`, `test`, `uat`)
+    via `origin/<target>` and local `<target>`, explicitly excluding individual integration/middle branches (e.g., `origin/**_meger`).
+- **Feature: automatic silent git fetch before dashboard analysis**
+  - The dashboard now automatically runs a background `git fetch origin` before analyzing merge statuses.
+  - Ensures local `origin/*` tracking refs are immediately refreshed with GitLab/GitHub's latest commits, eliminating false "not merged" reports when a merge was recently completed remotely.
 
 ## 简体中文
 
-- **修复：合入检测支持识别环境合并/集成分支**
-  - 在分支同步工作流中，功能分支通常先合并推送到个人环境集成分支（如 `stage_<middle>_meger`、`test_<middle>_meger`、`uat_<middle>_meger`）。
-  - 此前仅严格比对公共 `origin/<基线>` 分支，导致已完成环境同步的分支被误判为全部“未合入”。
-  - 现已结合配置的 `merge_branch_middle` 与 `branch_map` 自动解析候选集成分支，准确识别环境合流状态。
-  - 矩阵勾选悬浮提示与右侧详情面板现已明确展示具体合入的分支名（如 `stage: 已合入 origin/stage_henry_meger`）。
-  - 空间清理（Sweeper）分析器同步采用该候选基线检测标准，保证清理判定与看板完全一致。
-- **修复：彻底解决合入看板刷新时的剧烈闪烁跳动**
-  - 之前每次手动刷新或切窗回前台时，会清空数据并显示整屏居中加载，导致卡片、表格和右侧详情瞬间消失又重新弹出。
-  - 改为平滑的原地静默刷新（Stale-while-revalidate）：刷新过程中保留现有统计卡片与表格，只在工具栏展示轻量微型加载状态。
-  - 侧边栏重复点击当前已选中项目时不再清空数据或重置界面。
+- **修复：严格只比对真正的主干/环境基线分支**
+  - 合入状态检测严格以权威基线分支（`master`、`stage`、`test`、`uat`）的 `origin/<target>` 与本地 `<target>` 为准，排除开发者个人中间集成分支（如 `origin/**_meger`）。
+- **新增：看板分析前自动静默执行 git fetch origin**
+  - 每次分析前在后台自动先同步远端最新分支引用，确保远端 GitLab/GitHub 刚完成的 MR 合并能被看板即刻识别，彻底解决因本地引用过旧导致的误判未合入问题。
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content
