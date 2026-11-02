@@ -73,36 +73,35 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **New: Merge Dashboard sidebar section**
-  - A dedicated "Merge Dashboard" menu now sits between Worktrees and Branch Sync.
-  - Pick a project to see every worktree branch checked against `master`, `stage`, `test`,
-    and `uat`, laid out as a matrix of merged / not-merged indicators.
-  - Summary cards show the total worktree count plus fully merged, partially merged, and
-    not merged counts. A segmented filter narrows the list to any of those groups.
-  - Each row shows the branch, its feature description, uncommitted-change marker, overall
-    status, and last update time.
-  - Selecting a row opens a detail panel with per-baseline merge status, properties, the
-    full description, recent commits, and quick actions (IDE / Finder / Terminal / copy).
-  - Merge checks use `git merge-base --is-ancestor`, preferring `origin/<baseline>`, and run
-    concurrently in the background.
-- **Changed: Space Cleanup moved into the Merge Dashboard**
-  - The "Space Cleanup" button now lives in the Merge Dashboard toolbar instead of the
-    Worktrees toolbar, so cleanup decisions are made next to the merge data.
-  - After a cleanup finishes, the dashboard refreshes automatically.
+- **Fix: merge detection now recognizes environment integration branches**
+  - In branch-sync workflows, feature branches are merged into environment-specific
+    integration branches (e.g., `stage_<middle>_meger`, `test_<middle>_meger`, `uat_<middle>_meger`).
+  - Previously, merge detection strictly compared against bare `origin/<baseline>` refs,
+    falsely reporting branches as not merged even though they were pushed to their integration branches.
+  - Merge detection now resolves candidate bases using `merge_branch_middle` and `branch_map`
+    configurations, accurately detecting merges into integration branches.
+  - Hover tooltips and the detail panel now display the exact matched branch name (e.g.,
+    `stage: merged into origin/stage_henry_meger`).
+  - Space Cleanup Sweeper also adopts the same baseline candidate resolution.
+- **Fix: eliminate violent flickering on dashboard refresh**
+  - Previously, refreshing cleared all items and rendered a full-screen loading spinner,
+    causing cards, tables, and the detail inspector to abruptly disappear and re-appear.
+  - Implemented smooth in-place refresh (stale-while-revalidate): existing cards and tables stay
+    rendered while a background refresh runs, with a subtle inline progress indicator in the toolbar.
+  - Clicking the currently active project in the sidebar no longer clears or flashes the screen.
 
 ## 简体中文
 
-- **新增：独立的「合入看板」菜单**
-  - 左侧菜单在「工作树」和「分支同步」之间新增「合入看板」。
-  - 选择项目后，以矩阵形式展示每个工作树分支是否已合入 `master`、`stage`、`test`、`uat`。
-  - 顶部统计卡片展示工作树总数及全部合入、部分合入、未合入数量；分段筛选可快速只看某一类。
-  - 每行展示分支名、功能描述、未提交改动标记、合入状态和更新时间。
-  - 点击某行后，右侧详情展示各基线合入明细、属性概览、完整功能描述、最近提交，
-    以及 IDE / 访达 / 终端 / 复制等快捷操作。
-  - 合入检测基于 `git merge-base --is-ancestor`，优先比对 `origin/<基线>`，后台并发执行。
-- **调整：空间清理迁移到合入看板**
-  - 「空间清理」按钮从工作树页面工具栏移到合入看板工具栏，基于合入数据直接做清理决策。
-  - 清理完成后，合入看板会自动刷新。
+- **修复：合入检测支持识别环境合并/集成分支**
+  - 在分支同步工作流中，功能分支通常先合并推送到个人环境集成分支（如 `stage_<middle>_meger`、`test_<middle>_meger`、`uat_<middle>_meger`）。
+  - 此前仅严格比对公共 `origin/<基线>` 分支，导致已完成环境同步的分支被误判为全部“未合入”。
+  - 现已结合配置的 `merge_branch_middle` 与 `branch_map` 自动解析候选集成分支，准确识别环境合流状态。
+  - 矩阵勾选悬浮提示与右侧详情面板现已明确展示具体合入的分支名（如 `stage: 已合入 origin/stage_henry_meger`）。
+  - 空间清理（Sweeper）分析器同步采用该候选基线检测标准，保证清理判定与看板完全一致。
+- **修复：彻底解决合入看板刷新时的剧烈闪烁跳动**
+  - 之前每次手动刷新或切窗回前台时，会清空数据并显示整屏居中加载，导致卡片、表格和右侧详情瞬间消失又重新弹出。
+  - 改为平滑的原地静默刷新（Stale-while-revalidate）：刷新过程中保留现有统计卡片与表格，只在工具栏展示轻量微型加载状态。
+  - 侧边栏重复点击当前已选中项目时不再清空数据或重置界面。
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content
