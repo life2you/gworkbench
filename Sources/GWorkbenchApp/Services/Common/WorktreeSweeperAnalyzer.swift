@@ -32,6 +32,7 @@ enum WorktreeSweeperAnalyzer {
     static func analyze(
         projectWorktrees: [WorktreeItem],
         projectPath: String,
+        candidateBasesByTarget: [String: [String]] = [:],
         existingBranches: Set<String>,
         gitCli: GitCliService
     ) async -> [WorktreeSweeperItem] {
@@ -63,6 +64,7 @@ enum WorktreeSweeperAnalyzer {
             let result = analyzeOne(
                 item: item,
                 projectPath: projectPath,
+                candidateBasesByTarget: candidateBasesByTarget,
                 existingBranches: existingBranches,
                 mergeTargets: mergeTargets,
                 targetNames: targetNames,
@@ -87,6 +89,7 @@ enum WorktreeSweeperAnalyzer {
     private static func analyzeOne(
         item: WorktreeItem,
         projectPath: String,
+        candidateBasesByTarget: [String: [String]],
         existingBranches: Set<String>,
         mergeTargets: [SweeperMergeTarget],
         targetNames: [String],
@@ -121,6 +124,7 @@ enum WorktreeSweeperAnalyzer {
             projectPath: projectPath,
             branch: item.branch,
             targets: targetNames,
+            candidateBasesByTarget: candidateBasesByTarget,
             existingBranches: existingBranches
         )
         let statuses: [SweeperMergeTarget: Bool] = Dictionary(

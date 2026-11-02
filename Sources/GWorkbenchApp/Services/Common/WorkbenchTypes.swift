@@ -319,6 +319,27 @@ struct MergeDashboardItem: Identifiable, Sendable {
     let updatedAt: String
     let mergeTargets: [SweeperMergeTarget]
     let mergeStatus: [SweeperMergeTarget: Bool]
+    let matchedBranches: [SweeperMergeTarget: String]
+
+    init(
+        id: String,
+        branch: String,
+        kind: WorktreeKind,
+        isDirty: Bool,
+        updatedAt: String,
+        mergeTargets: [SweeperMergeTarget],
+        mergeStatus: [SweeperMergeTarget: Bool],
+        matchedBranches: [SweeperMergeTarget: String] = [:]
+    ) {
+        self.id = id
+        self.branch = branch
+        self.kind = kind
+        self.isDirty = isDirty
+        self.updatedAt = updatedAt
+        self.mergeTargets = mergeTargets
+        self.mergeStatus = mergeStatus
+        self.matchedBranches = matchedBranches
+    }
 
     var mergedCount: Int {
         mergeTargets.filter { mergeStatus[$0] == true }.count

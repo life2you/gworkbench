@@ -547,6 +547,67 @@ final class GitCliService: Sendable {
         return (false, nil)
     }
 
+    /// 并行检测分支是否已经合入每个指定基线分支（支持多候选分支，如权威基线及环境合并分支）
+    /// - targetCandidates: 每个目标对应按优先级排列的候选分支列表，如 "stage" -> ["origin/stage", "stage", "origin/stage_henry_meger", "stage_henry_meger"]
+    /// - 返回: (mergedStatus: [基线名: 是否合入], matchedBranches: [基线名: 命中的分支名])
+    func checkBranchMergedTargetsWithDetails(
+        projectPath: String,
+        branch: String,
+        targets: [String],
+        candidateBasesByTarget: [String: [String]] = [:],
+        existingBranches: Set<String>
+    ) -> (mergedStatus: [String: Bool], matchedBranches: [String: String]) {
+        var mergedResult: [String: Bool] = [:]
+        var matchedResult: [String: String] = [:]
+
+        guard !branch.isEmpty && branch != "HEAD" && branch != "(detached)" else {
+            for target in targets {
+                mergedResult[target] = false
+            }
+            return (mergedResult, matchedResult)
+        }
+
+        for target in targets {
+            guard target != branch else {
+                mergedResult[target] = false
+                continue
+            }
+
+            // 获取该 target 的候选基线列表（按优先级：远端权威 -> 本地权威 -> 远端集成分支 -> 本地集成分支）
+            var candidateBases: [String] = []
+            if let customCandidates = candidateBasesByTarget[target], !customCandidates.isEmpty {
+                candidateBases = customCandidates
+            } else {
+                candidateBases = ["origin/\(target)", target]
+            }
+
+            var isMerged = false
+            var matchedBranch: String? = nil
+
+            for candidate in candidateBases {
+                guard candidate != branch else { continue }
+                guard existingBranches.contains(candidate) else { continue }
+
+                let check = try? ProcessRunner.runGit(
+                    arguments: ["-C", projectPath, "merge-base", "--is-ancestor", branch, candidate],
+                    allowFailure: true
+                )
+                if check?.status == 0 {
+                    isMerged = true
+                    matchedBranch = candidate
+                    break
+                }
+            }
+
+            mergedResult[target] = isMerged
+            if let matched = matchedBranch {
+                matchedResult[target] = matched
+            }
+        }
+
+        return (mergedResult, matchedResult)
+    }
+
     /// 并行检测分支是否已经合入每个指定基线分支（优先比对远端 origin/* 基线）
     /// - 返回: [基线名: 是否已合入]
     /// - 解析顺序: origin/<base> → <base>（本地），优先使用远端权威分支，避免本地基线落后导致误判
@@ -554,43 +615,16 @@ final class GitCliService: Sendable {
         projectPath: String,
         branch: String,
         targets: [String],
+        candidateBasesByTarget: [String: [String]] = [:],
         existingBranches: Set<String>
     ) -> [String: Bool] {
-        var result: [String: Bool] = [:]
-        guard !branch.isEmpty && branch != "HEAD" && branch != "(detached)" else {
-            for target in targets { result[target] = false }
-            return result
-        }
-
-        for target in targets {
-            guard target != branch else {
-                result[target] = false
-                continue
-            }
-
-            // 优先远端权威基线，其次回退本地分支
-            let remoteRef = "origin/\(target)"
-            let resolvedRef: String?
-            if existingBranches.contains(remoteRef) {
-                resolvedRef = remoteRef
-            } else if existingBranches.contains(target) {
-                resolvedRef = target
-            } else {
-                resolvedRef = nil
-            }
-
-            guard let baseRef = resolvedRef else {
-                result[target] = false
-                continue
-            }
-
-            let check = try? ProcessRunner.runGit(
-                arguments: ["-C", projectPath, "merge-base", "--is-ancestor", branch, baseRef],
-                allowFailure: true
-            )
-            result[target] = (check?.status == 0)
-        }
-        return result
+        checkBranchMergedTargetsWithDetails(
+            projectPath: projectPath,
+            branch: branch,
+            targets: targets,
+            candidateBasesByTarget: candidateBasesByTarget,
+            existingBranches: existingBranches
+        ).mergedStatus
     }
 
     func pruneWorktrees(projectPath: String) {

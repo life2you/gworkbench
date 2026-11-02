@@ -14,7 +14,8 @@ struct MergeDashboardView: View {
             if appModel.worktreeProjects.isEmpty {
                 ContentUnavailableView("未检测到本地项目", systemImage: "folder.badge.questionmark")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if appModel.isMergeDashboardAnalyzing {
+            } else if appModel.isMergeDashboardAnalyzing && appModel.mergeDashboardItems.isEmpty {
+                // 仅在首次进入且完全无数据时显示整屏居中加载
                 VStack(spacing: 12) {
                     ProgressView()
                         .controlSize(.regular)
@@ -31,6 +32,12 @@ struct MergeDashboardView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
+                    // 后台静默刷新时显示一条极细的顶部加载指示条，完全不打乱已有布局
+                    if appModel.isMergeDashboardAnalyzing {
+                        ProgressView()
+                            .progressViewStyle(.linear)
+                            .controlSize(.mini)
+                    }
                     summaryCards
                     Divider()
                     mergeMatrixTable
@@ -79,7 +86,15 @@ struct MergeDashboardView: View {
                     await appModel.forceRefreshMergeDashboard()
                 }
             } label: {
-                Label("刷新", systemImage: "arrow.clockwise")
+                if appModel.isMergeDashboardAnalyzing {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("分析中")
+                    }
+                } else {
+                    Label("刷新", systemImage: "arrow.clockwise")
+                }
             }
             .help("重新分析所有工作树的合入状态")
             .disabled(appModel.isMergeDashboardAnalyzing)
@@ -146,6 +161,7 @@ struct MergeDashboardView: View {
             Text("\(count)")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(color)
+                .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
@@ -261,8 +277,13 @@ struct MergeDashboardView: View {
 
             // 每个主干分支的合入指示器
             ForEach(targets) { target in
-                mergeIndicator(merged: item.mergeStatus[target] ?? false, isMain: isMain)
-                    .frame(width: 64)
+                mergeIndicator(
+                    target: target,
+                    merged: item.mergeStatus[target] ?? false,
+                    matchedBranch: item.matchedBranches[target],
+                    isMain: isMain
+                )
+                .frame(width: 64)
             }
 
             // 状态摘要
@@ -285,20 +306,28 @@ struct MergeDashboardView: View {
         }
     }
 
-    private func mergeIndicator(merged: Bool, isMain: Bool) -> some View {
+    private func mergeIndicator(
+        target: SweeperMergeTarget,
+        merged: Bool,
+        matchedBranch: String?,
+        isMain: Bool
+    ) -> some View {
         Group {
             if isMain {
                 Image(systemName: "minus")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.tertiary)
+                    .help("\(target.rawValue): 主仓库基准")
             } else if merged {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.green)
+                    .help("\(target.rawValue): 已合入 \(matchedBranch ?? target.rawValue)")
             } else {
                 Image(systemName: "xmark.circle")
                     .font(.system(size: 14))
                     .foregroundStyle(.red.opacity(0.6))
+                    .help("\(target.rawValue): 尚未合入")
             }
         }
     }

@@ -160,6 +160,7 @@ struct MergeDashboardDetailView: View {
                 VStack(spacing: 8) {
                     ForEach(targets) { target in
                         let merged = dashItem.mergeStatus[target] ?? false
+                        let matched = dashItem.matchedBranches[target]
 
                         HStack(spacing: 10) {
                             Image(systemName: merged ? "checkmark.circle.fill" : "xmark.circle")
@@ -170,7 +171,7 @@ struct MergeDashboardDetailView: View {
                                 Text(target.rawValue)
                                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                                 Text(merged
-                                     ? "已合入 origin/\(target.rawValue)"
+                                     ? "已合入 \(matched ?? "origin/\(target.rawValue)")"
                                      : "尚未合入 origin/\(target.rawValue)")
                                     .font(.system(size: 10))
                                     .foregroundStyle(.secondary)

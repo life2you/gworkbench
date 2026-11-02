@@ -732,16 +732,32 @@ final class AppModel {
         for name in project.baseBranches {
             existingBranches.insert("origin/\(name)")
         }
-        // 确保 master / stage / test / uat 的远端引用名一定参与解析
-        for target in SweeperMergeTarget.ordered.map(\.rawValue) {
-            if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: target)) == true {
-                existingBranches.insert("origin/\(target)")
+
+        let candidatesByTarget = resolveCandidateBases(
+            targets: SweeperMergeTarget.ordered.map(\.rawValue),
+            projectName: project.name
+        )
+
+        for (_, candidates) in candidatesByTarget {
+            for ref in candidates {
+                if existingBranches.contains(ref) { continue }
+                if ref.hasPrefix("origin/") {
+                    let branch = String(ref.dropFirst("origin/".count))
+                    if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: branch)) == true {
+                        existingBranches.insert(ref)
+                    }
+                } else {
+                    if (try? service.gitCliService.localBranchExists(projectPath: project.path, branch: ref)) == true {
+                        existingBranches.insert(ref)
+                    }
+                }
             }
         }
 
         let results = await WorktreeSweeperAnalyzer.analyze(
             projectWorktrees: projectWorktrees,
             projectPath: project.path,
+            candidateBasesByTarget: candidatesByTarget,
             existingBranches: existingBranches,
             gitCli: service.gitCliService
         )
@@ -833,18 +849,22 @@ final class AppModel {
         mergeDashboardItems.filter { $0.isNotMerged && $0.kind != .mainRepo }.count
     }
 
-    func refreshMergeDashboard() async {
+    func refreshMergeDashboard(force: Bool = false) async {
         guard let project = currentWorktreeProject else { return }
 
-        // 避免重复分析同一项目
-        if mergeDashboardProjectID == project.id && !mergeDashboardItems.isEmpty { return }
+        // 避免重复分析同一项目（非强制模式下）
+        if !force && mergeDashboardProjectID == project.id && !mergeDashboardItems.isEmpty { return }
+
+        // 避免重复并发分析
+        if isMergeDashboardAnalyzing { return }
 
         isMergeDashboardAnalyzing = true
-        mergeDashboardProjectID = project.id
+        let targetProjectID = project.id
 
         let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
         let mergeTargets = SweeperMergeTarget.ordered
         let targetNames = mergeTargets.map(\.rawValue)
+        let candidatesByTarget = resolveCandidateBases(targets: targetNames, projectName: project.name)
 
         // 构建分支引用集合
         var existingBranches = Set(project.baseBranches)
@@ -852,9 +872,19 @@ final class AppModel {
         for name in project.baseBranches {
             existingBranches.insert("origin/\(name)")
         }
-        for target in targetNames {
-            if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: target)) == true {
-                existingBranches.insert("origin/\(target)")
+        for (_, candidates) in candidatesByTarget {
+            for ref in candidates {
+                if existingBranches.contains(ref) { continue }
+                if ref.hasPrefix("origin/") {
+                    let branch = String(ref.dropFirst("origin/".count))
+                    if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: branch)) == true {
+                        existingBranches.insert(ref)
+                    }
+                } else {
+                    if (try? service.gitCliService.localBranchExists(projectPath: project.path, branch: ref)) == true {
+                        existingBranches.insert(ref)
+                    }
+                }
             }
         }
 
@@ -884,16 +914,26 @@ final class AppModel {
                 let isMain = wt.kind == .mainRepo
 
                 let statuses: [SweeperMergeTarget: Bool]
+                let matchedMap: [SweeperMergeTarget: String]
+
                 if isMain {
                     statuses = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, true) })
+                    matchedMap = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, "主仓库") })
                 } else {
-                    let rawStatus = gitCli.checkBranchMergedTargets(
+                    let detail = gitCli.checkBranchMergedTargetsWithDetails(
                         projectPath: projectPath,
                         branch: wt.branch,
                         targets: targetNames,
+                        candidateBasesByTarget: candidatesByTarget,
                         existingBranches: existingBranches
                     )
-                    statuses = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, rawStatus[$0.rawValue] ?? false) })
+                    statuses = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, detail.mergedStatus[$0.rawValue] ?? false) })
+                    matchedMap = Dictionary(uniqueKeysWithValues: mergeTargets.compactMap { target in
+                        if let matched = detail.matchedBranches[target.rawValue] {
+                            return (target, matched)
+                        }
+                        return nil
+                    })
                 }
 
                 collector.append(MergeDashboardItem(
@@ -903,27 +943,77 @@ final class AppModel {
                     isDirty: wt.isDirty,
                     updatedAt: wt.updatedAt,
                     mergeTargets: mergeTargets,
-                    mergeStatus: statuses
+                    mergeStatus: statuses,
+                    matchedBranches: matchedMap
                 ))
             }
             return collector.all
         }.value
 
+        // 确保分析完成时用户仍然停留在同一个项目
+        guard currentWorktreeProject?.id == targetProjectID else {
+            isMergeDashboardAnalyzing = false
+            return
+        }
+
         // 排序：主仓库置顶 → 全部合入 → 部分合入 → 未合入
-        mergeDashboardItems = items.sorted { lhs, rhs in
+        let sortedItems = items.sorted { lhs, rhs in
             if lhs.kind == .mainRepo && rhs.kind != .mainRepo { return true }
             if lhs.kind != .mainRepo && rhs.kind == .mainRepo { return false }
             if lhs.mergedCount != rhs.mergedCount { return lhs.mergedCount > rhs.mergedCount }
             return lhs.branch.localizedStandardCompare(rhs.branch) == .orderedAscending
         }
 
+        mergeDashboardProjectID = targetProjectID
+        mergeDashboardItems = sortedItems
         isMergeDashboardAnalyzing = false
     }
 
     func forceRefreshMergeDashboard() async {
-        mergeDashboardProjectID = nil
-        mergeDashboardItems = []
-        await refreshMergeDashboard()
+        // 原地刷新：绝不清空已有 mergeDashboardItems，避免界面剧烈跳闪
+        await refreshMergeDashboard(force: true)
+    }
+
+    /// 为指定的项目构建每个基线目标（master/stage/test/uat）的候选分支列表
+    /// 包含：权威环境基线以及用户在设置中配置的中间合并分支（如 stage_<middle>_meger）
+    private func resolveCandidateBases(targets: [String], projectName: String) -> [String: [String]] {
+        let middle = (appConfig?.mergeBranchMiddle ?? settingsDraft.mergeBranchMiddle).trimmingCharacters(in: .whitespacesAndNewlines)
+        let branchMap = appConfig?.branchMap ?? [:]
+
+        var candidatesByTarget: [String: [String]] = [:]
+        for target in targets {
+            var list: [String] = []
+
+            // 1. 远端权威基线
+            list.append("origin/\(target)")
+            // 2. 本地权威基线
+            list.append(target)
+
+            // 3. 对应环境的合并分支（如 stage_henry_meger）
+            if !middle.isEmpty {
+                let mergeBranch = BranchSyncService.mergeBranchName(
+                    envBranch: target,
+                    middle: middle,
+                    projectName: projectName
+                )
+                if mergeBranch != target {
+                    list.append("origin/\(mergeBranch)")
+                    list.append(mergeBranch)
+                }
+            }
+
+            // 4. branchMap 映射到该 target 的源分支（例如 stage_henry_meger -> stage）
+            for (source, mapTarget) in branchMap {
+                if mapTarget.lowercased() == target.lowercased() && source != target {
+                    list.append("origin/\(source)")
+                    list.append(source)
+                }
+            }
+
+            let ordered = Array(NSOrderedSet(array: list)) as? [String] ?? list
+            candidatesByTarget[target] = ordered
+        }
+        return candidatesByTarget
     }
 
     var filteredMergeRequests: [MergeRequestItem] {
@@ -1471,6 +1561,7 @@ final class AppModel {
     }
 
     func selectProject(_ projectID: String) {
+        guard selectedProjectID != projectID else { return }
         selectedProjectID = projectID
         if !filteredWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
             selectedWorktreeID = filteredWorktrees.first?.id
@@ -1478,12 +1569,16 @@ final class AppModel {
         syncSelectedWorktreeDescriptionDraft()
         syncSelectedWorktreeDetails()
         syncCreateWorktreeDefaults(resetBranchName: false)
-        // 切换项目时清空看板数据，触发重新分析
+        // 切换不同项目时重置看板数据，触发重新分析
         mergeDashboardProjectID = nil
         mergeDashboardItems = []
     }
 
     func selectDashboardProject(_ projectID: String) {
+        if selectedProjectID == projectID && mergeDashboardProjectID == projectID && !mergeDashboardItems.isEmpty {
+            // 点击同一个已加载项目，无需任何操作，更不要清空数据
+            return
+        }
         selectedProjectID = projectID
         mergeDashboardProjectID = nil
         mergeDashboardItems = []
