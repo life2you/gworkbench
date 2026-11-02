@@ -60,6 +60,10 @@ struct RootView: View {
                 worktreesSidebarSection
             }
 
+            if appModel.selectedSection == .mergeDashboard {
+                mergeDashboardSidebarSection
+            }
+
             if appModel.selectedSection == .branchSync {
                 branchSyncSidebarSection
             }
@@ -143,6 +147,63 @@ struct RootView: View {
     }
 
     @ViewBuilder
+    private var mergeDashboardSidebarSection: some View {
+        let gitlabProjects = appModel.worktreeProjects.filter { $0.platform == .gitlab }
+        if !gitlabProjects.isEmpty {
+            Section("私有 GitLab") {
+                ForEach(gitlabProjects) { project in
+                    let count = appModel.worktreeCountByProject[project.displayName, default: 0]
+                    SidebarRowButton(
+                        title: project.displayName,
+                        systemImage: "folder",
+                        badge: count > 0 ? "\(count)" : nil,
+                        isSelected: appModel.selectedProjectID == project.id
+                    ) {
+                        appModel.selectDashboardProject(project.id)
+                    }
+                    .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                }
+            }
+        }
+
+        let githubProjects = appModel.worktreeProjects.filter { $0.platform == .github }
+        if !githubProjects.isEmpty {
+            Section("GitHub") {
+                ForEach(githubProjects) { project in
+                    let count = appModel.worktreeCountByProject[project.displayName, default: 0]
+                    SidebarRowButton(
+                        title: project.displayName,
+                        systemImage: "folder",
+                        badge: count > 0 ? "\(count)" : nil,
+                        isSelected: appModel.selectedProjectID == project.id
+                    ) {
+                        appModel.selectDashboardProject(project.id)
+                    }
+                    .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                }
+            }
+        }
+
+        let localProjects = appModel.worktreeProjects.filter { $0.platform == .local }
+        if !localProjects.isEmpty {
+            Section("本地仓库") {
+                ForEach(localProjects) { project in
+                    let count = appModel.worktreeCountByProject[project.displayName, default: 0]
+                    SidebarRowButton(
+                        title: project.displayName,
+                        systemImage: "folder",
+                        badge: count > 0 ? "\(count)" : nil,
+                        isSelected: appModel.selectedProjectID == project.id
+                    ) {
+                        appModel.selectDashboardProject(project.id)
+                    }
+                    .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var branchSyncSidebarSection: some View {
         let gitlabMergeProjects = appModel.localMergeProjects.filter { $0.platform == .gitlab }
         if !gitlabMergeProjects.isEmpty {
@@ -211,6 +272,8 @@ struct RootView: View {
             switch appModel.selectedSection ?? .worktrees {
             case .worktrees:
                 WorktreesListView()
+            case .mergeDashboard:
+                MergeDashboardView()
             case .branchSync:
                 BranchSyncView()
             case .mergeRequests:
@@ -230,6 +293,8 @@ struct RootView: View {
             switch appModel.selectedSection ?? .worktrees {
             case .worktrees:
                 WorktreeDetailView()
+            case .mergeDashboard:
+                MergeDashboardDetailView()
             case .branchSync:
                 BranchSyncDetailView()
             case .mergeRequests:
@@ -290,6 +355,8 @@ struct RootView: View {
         switch section {
         case .worktrees:
             return appModel.realWorktreesCount
+        case .mergeDashboard:
+            return appModel.mergeDashboardItems.filter { $0.kind != .mainRepo }.count
         case .branchSync:
             return appModel.localMergeProjects.count
         case .mergeRequests:

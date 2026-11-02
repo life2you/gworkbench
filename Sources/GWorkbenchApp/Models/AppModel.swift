@@ -3,6 +3,7 @@ import AppKit
 
 enum AppSection: String, CaseIterable, Identifiable {
     case worktrees
+    case mergeDashboard
     case branchSync
     case mergeRequests
     case settings
@@ -13,6 +14,8 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .worktrees:
             "工作树"
+        case .mergeDashboard:
+            "合入看板"
         case .branchSync:
             "分支同步"
         case .mergeRequests:
@@ -26,6 +29,8 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .worktrees:
             "point.3.connected.trianglepath.dotted"
+        case .mergeDashboard:
+            "chart.bar.xaxis"
         case .branchSync:
             "arrow.triangle.branch"
         case .mergeRequests:
@@ -311,6 +316,13 @@ final class AppModel {
                 Task {
                     await refreshLocalMergeProjects()
                 }
+            } else if selectedSection == .mergeDashboard {
+                Task {
+                    if worktreeProjects.isEmpty {
+                        await refreshWorktrees()
+                    }
+                    await refreshMergeDashboard()
+                }
             }
         }
     }
@@ -342,6 +354,7 @@ final class AppModel {
     private var consoleDetailsTask: Task<Void, Never>?
     private var consoleDetailsGeneration: Int = 0
     var selectedMergeRequestID: String?
+    var selectedDashboardItemID: String?
     var selectedMergeFilter: MergeRequestFilter = .open
     var selectedWorktreeCategory: WorktreeCategoryFilter = .all
     var selectedPlatformFilter: RepositoryPlatform = .all {
@@ -401,6 +414,11 @@ final class AppModel {
     var aiSuggestedAlternatives: [String] = []
     var aiGenerationError: String? = nil
 
+    // MARK: - Merge Dashboard State
+    var mergeDashboardItems: [MergeDashboardItem] = []
+    var isMergeDashboardAnalyzing: Bool = false
+    var mergeDashboardProjectID: String? = nil
+
     init() {
         scannedTerminals = TerminalService.shared.scanInstalledTerminals()
         scannedIDEs = IDEService.shared.scanInstalledIDEs()
@@ -447,6 +465,16 @@ final class AppModel {
     var selectedMergeRequest: MergeRequestItem? {
         filteredMergeRequests.first(where: { $0.id == selectedMergeRequestID })
             ?? mergeRequests.first(where: { $0.id == selectedMergeRequestID })
+    }
+
+    var selectedDashboardItem: MergeDashboardItem? {
+        mergeDashboardItems.first(where: { $0.id == selectedDashboardItemID })
+    }
+
+    /// 看板中选中项对应的完整 WorktreeItem（用于展示详情）
+    var selectedDashboardWorktree: WorktreeItem? {
+        guard let dashItem = selectedDashboardItem else { return nil }
+        return worktrees.first(where: { $0.id == dashItem.id })
     }
 
     var currentWorktreeProject: LocalProject? {
@@ -766,6 +794,11 @@ final class AppModel {
 
         await refreshWorktrees()
         await analyzeCurrentProjectWorktrees()
+        // 清理后同步刷新合入看板，避免显示已删除的工作树
+        if let removedID = selectedDashboardItemID, !worktrees.contains(where: { $0.id == removedID }) {
+            selectedDashboardItemID = nil
+        }
+        await forceRefreshMergeDashboard()
 
         sweeperOperation = OperationState(
             isRunning: false,
@@ -785,6 +818,113 @@ final class AppModel {
     }
 
     var mrSortOrder = [KeyPathComparator(\MergeRequestItem.iid, order: .reverse)]
+
+    // MARK: - Merge Dashboard Computeds & Methods
+
+    var mergeDashboardFullyMergedCount: Int {
+        mergeDashboardItems.filter { $0.isFullyMerged && $0.kind != .mainRepo }.count
+    }
+
+    var mergeDashboardPartiallyMergedCount: Int {
+        mergeDashboardItems.filter { !$0.isFullyMerged && !$0.isNotMerged && $0.kind != .mainRepo }.count
+    }
+
+    var mergeDashboardNotMergedCount: Int {
+        mergeDashboardItems.filter { $0.isNotMerged && $0.kind != .mainRepo }.count
+    }
+
+    func refreshMergeDashboard() async {
+        guard let project = currentWorktreeProject else { return }
+
+        // 避免重复分析同一项目
+        if mergeDashboardProjectID == project.id && !mergeDashboardItems.isEmpty { return }
+
+        isMergeDashboardAnalyzing = true
+        mergeDashboardProjectID = project.id
+
+        let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
+        let mergeTargets = SweeperMergeTarget.ordered
+        let targetNames = mergeTargets.map(\.rawValue)
+
+        // 构建分支引用集合
+        var existingBranches = Set(project.baseBranches)
+        existingBranches.formUnion(project.localBranches)
+        for name in project.baseBranches {
+            existingBranches.insert("origin/\(name)")
+        }
+        for target in targetNames {
+            if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: target)) == true {
+                existingBranches.insert("origin/\(target)")
+            }
+        }
+
+        let gitCli = service.gitCliService
+        let projectPath = project.path
+
+        // 后台并发分析
+        let items = await Task.detached(priority: .utility) { () -> [MergeDashboardItem] in
+            final class Collector: @unchecked Sendable {
+                private var items: [MergeDashboardItem] = []
+                private let lock = NSLock()
+                func append(_ item: MergeDashboardItem) {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    items.append(item)
+                }
+                var all: [MergeDashboardItem] {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    return items
+                }
+            }
+
+            let collector = Collector()
+            DispatchQueue.concurrentPerform(iterations: projectWorktrees.count) { index in
+                let wt = projectWorktrees[index]
+                let isMain = wt.kind == .mainRepo
+
+                let statuses: [SweeperMergeTarget: Bool]
+                if isMain {
+                    statuses = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, true) })
+                } else {
+                    let rawStatus = gitCli.checkBranchMergedTargets(
+                        projectPath: projectPath,
+                        branch: wt.branch,
+                        targets: targetNames,
+                        existingBranches: existingBranches
+                    )
+                    statuses = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, rawStatus[$0.rawValue] ?? false) })
+                }
+
+                collector.append(MergeDashboardItem(
+                    id: wt.id,
+                    branch: wt.branch,
+                    kind: wt.kind,
+                    isDirty: wt.isDirty,
+                    updatedAt: wt.updatedAt,
+                    mergeTargets: mergeTargets,
+                    mergeStatus: statuses
+                ))
+            }
+            return collector.all
+        }.value
+
+        // 排序：主仓库置顶 → 全部合入 → 部分合入 → 未合入
+        mergeDashboardItems = items.sorted { lhs, rhs in
+            if lhs.kind == .mainRepo && rhs.kind != .mainRepo { return true }
+            if lhs.kind != .mainRepo && rhs.kind == .mainRepo { return false }
+            if lhs.mergedCount != rhs.mergedCount { return lhs.mergedCount > rhs.mergedCount }
+            return lhs.branch.localizedStandardCompare(rhs.branch) == .orderedAscending
+        }
+
+        isMergeDashboardAnalyzing = false
+    }
+
+    func forceRefreshMergeDashboard() async {
+        mergeDashboardProjectID = nil
+        mergeDashboardItems = []
+        await refreshMergeDashboard()
+    }
 
     var filteredMergeRequests: [MergeRequestItem] {
         mergeRequests(for: selectedMergeFilter).filter { item in
@@ -1046,6 +1186,9 @@ final class AppModel {
             syncSelectedWorktreeDetails()
             // 同时静默刷新工作树状态与分支
             await refreshWorktrees(silent: true)
+        case .mergeDashboard:
+            await refreshWorktrees(silent: true)
+            await forceRefreshMergeDashboard()
         case .branchSync:
             await refreshLocalMergeProjects(silent: true)
         case .mergeRequests:
@@ -1335,6 +1478,19 @@ final class AppModel {
         syncSelectedWorktreeDescriptionDraft()
         syncSelectedWorktreeDetails()
         syncCreateWorktreeDefaults(resetBranchName: false)
+        // 切换项目时清空看板数据，触发重新分析
+        mergeDashboardProjectID = nil
+        mergeDashboardItems = []
+    }
+
+    func selectDashboardProject(_ projectID: String) {
+        selectedProjectID = projectID
+        mergeDashboardProjectID = nil
+        mergeDashboardItems = []
+        selectedDashboardItemID = nil
+        Task {
+            await refreshMergeDashboard()
+        }
     }
 
     func selectLocalProject(_ projectID: String) {

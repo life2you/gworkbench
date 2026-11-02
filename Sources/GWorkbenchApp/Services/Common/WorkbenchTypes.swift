@@ -310,6 +310,38 @@ extension Array where Element == String {
     }
 }
 
+/// 合入看板数据模型：每个 worktree 分支对主干分支的合入状态
+struct MergeDashboardItem: Identifiable, Sendable {
+    let id: String
+    let branch: String
+    let kind: WorktreeKind
+    let isDirty: Bool
+    let updatedAt: String
+    let mergeTargets: [SweeperMergeTarget]
+    let mergeStatus: [SweeperMergeTarget: Bool]
+
+    var mergedCount: Int {
+        mergeTargets.filter { mergeStatus[$0] == true }.count
+    }
+
+    var totalMergeTargets: Int { mergeTargets.count }
+
+    var isFullyMerged: Bool {
+        !mergeTargets.isEmpty && mergedCount == mergeTargets.count
+    }
+
+    var isNotMerged: Bool {
+        mergedCount == 0
+    }
+
+    var summaryText: String {
+        if kind == .mainRepo { return "基准仓库" }
+        if isFullyMerged { return "全部合入" }
+        if isNotMerged { return "未合入" }
+        return "合入 \(mergedCount)/\(totalMergeTargets)"
+    }
+}
+
 func normalizedGitLabHost(_ host: String) -> String {
     var value = host.trimmingCharacters(in: .whitespacesAndNewlines)
     while value.hasSuffix("/") {
