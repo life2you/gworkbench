@@ -110,6 +110,10 @@ fi
 ARM_URL="https://github.com/$OWNER/$REPO/releases/download/$TAG/GWorkbench-macos-arm64-v${VERSION}.zip"
 INTEL_URL="https://github.com/$OWNER/$REPO/releases/download/$TAG/GWorkbench-macos-x86_64-v${VERSION}.zip"
 
+# Cask 中的 URL 使用 Ruby 插值 #{version}，让 Homebrew 识别为带版本的 URL（通过 brew audit）
+ARM_CASK_URL="https://github.com/$OWNER/$REPO/releases/download/v#{version}/GWorkbench-macos-arm64-v#{version}.zip"
+INTEL_CASK_URL="https://github.com/$OWNER/$REPO/releases/download/v#{version}/GWorkbench-macos-x86_64-v#{version}.zip"
+
 ARM_SHA256="$(
   curl --fail --silent --show-error --location --retry 3 "$ARM_URL" |
     shasum -a 256 |
@@ -128,12 +132,12 @@ cask "$CASK_TOKEN" do
 
   on_arm do
     sha256 "$ARM_SHA256"
-    url "$ARM_URL"
+    url "$ARM_CASK_URL"
   end
 
   on_intel do
     sha256 "$INTEL_SHA256"
-    url "$INTEL_URL"
+    url "$INTEL_CASK_URL"
   end
 
   name "$APP_NAME"
