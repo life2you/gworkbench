@@ -734,23 +734,15 @@ final class AppModel {
         }
 
         let candidatesByTarget = resolveCandidateBases(
-            targets: SweeperMergeTarget.ordered.map(\.rawValue),
-            projectName: project.name
+            targets: SweeperMergeTarget.ordered.map(\.rawValue)
         )
 
-        for (_, candidates) in candidatesByTarget {
-            for ref in candidates {
-                if existingBranches.contains(ref) { continue }
-                if ref.hasPrefix("origin/") {
-                    let branch = String(ref.dropFirst("origin/".count))
-                    if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: branch)) == true {
-                        existingBranches.insert(ref)
-                    }
-                } else {
-                    if (try? service.gitCliService.localBranchExists(projectPath: project.path, branch: ref)) == true {
-                        existingBranches.insert(ref)
-                    }
-                }
+        for target in SweeperMergeTarget.ordered.map(\.rawValue) {
+            if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: target)) == true {
+                existingBranches.insert("origin/\(target)")
+            }
+            if (try? service.gitCliService.localBranchExists(projectPath: project.path, branch: target)) == true {
+                existingBranches.insert(target)
             }
         }
 
@@ -861,10 +853,18 @@ final class AppModel {
         isMergeDashboardAnalyzing = true
         let targetProjectID = project.id
 
+        let gitCli = service.gitCliService
+        let projectPath = project.path
+
+        // 后台并发分析前，静默 fetch 远端 origin，确保本地的 origin/* 引用与远端 GitLab 保持最新
+        await Task.detached(priority: .utility) {
+            _ = try? gitCli.fetch(projectPath: projectPath, remote: "origin")
+        }.value
+
         let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
         let mergeTargets = SweeperMergeTarget.ordered
         let targetNames = mergeTargets.map(\.rawValue)
-        let candidatesByTarget = resolveCandidateBases(targets: targetNames, projectName: project.name)
+        let candidatesByTarget = resolveCandidateBases(targets: targetNames)
 
         // 构建分支引用集合
         var existingBranches = Set(project.baseBranches)
@@ -872,24 +872,14 @@ final class AppModel {
         for name in project.baseBranches {
             existingBranches.insert("origin/\(name)")
         }
-        for (_, candidates) in candidatesByTarget {
-            for ref in candidates {
-                if existingBranches.contains(ref) { continue }
-                if ref.hasPrefix("origin/") {
-                    let branch = String(ref.dropFirst("origin/".count))
-                    if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: branch)) == true {
-                        existingBranches.insert(ref)
-                    }
-                } else {
-                    if (try? service.gitCliService.localBranchExists(projectPath: project.path, branch: ref)) == true {
-                        existingBranches.insert(ref)
-                    }
-                }
+        for target in targetNames {
+            if (try? gitCli.remoteBranchExists(projectPath: project.path, branch: target)) == true {
+                existingBranches.insert("origin/\(target)")
+            }
+            if (try? gitCli.localBranchExists(projectPath: project.path, branch: target)) == true {
+                existingBranches.insert(target)
             }
         }
-
-        let gitCli = service.gitCliService
-        let projectPath = project.path
 
         // 后台并发分析
         let items = await Task.detached(priority: .utility) { () -> [MergeDashboardItem] in
@@ -975,43 +965,11 @@ final class AppModel {
     }
 
     /// 为指定的项目构建每个基线目标（master/stage/test/uat）的候选分支列表
-    /// 包含：权威环境基线以及用户在设置中配置的中间合并分支（如 stage_<middle>_meger）
-    private func resolveCandidateBases(targets: [String], projectName: String) -> [String: [String]] {
-        let middle = (appConfig?.mergeBranchMiddle ?? settingsDraft.mergeBranchMiddle).trimmingCharacters(in: .whitespacesAndNewlines)
-        let branchMap = appConfig?.branchMap ?? [:]
-
+    /// 严格只比对真正的基线分支：优先远端权威基线 origin/<target>，其次本地环境分支 <target>
+    private func resolveCandidateBases(targets: [String]) -> [String: [String]] {
         var candidatesByTarget: [String: [String]] = [:]
         for target in targets {
-            var list: [String] = []
-
-            // 1. 远端权威基线
-            list.append("origin/\(target)")
-            // 2. 本地权威基线
-            list.append(target)
-
-            // 3. 对应环境的合并分支（如 stage_henry_meger）
-            if !middle.isEmpty {
-                let mergeBranch = BranchSyncService.mergeBranchName(
-                    envBranch: target,
-                    middle: middle,
-                    projectName: projectName
-                )
-                if mergeBranch != target {
-                    list.append("origin/\(mergeBranch)")
-                    list.append(mergeBranch)
-                }
-            }
-
-            // 4. branchMap 映射到该 target 的源分支（例如 stage_henry_meger -> stage）
-            for (source, mapTarget) in branchMap {
-                if mapTarget.lowercased() == target.lowercased() && source != target {
-                    list.append("origin/\(source)")
-                    list.append(source)
-                }
-            }
-
-            let ordered = Array(NSOrderedSet(array: list)) as? [String] ?? list
-            candidatesByTarget[target] = ordered
+            candidatesByTarget[target] = ["origin/\(target)", target]
         }
         return candidatesByTarget
     }
