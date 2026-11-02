@@ -73,53 +73,36 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **New: copy IDE project settings into new worktrees**
-  - Creating a worktree now optionally copies a whitelist of `.idea` config files from the
-    main repository into the new worktree, so IDE state no longer has to be reconfigured
-    every time.
-  - Default whitelist: `.gitignore`, `misc.xml`, `compiler.xml`, `encodings.xml`,
-    `jarRepositories.xml`, `vcs.xml`. Only 4.2 KB in total.
-  - Deliberately excluded: `workspace.xml` (personal session state, breakpoints, absolute
-    paths), `shelf/` (local shelved patches), `.cache/` (plugin binary caches), and plugin
-    config files that embed plaintext access tokens.
-  - The copy runs before the IDE is launched. This matters: IntelliJ IDEA reads
-    `compiler.xml` and `misc.xml` at startup and rewrites them afterwards, so copying later
-    would be overwritten.
-  - Configurable in Settings → IDE Integration: master toggle plus an editable
-    comma-separated whitelist with a "restore defaults" button. Also toggleable per
-    creation in the new-worktree sheet.
-  - New config keys under `[worktree]`: `sync_ide_configs` (default `false`) and
-    `ide_config_sync_items`.
-- **New: search filter for the "existing branch" mode when creating a worktree**
-  - The existing-branch picker previously listed every local and remote branch with no way
-    to filter. A large repository can easily have hundreds of branches.
-  - Added a search field above the picker with case-insensitive substring matching and a
-    clear button, matching the interaction style already used elsewhere in the app.
-  - The currently selected branch is always kept in the filtered result, so the picker never
-    renders blank when the active selection does not match the keyword.
-  - Shows an inline hint when the keyword matches nothing.
+- **New: Merge Dashboard sidebar section**
+  - A dedicated "Merge Dashboard" menu now sits between Worktrees and Branch Sync.
+  - Pick a project to see every worktree branch checked against `master`, `stage`, `test`,
+    and `uat`, laid out as a matrix of merged / not-merged indicators.
+  - Summary cards show the total worktree count plus fully merged, partially merged, and
+    not merged counts. A segmented filter narrows the list to any of those groups.
+  - Each row shows the branch, its feature description, uncommitted-change marker, overall
+    status, and last update time.
+  - Selecting a row opens a detail panel with per-baseline merge status, properties, the
+    full description, recent commits, and quick actions (IDE / Finder / Terminal / copy).
+  - Merge checks use `git merge-base --is-ancestor`, preferring `origin/<baseline>`, and run
+    concurrently in the background.
+- **Changed: Space Cleanup moved into the Merge Dashboard**
+  - The "Space Cleanup" button now lives in the Merge Dashboard toolbar instead of the
+    Worktrees toolbar, so cleanup decisions are made next to the merge data.
+  - After a cleanup finishes, the dashboard refreshes automatically.
 
 ## 简体中文
 
-- **新增：新建工作树时复制 IDE 项目配置**
-  - 新建工作树时可选择性从主仓库复制白名单内的 `.idea` 配置文件到新工作树，
-    不必再为每个新工作树重新配置 IDE。
-  - 默认白名单：`.gitignore`、`misc.xml`、`compiler.xml`、`encodings.xml`、
-    `jarRepositories.xml`、`vcs.xml`，合计仅 4.2 KB。
-  - 默认排除：`workspace.xml`（个人会话状态、断点、绝对路径）、`shelf/`（本地暂存改动）、
-    `.cache/`（插件二进制缓存），以及内嵌明文访问令牌的插件配置文件。
-  - 复制发生在拉起 IDE 之前。这一点很关键：IntelliJ IDEA 启动时会读取并随后重写
-    `compiler.xml` 与 `misc.xml`，复制过晚会被覆盖。
-  - 可在「设置 → IDE 编辑器外部集成」中配置：总开关 + 可编辑的逗号分隔白名单 +
-    「恢复默认」按钮；新建工作树弹窗中也可按次开关。
-  - 新增配置项（位于 `[worktree]`）：`sync_ide_configs`（默认 `false`）、
-    `ide_config_sync_items`。
-- **新增：新建工作树「已有分支」模式支持搜索**
-  - 已有分支下拉框原先会列出全部本地与远端分支且无法过滤，大仓库动辄数百条。
-  - 在下拉框上方增加搜索框，支持大小写不敏感的子串匹配与一键清空，
-    交互风格与 App 内其它搜索框保持一致。
-  - 当前已选中的分支始终保留在过滤结果中，避免选中项不匹配关键词时下拉框显示空白。
-  - 关键词无匹配时展示行内提示。
+- **新增：独立的「合入看板」菜单**
+  - 左侧菜单在「工作树」和「分支同步」之间新增「合入看板」。
+  - 选择项目后，以矩阵形式展示每个工作树分支是否已合入 `master`、`stage`、`test`、`uat`。
+  - 顶部统计卡片展示工作树总数及全部合入、部分合入、未合入数量；分段筛选可快速只看某一类。
+  - 每行展示分支名、功能描述、未提交改动标记、合入状态和更新时间。
+  - 点击某行后，右侧详情展示各基线合入明细、属性概览、完整功能描述、最近提交，
+    以及 IDE / 访达 / 终端 / 复制等快捷操作。
+  - 合入检测基于 `git merge-base --is-ancestor`，优先比对 `origin/<基线>`，后台并发执行。
+- **调整：空间清理迁移到合入看板**
+  - 「空间清理」按钮从工作树页面工具栏移到合入看板工具栏，基于合入数据直接做清理决策。
+  - 清理完成后，合入看板会自动刷新。
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content
