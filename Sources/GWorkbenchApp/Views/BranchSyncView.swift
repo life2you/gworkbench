@@ -19,7 +19,10 @@ struct BranchSyncView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        if appModel.localOperation.isRunning || appModel.localOperation.errorMessage != nil || appModel.localOperation.successMessage != nil {
+                        // 交互式冲突挂起横幅
+                        if let session = appModel.activeSyncSession, session.hasActiveConflict {
+                            InteractiveSyncConflictBannerView(session: session)
+                        } else if appModel.localOperation.isRunning || appModel.localOperation.errorMessage != nil || appModel.localOperation.successMessage != nil {
                             InlineOperationView(state: appModel.localOperation)
                                 .padding(12)
                                 .background(Color(NSColor.controlBackgroundColor).opacity(0.5))

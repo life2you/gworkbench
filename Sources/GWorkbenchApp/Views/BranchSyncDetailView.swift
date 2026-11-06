@@ -209,6 +209,14 @@ struct BranchSyncDetailView: View {
             .controlSize(.small)
 
             Button {
+                appModel.openProjectInRebased(project)
+            } label: {
+                Label("Rebased", systemImage: "arrow.triangle.merge")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Button {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.path)])
             } label: {
                 Label("访达", systemImage: "folder")

@@ -2,8 +2,8 @@ import Foundation
 import AppKit
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case worktrees
     case mergeDashboard
+    case worktrees
     case branchSync
     case mergeRequests
     case settings
@@ -15,7 +15,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .worktrees:
             "工作树"
         case .mergeDashboard:
-            "合入看板"
+            "看板"
         case .branchSync:
             "分支同步"
         case .mergeRequests:
@@ -398,6 +398,12 @@ final class AppModel {
     var scannedTerminals: [InstalledTerminalApp] = []
     var scannedIDEs: [InstalledIDEApp] = []
     var deleteLocalBranchOnRemove = false
+
+    // MARK: - Interactive Sync Pipeline State
+    var activeSyncSession: ActiveSyncSession? = nil
+    var showingRebasedInstallSheet: Bool = false
+    var isInstallingRebased: Bool = false
+    var rebasedInstallLog: String = ""
 
     // MARK: - Worktree Sweeper State
     var showingWorktreeSweeperSheet = false
@@ -830,15 +836,19 @@ final class AppModel {
     // MARK: - Merge Dashboard Computeds & Methods
 
     var mergeDashboardFullyMergedCount: Int {
-        mergeDashboardItems.filter { $0.isFullyMerged && $0.kind != .mainRepo }.count
+        mergeDashboardItems.filter { $0.isFullyMerged && !$0.isDirty && $0.kind != .mainRepo }.count
+    }
+
+    var mergeDashboardDirtyCount: Int {
+        mergeDashboardItems.filter { $0.isDirty && $0.kind != .mainRepo }.count
     }
 
     var mergeDashboardPartiallyMergedCount: Int {
-        mergeDashboardItems.filter { !$0.isFullyMerged && !$0.isNotMerged && $0.kind != .mainRepo }.count
+        mergeDashboardItems.filter { !$0.isFullyMerged && !$0.isNotMerged && !$0.isDirty && $0.kind != .mainRepo }.count
     }
 
     var mergeDashboardNotMergedCount: Int {
-        mergeDashboardItems.filter { $0.isNotMerged && $0.kind != .mainRepo }.count
+        mergeDashboardItems.filter { $0.isNotMerged && !$0.isDirty && $0.kind != .mainRepo }.count
     }
 
     func refreshMergeDashboard(force: Bool = false) async {
@@ -1632,6 +1642,19 @@ final class AppModel {
         }
     }
 
+    func openProjectInRebased(_ project: MergeProject) {
+        if RebasedService.shared.isInstalled {
+            do {
+                try RebasedService.shared.openProject(path: project.path)
+                appendLocalOperationLog("已在 Rebased 中打开: \(project.displayName)")
+            } catch {
+                appendLocalOperationLog("打开 Rebased 失败: \(error.localizedDescription)")
+            }
+        } else {
+            showingRebasedInstallSheet = true
+        }
+    }
+
     func openProjectInTerminal(_ project: MergeProject) {
         let termName = appConfig?.terminalApp ?? settingsDraft.terminalApp
         let bundleID = appConfig?.terminalBundleID ?? settingsDraft.terminalBundleID
@@ -1794,6 +1817,19 @@ final class AppModel {
                 logs: worktreeOperation.logs,
                 errorMessage: error.localizedDescription
             )
+        }
+    }
+
+    func openWorktreeInRebased(_ item: WorktreeItem) {
+        if RebasedService.shared.isInstalled {
+            do {
+                try RebasedService.shared.openProject(path: item.path)
+                appendWorktreeLog("已在 Rebased 中打开: \(item.branch) (\(item.path))")
+            } catch {
+                appendWorktreeLog("打开 Rebased 失败: \(error.localizedDescription)")
+            }
+        } else {
+            showingRebasedInstallSheet = true
         }
     }
 
@@ -2380,23 +2416,14 @@ final class AppModel {
                 guard !targets.isEmpty else {
                     throw WorkbenchError.message("请先选择至少一个目标分支")
                 }
-                logs = try await service.executeLocalMerge(
-                    context: context,
+
+                // 启动交互式流水线
+                await startInteractiveSyncPipeline(
                     project: project,
                     sourceBranch: sourceBranch,
                     targets: targets
-                ) { [weak self] progress in
-                    Task { @MainActor in
-                        self?.appendLocalOperationLog("[\(progress.title)] \(progress.detail)")
-                        self?.localOperation = OperationState(
-                            isRunning: true,
-                            title: progress.title,
-                            detail: progress.detail,
-                            fractionCompleted: progress.fractionCompleted,
-                            logs: self?.localOperation.logs ?? []
-                        )
-                    }
-                }
+                )
+                return
             }
 
             for line in logs {
@@ -2421,6 +2448,272 @@ final class AppModel {
                 logs: localOperation.logs,
                 errorMessage: error.localizedDescription
             )
+        }
+    }
+
+    // MARK: - 交互式同步状态机逻辑
+
+    /// 启动交互式合并流水线
+    func startInteractiveSyncPipeline(
+        project: MergeProject,
+        sourceBranch: String,
+        targets: [String]
+    ) async {
+        let initialBranch = (try? GitCliService().currentLocalBranch(projectPath: project.path)) ?? sourceBranch
+        let targetItems = targets.map {
+            SyncSessionTargetItem(sourceBranch: sourceBranch, targetBranch: $0, status: .pending)
+        }
+
+        activeSyncSession = ActiveSyncSession(
+            projectID: project.id,
+            projectPath: project.path,
+            projectName: project.displayName,
+            initialBranch: initialBranch,
+            targets: targetItems,
+            currentTargetIndex: 0,
+            activeConflictFiles: []
+        )
+
+        appendLocalOperationLog("开始交互式合并流水线: \(sourceBranch) -> \(targets.joined(separator: ", "))")
+        await processNextInteractiveTarget()
+    }
+
+    /// 推进交互式流水线的下一个目标
+    func processNextInteractiveTarget() async {
+        guard var session = activeSyncSession else { return }
+
+        // 如果全部目标已遍历完毕，收尾并归位初始分支
+        if session.currentTargetIndex >= session.targets.count {
+            await finishInteractiveSyncPipeline()
+            return
+        }
+
+        let index = session.currentTargetIndex
+        let targetItem = session.targets[index]
+        session.targets[index].status = .inProgress
+        session.activeConflictFiles = []
+        activeSyncSession = session
+
+        let progressFraction = Double(index) / Double(session.targets.count)
+        localOperation = OperationState(
+            isRunning: true,
+            title: "正在合并目标 (\(index + 1)/\(session.targets.count))",
+            detail: "\(targetItem.sourceBranch) -> \(targetItem.targetBranch)",
+            fractionCompleted: progressFraction,
+            logs: localOperation.logs
+        )
+        appendLocalOperationLog("[\(index + 1)/\(session.targets.count)] 正在同步到: \(targetItem.targetBranch)...")
+
+        let projectPath = session.projectPath
+        let syncService = BranchSyncService()
+
+        do {
+            let result = try await Task.detached(priority: .userInitiated) { () -> GitMergeExecutionResult in
+                try syncService.syncToMergeBranchInteractive(
+                    projectPath: projectPath,
+                    sourceBranch: targetItem.sourceBranch,
+                    mergeBranch: targetItem.targetBranch
+                )
+            }.value
+
+            switch result {
+            case .success:
+                session.targets[index].status = .success(message: "合并并推送成功")
+                activeSyncSession = session
+                appendLocalOperationLog("✅ [\(targetItem.targetBranch)] 合并推送成功")
+                session.currentTargetIndex += 1
+                activeSyncSession = session
+                await processNextInteractiveTarget()
+
+            case .alreadyUpToDate:
+                session.targets[index].status = .success(message: "已是最新")
+                activeSyncSession = session
+                appendLocalOperationLog("✅ [\(targetItem.targetBranch)] 已是最新")
+                session.currentTargetIndex += 1
+                activeSyncSession = session
+                await processNextInteractiveTarget()
+
+            case .conflict(let files):
+                // 发生冲突！挂起流水线
+                session.activeConflictFiles = files
+                activeSyncSession = session
+                appendLocalOperationLog("⚠️ [\(targetItem.targetBranch)] 检测到合并冲突！冲突文件: \(files.joined(separator: ", "))")
+
+                // 唤起 Rebased 检查与引导
+                handleConflictEncountered(projectPath: projectPath)
+            }
+        } catch {
+            session.targets[index].status = .failed(error: error.localizedDescription)
+            activeSyncSession = session
+            appendLocalOperationLog("❌ [\(targetItem.targetBranch)] 执行失败: \(error.localizedDescription)")
+            session.currentTargetIndex += 1
+            activeSyncSession = session
+            await processNextInteractiveTarget()
+        }
+    }
+
+    /// 发生冲突时唤起 Rebased 或引导安装
+    func handleConflictEncountered(projectPath: String) {
+        if RebasedService.shared.isInstalled {
+            do {
+                try RebasedService.shared.openProject(path: projectPath)
+                appendLocalOperationLog("已在 Rebased 中调起冲突解决工程: \(projectPath)")
+            } catch {
+                appendLocalOperationLog("调起 Rebased 失败: \(error.localizedDescription)")
+            }
+        } else {
+            showingRebasedInstallSheet = true
+            appendLocalOperationLog("未检测到 Rebased，弹出安装引导弹窗")
+        }
+    }
+
+    /// 用户在 Rebased 解决完冲突后点击「继续提交推送」
+    func resolveAndContinueCurrentTarget() async {
+        guard var session = activeSyncSession, let currentTarget = session.currentTarget else { return }
+        let projectPath = session.projectPath
+        let syncService = BranchSyncService()
+
+        localOperation = OperationState(
+            isRunning: true,
+            title: "正在提交已解决的冲突",
+            detail: currentTarget.targetBranch,
+            fractionCompleted: localOperation.fractionCompleted,
+            logs: localOperation.logs
+        )
+
+        do {
+            // 先检查是否还有未解决的冲突标记
+            let remainingConflicts = try GitCliService().conflictFiles(projectPath: projectPath)
+            if !remainingConflicts.isEmpty {
+                throw WorkbenchError.message("尚有 \(remainingConflicts.count) 个文件未完成冲突解决: \(remainingConflicts.joined(separator: ", "))")
+            }
+
+            try await Task.detached(priority: .userInitiated) {
+                try syncService.commitAndPushResolvedMerge(
+                    projectPath: projectPath,
+                    mergeBranch: currentTarget.targetBranch
+                )
+            }.value
+
+            let index = session.currentTargetIndex
+            session.targets[index].status = .success(message: "已手动解决冲突并推送")
+            session.activeConflictFiles = []
+            session.currentTargetIndex += 1
+            activeSyncSession = session
+
+            appendLocalOperationLog("✅ [\(currentTarget.targetBranch)] 冲突已解决并推送成功")
+            await processNextInteractiveTarget()
+        } catch {
+            appendLocalOperationLog("提交冲突解决失败: \(error.localizedDescription)")
+            localOperation = OperationState(
+                isRunning: false,
+                title: "提交失败",
+                detail: error.localizedDescription,
+                logs: localOperation.logs,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    /// 用户点击「跳过当前分支，继续下一个」
+    func skipCurrentTargetAndContinue() async {
+        guard var session = activeSyncSession, let currentTarget = session.currentTarget else { return }
+        let projectPath = session.projectPath
+        let syncService = BranchSyncService()
+
+        appendLocalOperationLog("⏩ [\(currentTarget.targetBranch)] 用户选择跳过该目标分支，正在中止本次合并...")
+        try? syncService.abortMerge(projectPath: projectPath)
+
+        let index = session.currentTargetIndex
+        session.targets[index].status = .skippedDueToConflict(files: session.activeConflictFiles)
+        session.activeConflictFiles = []
+        session.currentTargetIndex += 1
+        activeSyncSession = session
+
+        await processNextInteractiveTarget()
+    }
+
+    /// 用户点击「全部中止 (Abort All)」
+    func abortAllSyncSession() async {
+        guard let session = activeSyncSession else { return }
+        let projectPath = session.projectPath
+        let syncService = BranchSyncService()
+
+        appendLocalOperationLog("🛑 用户选择全部中止流水线，正在回退现场...")
+        try? syncService.abortMerge(projectPath: projectPath)
+        try? GitCliService().checkoutBranch(projectPath: projectPath, branch: session.initialBranch)
+
+        activeSyncSession = nil
+        localOperation = OperationState(
+            isRunning: false,
+            title: "已全部中止",
+            detail: "已安全回退到分支 \(session.initialBranch)",
+            logs: localOperation.logs,
+            errorMessage: "流水线已被用户中止"
+        )
+    }
+
+    /// 流水线全部处理完成，收尾归位初始分支
+    private func finishInteractiveSyncPipeline() async {
+        guard let session = activeSyncSession else { return }
+        let projectPath = session.projectPath
+
+        appendLocalOperationLog("流水线完成，正在归位切回初始分支: \(session.initialBranch)...")
+        try? GitCliService().checkoutBranch(projectPath: projectPath, branch: session.initialBranch)
+
+        let total = session.targets.count
+        let succ = session.successfulCount
+        let skipped = session.skippedCount
+        let failed = session.failedCount
+
+        var summary = "共 \(total) 个目标: 成功 \(succ)"
+        if skipped > 0 { summary += ", 跳过 \(skipped)" }
+        if failed > 0 { summary += ", 失败 \(failed)" }
+
+        appendLocalOperationLog("🎉 流水线执行完毕！\(summary)")
+
+        localOperation = OperationState(
+            isRunning: false,
+            title: "多分支合并完成",
+            detail: summary,
+            fractionCompleted: 1,
+            logs: localOperation.logs,
+            successMessage: summary
+        )
+        activeSyncSession = nil
+    }
+
+    /// 刷新当前冲突文件状态（可由定时器或用户点击触发）
+    func refreshActiveConflictFiles() {
+        guard let session = activeSyncSession, session.hasActiveConflict else { return }
+        do {
+            let files = try GitCliService().conflictFiles(projectPath: session.projectPath)
+            activeSyncSession?.activeConflictFiles = files
+        } catch {
+            // ignore
+        }
+    }
+
+    /// 一键安装 Rebased
+    func installRebased() async {
+        isInstallingRebased = true
+        rebasedInstallLog = "正在准备通过 Homebrew 安装 Rebased..."
+        do {
+            try await RebasedService.shared.installViaBrew { [weak self] line in
+                Task { @MainActor in
+                    self?.rebasedInstallLog = line
+                }
+            }
+            isInstallingRebased = false
+            showingRebasedInstallSheet = false
+
+            // 安装完毕后，如果当前正好有冲突未解，自动调起打开
+            if let session = activeSyncSession, session.hasActiveConflict {
+                try? RebasedService.shared.openProject(path: session.projectPath)
+            }
+        } catch {
+            isInstallingRebased = false
+            rebasedInstallLog = "安装失败: \(error.localizedDescription)"
         }
     }
 

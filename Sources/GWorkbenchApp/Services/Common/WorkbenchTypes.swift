@@ -357,6 +357,7 @@ struct MergeDashboardItem: Identifiable, Sendable {
 
     var summaryText: String {
         if kind == .mainRepo { return "基准仓库" }
+        if isDirty { return "未提交改动" }
         if isFullyMerged { return "全部合入" }
         if isNotMerged { return "未合入" }
         return "合入 \(mergedCount)/\(totalMergeTargets)"
@@ -427,5 +428,96 @@ struct WorktreeSweeperItem: Identifiable, Hashable, Sendable {
 
     var isFullyMerged: Bool {
         !mergeTargets.isEmpty && mergedCount == mergeTargets.count
+    }
+}
+
+// MARK: - 交互式分支同步流水线状态模型
+
+enum SyncTargetStatus: Sendable, Hashable {
+    case pending
+    case inProgress
+    case success(message: String)
+    case skippedDueToConflict(files: [String])
+    case failed(error: String)
+
+    var isFinished: Bool {
+        switch self {
+        case .pending, .inProgress:
+            return false
+        case .success, .skippedDueToConflict, .failed:
+            return true
+        }
+    }
+
+    var displayLabel: String {
+        switch self {
+        case .pending: return "等待中"
+        case .inProgress: return "同步中"
+        case .success: return "成功"
+        case .skippedDueToConflict: return "因冲突跳过"
+        case .failed: return "失败"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .pending: return .secondary
+        case .inProgress: return .blue
+        case .success: return .green
+        case .skippedDueToConflict: return .orange
+        case .failed: return .red
+        }
+    }
+}
+
+struct SyncSessionTargetItem: Identifiable, Sendable, Hashable {
+    var id: String { targetBranch }
+    let sourceBranch: String
+    let targetBranch: String
+    var status: SyncTargetStatus
+}
+
+struct ActiveSyncSession: Identifiable, Sendable {
+    var id: String { projectID }
+    let projectID: String
+    let projectPath: String
+    let projectName: String
+    let initialBranch: String
+    var targets: [SyncSessionTargetItem]
+    var currentTargetIndex: Int
+    var activeConflictFiles: [String] = []
+
+    var currentTarget: SyncSessionTargetItem? {
+        guard currentTargetIndex >= 0 && currentTargetIndex < targets.count else { return nil }
+        return targets[currentTargetIndex]
+    }
+
+    var hasActiveConflict: Bool {
+        !activeConflictFiles.isEmpty
+    }
+
+    var isCompleted: Bool {
+        currentTargetIndex >= targets.count
+    }
+
+    var successfulCount: Int {
+        targets.filter {
+            if case .success = $0.status { return true }
+            return false
+        }.count
+    }
+
+    var skippedCount: Int {
+        targets.filter {
+            if case .skippedDueToConflict = $0.status { return true }
+            return false
+        }.count
+    }
+
+    var failedCount: Int {
+        targets.filter {
+            if case .failed = $0.status { return true }
+            return false
+        }.count
     }
 }

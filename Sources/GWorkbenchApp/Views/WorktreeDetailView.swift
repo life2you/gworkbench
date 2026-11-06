@@ -204,6 +204,14 @@ struct WorktreeDetailView: View {
             .controlSize(.small)
 
             Button {
+                appModel.openWorktreeInRebased(item)
+            } label: {
+                Label("Rebased", systemImage: "arrow.triangle.merge")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Button {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
             } label: {
                 Label("访达", systemImage: "folder")

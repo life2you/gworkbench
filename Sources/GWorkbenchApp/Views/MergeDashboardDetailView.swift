@@ -88,7 +88,7 @@ struct MergeDashboardDetailView: View {
                 }
                 .id(dashItem.id)
             } else {
-                ContentUnavailableView("选择工作树查看详情", systemImage: "chart.bar.xaxis", description: Text("在合入看板中点击某个工作树查看其合入详情和分支信息"))
+                ContentUnavailableView("选择工作树查看详情", systemImage: "chart.bar.xaxis", description: Text("在看板中点击某个工作树查看其合入详情和分支信息"))
             }
         }
     }
@@ -137,8 +137,8 @@ struct MergeDashboardDetailView: View {
 
                 StatusPill(
                     title: dashItem.summaryText,
-                    tint: dashItem.isFullyMerged ? .green : (dashItem.isNotMerged ? .red : .orange),
-                    systemImage: dashItem.isFullyMerged ? "checkmark.seal.fill" : "chart.bar.xaxis"
+                    tint: dashItem.isDirty ? .orange : (dashItem.isFullyMerged ? .green : (dashItem.isNotMerged ? .red : .blue)),
+                    systemImage: dashItem.isDirty ? "pencil.circle.fill" : (dashItem.isFullyMerged ? "checkmark.seal.fill" : "chart.bar.xaxis")
                 )
             }
             .padding(.top, 2)
@@ -219,6 +219,14 @@ struct MergeDashboardDetailView: View {
                 Label(appModel.currentIDELabel, systemImage: "arrow.up.forward.app")
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            Button {
+                appModel.openWorktreeInRebased(item)
+            } label: {
+                Label("Rebased", systemImage: "arrow.triangle.merge")
+            }
+            .buttonStyle(.bordered)
             .controlSize(.small)
 
             Button {

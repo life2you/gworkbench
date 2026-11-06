@@ -13,6 +13,8 @@ struct RootView: View {
     @State private var isSyncOtherExpanded: Bool = true
 
     var body: some View {
+        @Bindable var appModel = appModel
+
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
         } content: {
@@ -21,6 +23,9 @@ struct RootView: View {
             detailColumn
         }
         .navigationSplitViewStyle(.balanced)
+        .sheet(isPresented: $appModel.showingRebasedInstallSheet) {
+            RebasedInstallSheetView()
+        }
         .task {
             await appModel.bootstrap()
         }
@@ -56,12 +61,12 @@ struct RootView: View {
                 }
             }
 
-            if appModel.selectedSection == .worktrees {
-                worktreesSidebarSection
-            }
-
             if appModel.selectedSection == .mergeDashboard {
                 mergeDashboardSidebarSection
+            }
+
+            if appModel.selectedSection == .worktrees {
+                worktreesSidebarSection
             }
 
             if appModel.selectedSection == .branchSync {

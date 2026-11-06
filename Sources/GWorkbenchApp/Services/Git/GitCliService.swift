@@ -826,6 +826,54 @@ final class GitCliService: Sendable {
         throw WorkbenchError.message(detail)
     }
 
+    /// 交互式合并分支：发生冲突时不自动执行 abort，完整保留 MERGE_HEAD 与冲突现场供工具解决
+    func mergeBranchInteractive(projectPath: String, sourceBranch: String) throws -> GitMergeExecutionResult {
+        let result = try ProcessRunner.runGit(
+            arguments: ["-C", projectPath, "merge", sourceBranch, "--no-edit"],
+            allowFailure: true
+        )
+
+        if result.status == 0 {
+            let output = [result.stdout, result.stderr].joined(separator: "\n")
+            if output.contains("Already up to date") {
+                return .alreadyUpToDate
+            }
+            return .success
+        }
+
+        if try hasActiveMergeHead(projectPath: projectPath) {
+            let files = try conflictFiles(projectPath: projectPath)
+            return .conflict(files)
+        }
+
+        let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNonEmpty
+            ?? result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).trimmedNonEmpty
+            ?? "合并失败: \(sourceBranch)"
+        throw WorkbenchError.message(detail)
+    }
+
+    /// 中止当前正在进行的合并并恢复现场
+    func abortMerge(projectPath: String) throws {
+        _ = try ProcessRunner.runGit(
+            arguments: ["-C", projectPath, "merge", "--abort"],
+            allowFailure: true
+        )
+    }
+
+    /// 提交当前解决完的合并
+    func commitMerge(projectPath: String, message: String? = nil) throws {
+        var args = ["-C", projectPath, "commit"]
+        if let message, !message.isEmpty {
+            args += ["-m", message]
+        } else {
+            args += ["--no-edit"]
+        }
+        _ = try ProcessRunner.runGit(
+            arguments: args,
+            allowFailure: false
+        )
+    }
+
     func hasActiveMergeHead(projectPath: String) throws -> Bool {
         let gitDirRaw = try ProcessRunner.runGit(arguments: ["-C", projectPath, "rev-parse", "--git-dir"]).stdout
             .trimmingCharacters(in: .whitespacesAndNewlines)

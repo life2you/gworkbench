@@ -307,4 +307,35 @@ final class BranchSyncService: Sendable {
             throw WorkbenchError.message("合并冲突已自动中止: \(sourceBranch) -> \(mergeBranch)，冲突文件: \(fileList)")
         }
     }
+
+    /// 交互式单步同步目标分支：发生冲突时不中止，返回 `.conflict(files)` 留给上层处理
+    func syncToMergeBranchInteractive(projectPath: String, sourceBranch: String, mergeBranch: String) throws -> GitMergeExecutionResult {
+        if try gitCli.localBranchExists(projectPath: projectPath, branch: mergeBranch) {
+            try gitCli.checkoutBranch(projectPath: projectPath, branch: mergeBranch)
+            try? gitCli.pull(projectPath: projectPath, remote: "origin", branch: mergeBranch)
+        } else if try gitCli.remoteBranchExists(projectPath: projectPath, branch: mergeBranch) {
+            try gitCli.checkoutNewBranch(projectPath: projectPath, branch: mergeBranch, from: "origin/\(mergeBranch)")
+        } else {
+            try gitCli.checkoutNewBranch(projectPath: projectPath, branch: mergeBranch, from: sourceBranch)
+            try gitCli.push(projectPath: projectPath, remote: "origin", branch: mergeBranch)
+            return .success
+        }
+
+        let result = try gitCli.mergeBranchInteractive(projectPath: projectPath, sourceBranch: sourceBranch)
+        if case .success = result {
+            try gitCli.push(projectPath: projectPath, remote: "origin", branch: mergeBranch)
+        }
+        return result
+    }
+
+    /// 完成冲突解决并提交推送
+    func commitAndPushResolvedMerge(projectPath: String, mergeBranch: String) throws {
+        try gitCli.commitMerge(projectPath: projectPath)
+        try gitCli.push(projectPath: projectPath, remote: "origin", branch: mergeBranch)
+    }
+
+    /// 中止当前目标分支的合并现场
+    func abortMerge(projectPath: String) throws {
+        try gitCli.abortMerge(projectPath: projectPath)
+    }
 }

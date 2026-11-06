@@ -72,12 +72,13 @@ struct MergeDashboardView: View {
             Picker("筛选", selection: dashboardFilterBinding) {
                 Text("全部").tag(DashboardFilter.all)
                 Text("全部合入").tag(DashboardFilter.fullyMerged)
+                Text("未提交改动").tag(DashboardFilter.dirty)
                 Text("部分合入").tag(DashboardFilter.partiallyMerged)
                 Text("未合入").tag(DashboardFilter.notMerged)
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 280)
+            .frame(width: 380)
 
             Spacer()
 
@@ -131,10 +132,16 @@ struct MergeDashboardView: View {
                 color: .green
             )
             summaryCard(
+                title: "未提交改动",
+                count: appModel.mergeDashboardDirtyCount,
+                icon: "pencil.circle.fill",
+                color: .orange
+            )
+            summaryCard(
                 title: "部分合入",
                 count: appModel.mergeDashboardPartiallyMergedCount,
                 icon: "exclamationmark.triangle.fill",
-                color: .orange
+                color: .blue
             )
             summaryCard(
                 title: "未合入",
@@ -237,6 +244,8 @@ struct MergeDashboardView: View {
         let rowBg: Color
         if isSelected {
             rowBg = Color.accentColor.opacity(0.12)
+        } else if item.isDirty && !isMain {
+            rowBg = Color.orange.opacity(0.04)
         } else if item.isFullyMerged && !isMain {
             rowBg = Color.green.opacity(0.03)
         } else if item.isNotMerged && !isMain {
@@ -336,12 +345,14 @@ struct MergeDashboardView: View {
         let color: Color
         if item.kind == .mainRepo {
             color = .blue
+        } else if item.isDirty {
+            color = .orange
         } else if item.isFullyMerged {
             color = .green
         } else if item.isNotMerged {
             color = .red
         } else {
-            color = .orange
+            color = .blue
         }
 
         return Text(item.summaryText)
@@ -416,11 +427,13 @@ struct MergeDashboardView: View {
         case .all:
             return appModel.mergeDashboardItems
         case .fullyMerged:
-            return appModel.mergeDashboardItems.filter { $0.isFullyMerged && $0.kind != .mainRepo }
+            return appModel.mergeDashboardItems.filter { $0.isFullyMerged && !$0.isDirty && $0.kind != .mainRepo }
+        case .dirty:
+            return appModel.mergeDashboardItems.filter { $0.isDirty && $0.kind != .mainRepo }
         case .partiallyMerged:
-            return appModel.mergeDashboardItems.filter { !$0.isFullyMerged && !$0.isNotMerged && $0.kind != .mainRepo }
+            return appModel.mergeDashboardItems.filter { !$0.isFullyMerged && !$0.isNotMerged && !$0.isDirty && $0.kind != .mainRepo }
         case .notMerged:
-            return appModel.mergeDashboardItems.filter { $0.isNotMerged && $0.kind != .mainRepo }
+            return appModel.mergeDashboardItems.filter { $0.isNotMerged && !$0.isDirty && $0.kind != .mainRepo }
         }
     }
 }
@@ -428,6 +441,7 @@ struct MergeDashboardView: View {
 enum DashboardFilter: String, CaseIterable, Identifiable {
     case all = "全部"
     case fullyMerged = "全部合入"
+    case dirty = "未提交改动"
     case partiallyMerged = "部分合入"
     case notMerged = "未合入"
 
