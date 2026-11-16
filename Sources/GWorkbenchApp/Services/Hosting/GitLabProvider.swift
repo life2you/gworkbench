@@ -66,6 +66,22 @@ final class GitLabProvider: HostingProvider {
         self.gitCli = gitCli
     }
 
+    static func testConnection(host: String, token: String) async throws -> String {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty, !trimmedToken.isEmpty else {
+            throw WorkbenchError.message("请先填写 GitLab Host 与 Personal Access Token")
+        }
+        let user: GitLabCurrentUserResponse = try await GitLabProvider().request(
+            host: trimmedHost,
+            token: trimmedToken,
+            path: "/user",
+            method: "GET",
+            body: nil
+        )
+        return "已连接 \(normalizedGitLabHost(trimmedHost)) (@\(user.username))"
+    }
+
     func loadMergeContext(
         config: MergeWorkflowConfig,
         localProjects: [LocalProject],

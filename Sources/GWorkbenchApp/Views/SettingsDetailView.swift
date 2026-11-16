@@ -5,122 +5,148 @@ struct SettingsDetailView: View {
     @Environment(AppModel.self) private var appModel
 
     var body: some View {
+        let rebasedInstalled = RebasedService.shared.isInstalled
+        let currentWS = appModel.activeWorkspace
+        let githubReady = appModel.ghCLITokenAvailable
+            || (currentWS?.platform == .github && !(currentWS?.token ?? "").isEmpty)
+            || !appModel.settingsDraft.githubToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let activeCredReady: Bool = {
+            guard let ws = currentWS else { return false }
+            if ws.platform == .github {
+                return appModel.ghCLITokenAvailable || !ws.token.isEmpty
+            } else {
+                return !ws.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && !ws.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+        }()
+
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 headerSection
 
-                quickActionRow
+                Divider().opacity(0.5)
 
-                inspectorCard(title: "配置文件存储", systemImage: "doc.text") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        inspectorRow(
-                            label: "主配置文件",
-                            value: appModel.settingsDraft.configPath.isEmpty ? "未加载" : appModel.settingsDraft.configPath,
-                            isMonospaced: true,
-                            canCopy: true
-                        )
-                        inspectorRow(
-                            label: "元数据文件",
-                            value: appModel.settingsDraft.metadataPath.isEmpty ? "未加载" : appModel.settingsDraft.metadataPath,
-                            isMonospaced: true,
-                            canCopy: true
-                        )
-                    }
-                }
-
-                inspectorCard(title: "运行健康雷达", systemImage: "stethoscope") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("本地代码仓库")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            StatusPill(
-                                title: "\(appModel.worktreeProjects.count) 个仓库",
-                                tint: appModel.worktreeProjects.isEmpty ? .orange : .green
-                            )
-                        }
-
-                        HStack {
-                            Text("托管服务连接池")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            StatusPill(
-                                title: "GitLab + GitHub 就绪",
-                                tint: .green,
-                                systemImage: "network"
-                            )
-                        }
-
-                        HStack {
-                            Text("策略模板生效")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            StatusPill(
-                                title: "2 组模板 (含环境流)",
-                                tint: .purple
-                            )
-                        }
-
-                        HStack {
-                            Text("默认终端应用")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            StatusPill(
-                                title: appModel.settingsDraft.terminalApp.isEmpty ? "Terminal" : appModel.settingsDraft.terminalApp,
-                                tint: appModel.scannedTerminals.first(where: { $0.name == appModel.settingsDraft.terminalApp })?.isInstalled == true ? .green : .blue,
-                                systemImage: "terminal.fill"
-                            )
-                        }
-
-                        HStack {
-                            Text("默认 IDE 编辑器")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            StatusPill(
-                                title: appModel.settingsDraft.ideLabel.isEmpty ? "系统默认" : appModel.settingsDraft.ideLabel,
-                                tint: appModel.scannedIDEs.first(where: { $0.name.caseInsensitiveCompare(appModel.settingsDraft.ideCommand) == .orderedSame })?.isInstalled == true ? .green : .blue,
-                                systemImage: "macwindow"
-                            )
-                        }
-
-                        HStack {
-                            Text("AI 智能分支模型")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            StatusPill(
-                                title: appModel.settingsDraft.aiModel.isEmpty ? "DeepSeek" : appModel.settingsDraft.aiModel,
-                                tint: appModel.settingsDraft.aiAPIKey.isEmpty ? .orange : .green,
-                                systemImage: "sparkles"
-                            )
-                        }
-
-                        HStack {
-                            Text("路径命名模板")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(appModel.settingsDraft.worktreePathTemplate.replacingOccurrences(of: "${rootDir}/", with: ""))
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                if let ws = currentWS {
+                    inspectorCard(title: "当前工作区概览", systemImage: ws.platform.icon) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            detailRow(label: "标签名称", value: ws.name)
+                            detailRow(label: "托管平台", value: ws.platform.shortName)
+                            detailRow(label: "绑定目录", value: ws.projectsRootDirs.joined(separator: ", "))
+                            detailRow(label: "扫描仓库", value: "\(appModel.filteredWorktreeProjects.count) 个本地仓库")
+                            detailRow(label: "生产主干", value: ws.configuredMainlineBranches.isEmpty ? "未配置" : ws.configuredMainlineBranches.joined(separator: ", "))
+                            detailRow(label: "保护分支", value: ws.effectiveProtectedBranches.isEmpty ? "未配置" : ws.effectiveProtectedBranches.joined(separator: ", "))
+                            detailRow(label: "看板基线", value: ws.effectiveDashboardBaselines.joined(separator: ", "))
                         }
                     }
                 }
 
-                inspectorCard(title: "使用建议与安全准则", systemImage: "lightbulb") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("• 优先保证根目录正确配置，以便完整扫描本地代码库。")
-                        Text("• GitLab Token 仅保存在本地 ~/.config/gworkbench/config.toml，不向任何第三方服务上传。")
-                        Text("• 生产基准分支（如 master/main）建议配置进保护目标分支列表，避免意外自动合入。")
+                inspectorCard(title: "本机依赖自检", systemImage: "stethoscope") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        checkRow(
+                            label: "Git CLI",
+                            value: appModel.gitVersion.isEmpty ? "未检测" : "✓ \(appModel.gitVersion.replacingOccurrences(of: "git version ", with: ""))",
+                            ok: !appModel.gitVersion.isEmpty
+                        )
+                        checkRow(
+                            label: "Rebased (冲突解决)",
+                            value: rebasedInstalled ? "✓ 已安装" : "○ 未安装",
+                            ok: rebasedInstalled
+                        )
+                        checkRow(
+                            label: "GitHub gh CLI",
+                            value: githubReady ? (appModel.ghCLITokenAvailable ? "✓ 已登录" : "✓ 已配置 PAT") : "○ 未登录",
+                            ok: githubReady
+                        )
+                        if let ws = currentWS {
+                            checkRow(
+                                label: "\(ws.name) 凭据",
+                                value: activeCredReady ? "✓ 就绪" : "○ 未配置",
+                                ok: activeCredReady
+                            )
+                        }
                     }
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(2)
+                }
+
+                if !rebasedInstalled {
+                    Button {
+                        appModel.showingRebasedInstallSheet = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.down.circle.fill")
+                            Text("一键安装 Rebased 冲突解决器")
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                }
+
+                if let ws = currentWS {
+                    Button {
+                        appModel.openEditWorkspaceEditor(ws)
+                    } label: {
+                        HStack {
+                            Image(systemName: "pencil")
+                            Text("编辑「\(ws.name)」标签配置")
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                }
+
+                Button {
+                    appModel.openNewWorkspaceEditor()
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("新建另一个工作区标签")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+
+                Divider().opacity(0.4)
+
+                Button {
+                    let path = appModel.settingsDraft.configPath
+                    if !path.isEmpty {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "folder.fill")
+                        Text("在 Finder 打开配置目录")
+                        Spacer()
+                    }
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+
+                HStack(spacing: 8) {
+                    Button {
+                        let path = appModel.settingsDraft.configPath
+                        if !path.isEmpty {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(path, forType: .string)
+                        }
+                    } label: {
+                        Label("复制路径", systemImage: "doc.on.doc")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button {
+                        Task { await appModel.reloadSettingsOnly() }
+                    } label: {
+                        Label("重新加载", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
             .padding(16)
@@ -131,101 +157,43 @@ struct SettingsDetailView: View {
     // MARK: - Header Section
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("GWorkbench")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text("/")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Text("首选项")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("配置诊断与当前标签")
+                .font(.system(size: 14.5, weight: .semibold))
 
-            Text("配置与运行诊断")
-                .font(.system(size: 16, weight: .semibold))
-
-            Text("实时监控本地工作树存储与 GitLab 服务凭据状态。")
-                .font(.system(size: 12))
+            Text(appModel.settingsDraft.configPath.isEmpty ? "~/.config/gworkbench/config.toml" : appModel.settingsDraft.configPath)
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
-
-            HStack(spacing: 6) {
-                StatusPill(title: "独立桌面配置", tint: .blue)
-                StatusPill(title: "\(appModel.settingsDraft.branchMappings.count) 组分支映射", tint: .purple)
-            }
-            .padding(.top, 2)
-        }
-        .padding(.bottom, 2)
-    }
-
-    // MARK: - Quick Action Row
-
-    private var quickActionRow: some View {
-        HStack(spacing: 6) {
-            Button {
-                let path = appModel.settingsDraft.configPath
-                if !path.isEmpty {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-                }
-            } label: {
-                Label("访达中显示", systemImage: "folder")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-
-            Button {
-                let path = appModel.settingsDraft.configPath
-                if !path.isEmpty {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(path, forType: .string)
-                }
-            } label: {
-                Label("复制路径", systemImage: "doc.on.doc")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Button {
-                Task {
-                    await appModel.reloadSettingsOnly()
-                }
-            } label: {
-                Label("重新加载", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 
-    // MARK: - Inspector Helpers
+    // MARK: - Helpers
 
-    private func inspectorRow(label: String, value: String, isMonospaced: Bool = false, canCopy: Bool = false) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+    private func checkRow(label: String, value: String, ok: Bool) -> some View {
+        HStack {
             Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)
-                .frame(width: 68, alignment: .leading)
-
+            Spacer()
             Text(value)
-                .font(isMonospaced ? .system(size: 11.5, design: .monospaced) : .system(size: 11.5))
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(ok ? Color.green : Color.secondary)
+        }
+    }
 
-            if canCopy {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(value, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("复制")
-            }
+    private func detailRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
     }
 
@@ -236,18 +204,18 @@ struct SettingsDetailView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Text(title)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.primary)
             }
             content()
         }
-        .padding(11)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 0.75)
         )
     }
 }

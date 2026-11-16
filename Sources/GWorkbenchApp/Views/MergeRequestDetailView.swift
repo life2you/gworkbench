@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 struct MergeRequestDetailView: View {
     @Environment(AppModel.self) private var appModel
@@ -9,119 +8,33 @@ struct MergeRequestDetailView: View {
         Group {
             if let mr = appModel.selectedMergeRequest {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        headerSection(mr)
+                    VStack(alignment: .leading, spacing: 12) {
+                        InspectorHeaderView(
+                            title: "\(mr.iidLabel) · \(mr.title)",
+                            subtitleItems: ["\(mr.sourceBranch) → \(mr.targetBranch)"],
+                            trailingPill: StatusPill(
+                                title: ciBadgeTitle(mr.pipeline),
+                                tint: pipelineTint(mr.pipeline)
+                            )
+                        )
 
-                        quickActionRow(mr)
+                        reviewSummaryCard(mr)
 
-                        mainActionCard(mr)
-
-                        inspectorCard(title: "属性概览", systemImage: "info.circle") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                inspectorRow(label: "所属项目", value: mr.project)
-                                inspectorRow(label: "创建作者", value: "\(mr.author) (@\(mr.authorUsername))")
-                                inspectorRow(label: "源分支", value: mr.sourceBranch, isMonospaced: true, canCopy: true)
-                                inspectorRow(label: "目标分支", value: mr.targetBranch, isMonospaced: true, canCopy: true)
-                                inspectorRow(label: "CI 流水线", value: mr.pipeline.rawValue)
-                                inspectorRow(label: "更新时间", value: mr.updatedAt)
-                                if !mr.webURL.isEmpty {
-                                    inspectorRow(label: "MR 链接", value: mr.webURL, isMonospaced: true, canCopy: true)
-                                }
-                            }
-                        }
-
-                        if !mr.webURL.isEmpty {
-                            inspectorCard(title: "GitLab 网页链接", systemImage: "link") {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(mr.webURL)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .textSelection(.enabled)
-                                        .lineLimit(2)
-
-                                    HStack(spacing: 8) {
-                                        Button {
-                                            appModel.copyMRWebURL(mr)
-                                            copiedLink = true
-                                            Task {
-                                                try? await Task.sleep(for: .seconds(2))
-                                                copiedLink = false
-                                            }
-                                        } label: {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: copiedLink ? "checkmark" : "doc.on.doc")
-                                                Text(copiedLink ? "已复制" : "复制链接")
-                                            }
-                                        }
-                                        .controlSize(.small)
-                                        .buttonStyle(.bordered)
-
-                                        Button {
-                                            appModel.openMRInBrowser(mr)
-                                        } label: {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "arrow.up.forward.app")
-                                                Text("在浏览器打开")
-                                            }
-                                        }
-                                        .controlSize(.small)
-                                        .buttonStyle(.bordered)
-                                    }
-                                }
-                            }
-                        }
-
-                        inspectorCard(title: "审批名单 (\(mr.approvalProgress))", systemImage: "person.2.badge.gearshape") {
-                            VStack(alignment: .leading, spacing: 9) {
-                                if mr.approvals.isEmpty {
-                                    Text("暂无详细审批人名单记录。")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    ForEach(mr.approvals) { approval in
-                                        HStack(alignment: .top, spacing: 8) {
-                                            Image(systemName: approval.approved ? "checkmark.circle.fill" : "clock")
-                                                .font(.system(size: 12))
-                                                .foregroundStyle(approval.approved ? Color.green : Color.orange)
-                                                .padding(.top, 1)
-
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(approval.reviewer)
-                                                    .font(.system(size: 11.5, weight: .medium))
-                                                Text(approval.detail)
-                                                    .font(.system(size: 10.5))
-                                                    .foregroundStyle(.secondary)
-                                            }
-
-                                            Spacer()
-
-                                            StatusPill(
-                                                title: approval.approved ? "已审批" : "待审批",
-                                                tint: approval.approved ? .green : .orange
-                                            )
-                                        }
-                                        if approval.id != mr.approvals.last?.id {
-                                            Divider().opacity(0.4)
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        actionsSection(mr)
 
                         if !mr.commits.isEmpty {
-                            inspectorCard(title: "包含提交 (\(mr.commits.count))", systemImage: "shippingbox") {
-                                VStack(alignment: .leading, spacing: 10) {
+                            InspectorCard(title: "包含提交 (\(mr.commits.count))") {
+                                VStack(alignment: .leading, spacing: 8) {
                                     ForEach(Array(mr.commits.prefix(5))) { commit in
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(commit.message)
-                                                .font(.system(size: 12, weight: .medium))
+                                                .font(.system(size: 11.5, weight: .medium))
                                                 .lineLimit(2)
                                             HStack(spacing: 6) {
                                                 Text(commit.sha)
                                                     .font(.system(size: 10.5, design: .monospaced))
                                                     .foregroundStyle(.secondary)
-                                                Text("•")
-                                                    .font(.system(size: 9))
+                                                Text("·")
                                                     .foregroundStyle(.tertiary)
                                                 Text(commit.author)
                                                     .font(.system(size: 10.5))
@@ -140,33 +53,8 @@ struct MergeRequestDetailView: View {
                             }
                         }
 
-                        if !mr.activity.isEmpty {
-                            inspectorCard(title: "最近活动", systemImage: "clock.arrow.circlepath") {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(mr.activity) { act in
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            HStack {
-                                                Text(act.actor)
-                                                    .font(.system(size: 11.5, weight: .semibold))
-                                                Spacer()
-                                                Text(act.relativeTime)
-                                                    .font(.system(size: 10.5))
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            Text(act.summary)
-                                                .font(.system(size: 11))
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        if act.id != mr.activity.last?.id {
-                                            Divider().opacity(0.4)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
                         if appModel.mrOperation.isRunning || appModel.mrOperation.errorMessage != nil || appModel.mrOperation.successMessage != nil {
-                            inspectorCard(title: "执行日志", systemImage: "terminal") {
+                            InspectorCard(title: "执行日志") {
                                 InlineOperationView(state: appModel.mrOperation)
                             }
                         }
@@ -180,135 +68,50 @@ struct MergeRequestDetailView: View {
         }
     }
 
-    // MARK: - Header Section
+    // MARK: - Review Details Card
 
-    private func headerSection(_ mr: MergeRequestItem) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("合并请求")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text("/")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Text(mr.status.rawValue)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\(mr.iidLabel) · \(mr.title)")
-                    .font(.system(size: 16, weight: .semibold))
-                    .textSelection(.enabled)
-
-                Button {
-                    appModel.copyMRWebURL(mr)
-                    copiedLink = true
-                    Task {
-                        try? await Task.sleep(for: .seconds(2))
-                        copiedLink = false
-                    }
-                } label: {
-                    Image(systemName: copiedLink ? "checkmark.circle.fill" : "link")
-                        .font(.system(size: 11))
-                        .foregroundStyle(copiedLink ? Color.green : Color.accentColor)
-                }
-                .buttonStyle(.plain)
-                .help("复制 MR 链接")
-            }
-
-            HStack(spacing: 6) {
-                Text(mr.sourceBranch)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Text(mr.targetBranch)
-                    .font(.system(size: 11.5, design: .monospaced).weight(.medium))
-                    .foregroundStyle(mr.protectedTarget ? Color.orange : Color.primary)
-            }
-
-            HStack(spacing: 6) {
-                StatusPill(
-                    title: "审批 \(mr.approvalProgress)",
-                    tint: mr.approvedByMe ? .green : .orange,
-                    systemImage: mr.approvedByMe ? "checkmark.circle.fill" : "clock"
-                )
-
-                StatusPill(
-                    title: mr.pipeline.rawValue,
-                    tint: pipelineTint(mr.pipeline),
-                    systemImage: pipelineSystemImage(mr.pipeline)
-                )
-
+    private func reviewSummaryCard(_ mr: MergeRequestItem) -> some View {
+        InspectorCard(
+            title: "评审详情",
+            trailing: {
                 if mr.protectedTarget {
-                    StatusPill(title: "保护分支", tint: .orange, systemImage: "lock.fill")
-                }
-
-                ForEach(mr.labels, id: \.self) { label in
-                    StatusPill(title: label, tint: .gray)
+                    StatusPill(title: "保护分支", tint: .orange)
                 }
             }
-            .padding(.top, 2)
-        }
-        .padding(.bottom, 2)
-    }
-
-    // MARK: - Quick Action Row
-
-    private func quickActionRow(_ mr: MergeRequestItem) -> some View {
-        HStack(spacing: 6) {
-            Button {
-                appModel.openMRInBrowser(mr)
-            } label: {
-                Label("在 GitLab 打开", systemImage: "arrow.up.forward.app")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-
-            Button {
-                appModel.copyMRWebURL(mr)
-                copiedLink = true
-                Task {
-                    try? await Task.sleep(for: .seconds(2))
-                    copiedLink = false
-                }
-            } label: {
-                if copiedLink {
-                    Label("已复制链接", systemImage: "checkmark")
-                        .foregroundStyle(.green)
-                } else {
-                    Label("复制链接", systemImage: "link")
+        ) {
+            VStack(alignment: .leading, spacing: 7) {
+                InspectorKeyValueRow(label: "作者", value: "@\(mr.authorUsername)")
+                InspectorKeyValueRow(label: "更新时间", value: mr.updatedAt)
+                InspectorKeyValueRow(label: "审批状态", value: mr.approvalProgress)
+                if !mr.approvals.isEmpty {
+                    Divider().opacity(0.4)
+                    ForEach(mr.approvals.prefix(4)) { approval in
+                        HStack(spacing: 6) {
+                            Image(systemName: approval.approved ? "checkmark.circle.fill" : "clock")
+                                .font(.system(size: 11))
+                                .foregroundStyle(approval.approved ? Color.green : Color.orange)
+                            Text(approval.reviewer)
+                                .font(.system(size: 11, weight: .medium))
+                            Spacer()
+                            Text(approval.detail)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Button {
-                appModel.copyMRSourceBranch(mr)
-            } label: {
-                Label("复制分支", systemImage: "arrow.triangle.branch")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Button {
-                Task {
-                    await appModel.refreshMergeRequests()
-                }
-            } label: {
-                Label("刷新", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
     }
 
-    // MARK: - Main Action Card
+    // MARK: - Actions Section
 
-    private func mainActionCard(_ mr: MergeRequestItem) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func actionsSection(_ mr: MergeRequestItem) -> some View {
+        let short = mr.platform == .github ? "PR" : "MR"
+        let isSelfGH = mr.platform == .github && mr.authorUsername == appModel.mergeRequestContext?.currentUsername
+
+        return VStack(alignment: .leading, spacing: 8) {
+            InspectorActionGroupLabel(title: "审阅与合并")
+
             Button {
                 Task {
                     await appModel.approveAndMergeSelectedMR()
@@ -319,119 +122,79 @@ struct MergeRequestDetailView: View {
                         ProgressView().controlSize(.small)
                         Text("正在处理中...")
                     } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 12))
-                        Text("审批并通过合并此 MR")
-                            .font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(mr.platform == .github ? "Merge \(short)" : "审批并合并 \(short)")
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.green)
+            .buttonStyle(InspectorActionButtonStyle(tone: .primary))
             .disabled(appModel.mrOperation.isRunning || !isActionable(mr))
 
-            HStack {
-                Spacer()
-                Button("关闭此 MR", role: .destructive) {
-                    Task {
-                        await appModel.closeSelectedMR()
-                    }
-                }
-                .controlSize(.small)
-                .buttonStyle(.bordered)
-                .disabled(appModel.mrOperation.isRunning || mr.status == .merged || mr.status == .closed)
-            }
-        }
-        .padding(10)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-        )
-    }
-
-    // MARK: - Inspector Helpers
-
-    private func inspectorRow(label: String, value: String, isMonospaced: Bool = false, canCopy: Bool = false) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 58, alignment: .leading)
-
-            Text(value)
-                .font(isMonospaced ? .system(size: 11.5, design: .monospaced) : .system(size: 11.5))
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if canCopy {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(value, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("复制")
-            }
-        }
-    }
-
-    private func inspectorCard<Content: View>(title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .semibold))
+            if isSelfGH {
+                Text("注：GitHub 不允许 Approve 自己发起的 PR，将自动跳过审批步直接合并。")
+                    .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
-                Text(title)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.primary)
             }
-            content()
+
+            if !mr.webURL.isEmpty {
+                HStack(spacing: 8) {
+                    Button {
+                        appModel.openMRInBrowser(mr)
+                    } label: {
+                        Label("在浏览器中查看", systemImage: "globe")
+                    }
+                    .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+
+                    Button {
+                        appModel.copyMRWebURL(mr)
+                        copiedLink = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(2))
+                            copiedLink = false
+                        }
+                    } label: {
+                        Label(copiedLink ? "已复制" : "复制链接", systemImage: copiedLink ? "checkmark" : "doc.on.doc")
+                    }
+                    .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+                }
+            }
+
+            InspectorActionGroupLabel(title: "危险操作")
+
+            Button(role: .destructive) {
+                Task {
+                    await appModel.closeSelectedMR()
+                }
+            } label: {
+                Label("关闭 \(short)", systemImage: "xmark.circle")
+            }
+            .buttonStyle(InspectorActionButtonStyle(tone: .destructive))
+            .disabled(appModel.mrOperation.isRunning || mr.status == .merged || mr.status == .closed)
         }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-        )
     }
 
-    private func isActionable(_ mr: MergeRequestItem) -> Bool {
-        [.open, .ready, .blocked, .draft].contains(mr.status)
+    // MARK: - Helpers
+
+    private func ciBadgeTitle(_ state: PipelineState) -> String {
+        switch state {
+        case .passed: return "CI 通过"
+        case .pending: return "CI 运行中"
+        case .failed: return "CI 失败"
+        case .none: return "无 CI"
+        }
     }
 
     private func pipelineTint(_ state: PipelineState) -> Color {
         switch state {
-        case .passed:
-            return .green
-        case .pending:
-            return .orange
-        case .failed:
-            return .red
-        case .none:
-            return .gray
+        case .passed: return .green
+        case .pending: return .orange
+        case .failed: return .red
+        case .none: return .gray
         }
     }
 
-    private func pipelineSystemImage(_ state: PipelineState) -> String {
-        switch state {
-        case .passed:
-            return "checkmark.circle.fill"
-        case .pending:
-            return "hourglass"
-        case .failed:
-            return "xmark.circle.fill"
-        case .none:
-            return "minus.circle"
-        }
+    private func isActionable(_ mr: MergeRequestItem) -> Bool {
+        mr.status != .merged && mr.status != .closed
     }
 }

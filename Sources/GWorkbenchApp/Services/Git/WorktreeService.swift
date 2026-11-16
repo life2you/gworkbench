@@ -36,7 +36,10 @@ final class WorktreeService: Sendable {
     ) async throws -> WorktreeSnapshot {
         try await Task.detached(priority: .userInitiated) {
             onProgress(.init(title: "扫描项目", detail: "正在快速扫描本地仓库", current: 1, total: 3))
-            let projects = try self.gitCli.scanLocalProjects(rootDirs: config.projectsRootDirs)
+            let projects = try self.gitCli.scanLocalProjects(
+                rootDirs: config.projectsRootDirs,
+                forcedPlatform: config.forcedPlatform
+            )
             let metadataMap = try self.configService.loadWorktreeMetadataMap(metadataPath: config.metadataPath)
 
             onProgress(.init(title: "读取工作树", detail: "正在并行解析工作树与提交信息", current: 2, total: 3))
@@ -323,32 +326,34 @@ final class WorktreeService: Sendable {
         }
 
         let fileManager = FileManager.default
-        let sourceDirectory = URL(fileURLWithPath: sourceProjectPath).appendingPathComponent(".idea", isDirectory: true)
-        let targetDirectory = URL(fileURLWithPath: targetPath).appendingPathComponent(".idea", isDirectory: true)
-
-        guard fileManager.fileExists(atPath: sourceDirectory.path) else {
-            return ["主仓库未包含 .idea 目录，已跳过 IDE 配置同步"]
-        }
+        let projectSourceRoot = URL(fileURLWithPath: sourceProjectPath, isDirectory: true)
+        let projectTargetRoot = URL(fileURLWithPath: targetPath, isDirectory: true)
+        let ideaSourceRoot = projectSourceRoot.appendingPathComponent(".idea", isDirectory: true)
+        let ideaTargetRoot = projectTargetRoot.appendingPathComponent(".idea", isDirectory: true)
+        let rootRelativePrefixes = [".vscode/", ".idea/", ".zed/", ".cursor/", ".env"]
 
         var logs: [String] = []
         var copied: [String] = []
         var skipped: [String] = []
 
-        do {
-            try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
-        } catch {
-            return ["创建目标 .idea 目录失败，已跳过 IDE 配置同步: \(error.localizedDescription)"]
-        }
+        for rawItem in items {
+            let item = rawItem.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !item.isEmpty else { continue }
 
-        for item in items {
-            let sourceFile = sourceDirectory.appendingPathComponent(item)
-            let targetFile = targetDirectory.appendingPathComponent(item)
+            let isRootRelative = rootRelativePrefixes.contains { item.hasPrefix($0) }
+            let sourceFile = (isRootRelative ? projectSourceRoot : ideaSourceRoot).appendingPathComponent(item)
+            let targetFile = (isRootRelative ? projectTargetRoot : ideaTargetRoot).appendingPathComponent(item)
 
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: sourceFile.path, isDirectory: &isDirectory),
                   !isDirectory.boolValue else {
                 skipped.append(item)
                 continue
+            }
+
+            let targetParent = targetFile.deletingLastPathComponent()
+            if !fileManager.fileExists(atPath: targetParent.path) {
+                try? fileManager.createDirectory(at: targetParent, withIntermediateDirectories: true)
             }
 
             // 目标位置已存在同名项时先移除，保证复制结果与主仓库一致
@@ -399,19 +404,16 @@ final class WorktreeService: Sendable {
     }
 
     func openInIDE(config: WorktreeConfig, path: String) throws {
-        let expandedPath = ProcessRunner.expandPath(path)
-        switch config.ideMode {
-        case "app":
-            if !config.ideCommand.isEmpty {
-                _ = try ProcessRunner.runCommand("open", arguments: ["-a", config.ideCommand, expandedPath])
-                return
-            }
-            fallthrough
-        case "system":
-            _ = try ProcessRunner.runCommand("open", arguments: [expandedPath])
-        default:
-            _ = try ProcessRunner.runCommand("open", arguments: [expandedPath])
-        }
+        let profile = config.defaultIDEProfile
+        try openInIDE(profile: profile, path: path)
+    }
+
+    func openInIDE(profile: IDEProfile, path: String) throws {
+        try IDEService.shared.openDirectory(
+            path: path,
+            ideMode: profile.mode,
+            ideCommand: profile.command
+        )
     }
 
     func openInTerminal(path: String, terminalName: String = "Terminal", bundleID: String? = nil) throws {

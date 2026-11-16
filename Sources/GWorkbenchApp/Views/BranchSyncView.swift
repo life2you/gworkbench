@@ -35,6 +35,8 @@ struct BranchSyncView: View {
 
                         modeHeroCard
 
+                        visualPipelineSummaryCard
+
                         if appModel.localOperationMode.requiresSourceBranch {
                             sourceBranchCard
                         }
@@ -56,24 +58,6 @@ struct BranchSyncView: View {
 
     private var toolbarHeader: some View {
         HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                if appModel.availablePlatforms.count > 2 {
-                    platformMenu
-                }
-
-                Picker("项目", selection: localProjectBinding) {
-                    ForEach(appModel.filteredLocalMergeProjects) { project in
-                        Text("\(project.platform == .github ? "🐙 " : (project.platform == .gitlab ? "🦊 " : ""))\(project.displayName)").tag(Optional(project.id))
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(minWidth: 150, maxWidth: 200)
-            }
-
-            Divider()
-                .frame(height: 18)
-                .padding(.horizontal, 2)
-
             Picker("执行模式", selection: localOperationModeBinding) {
                 ForEach(LocalBranchOperationMode.allCases) { mode in
                     Label(mode.rawValue, systemImage: mode.systemImage).tag(mode)
@@ -81,88 +65,154 @@ struct BranchSyncView: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 380)
+            .frame(width: 400)
 
             Spacer(minLength: 8)
 
-            Button {
-                Task {
-                    await appModel.refreshLocalMergeProjects()
-                }
-            } label: {
-                Label("刷新", systemImage: "arrow.clockwise")
-            }
-            .help("重新读取本地项目分支与环境配置")
-
-            Button {
-                Task {
-                    await appModel.executeLocalOperation()
-                }
-            } label: {
-                HStack(spacing: 5) {
-                    if appModel.localOperation.isRunning {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("执行中...")
-                    } else {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10))
-                        Text("开始执行")
-                    }
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!appModel.canExecuteLocalOperation || appModel.localOperation.isRunning)
+            let targetsCount = appModel.resolvedLocalOperationTargets.count
+            Text("待同步目标：\(targetsCount) 个")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.25))
+    }
+
+    private var visualPipelineSummaryCard: some View {
+        let sourceText = appModel.localOperationMode.requiresSourceBranch
+            ? (appModel.localOperationSourceBranch.isEmpty ? "未选择" : appModel.localOperationSourceBranch)
+            : "各环境远端基线"
+        let middleText = appModel.activeWorkspace?.mergeBranchMiddle.trimmedNonEmpty ?? appModel.appConfig?.mergeBranchMiddle.trimmedNonEmpty ?? "sync"
+        let targets = appModel.resolvedLocalOperationTargets
+        let targetsText = targets.isEmpty ? "未选择" : targets.joined(separator: ", ")
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("可视化同步链路预览")
+                    .font(.system(size: 12.5, weight: .semibold))
+                Spacer()
+                StatusPill(title: "中间词: \(middleText)", tint: .orange)
+            }
+
+            HStack(spacing: 8) {
+                pipelineNodeCard(step: "1. 源分支", value: sourceText, tint: .green)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.tertiary)
+                pipelineNodeCard(step: "2. 集成分支", value: "<env>_\(middleText)", tint: .secondary)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.tertiary)
+                pipelineNodeCard(step: "3. 推送目标 (\(targets.count))", value: targetsText, tint: targets.isEmpty ? .orange : .blue)
+            }
+        }
+        .padding(14)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.42))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.secondary.opacity(0.16), lineWidth: 0.7)
+        )
+    }
+
+    private func pipelineNodeCard(step: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(step)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(tint.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(tint.opacity(0.32), lineWidth: 0.7)
+        )
     }
 
     // MARK: - Mode Hero Card
 
+    @ViewBuilder
     private var modeHeroCard: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.accentColor.opacity(0.15))
-                    .frame(width: 44, height: 44)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
-                    )
-                Image(systemName: appModel.localOperationMode.systemImage)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text(appModel.localOperationMode.rawValue)
-                        .font(.system(size: 14, weight: .semibold))
-                    StatusPill(title: appModel.localOperationMode.id, tint: .blue)
+        if appModel.activePlatform == .github {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.purple)
+                        Text("GitHub 主干同步模式")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    Spacer()
+                    StatusPill(title: "轻量合流", tint: .purple)
                 }
-                Text(appModel.localOperationMode.detailedDescription)
-                    .font(.system(size: 12))
+                Text("选择本地源分支后，可快捷合入 main 或自定义目标分支；遇到冲突时同样支持一键拉起 Rebased 解决。")
+                    .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.purple.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.purple.opacity(0.32), lineWidth: 0.75)
+            )
+        } else {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.accentColor.opacity(0.15))
+                        .frame(width: 44, height: 44)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+                        )
+                    Image(systemName: appModel.localOperationMode.systemImage)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
 
-            Spacer()
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(appModel.localOperationMode.rawValue)
+                            .font(.system(size: 14, weight: .semibold))
+                        StatusPill(title: appModel.localOperationMode.id, tint: .blue)
+                    }
+                    Text(appModel.localOperationMode.detailedDescription)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+            }
+            .padding(14)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+            )
         }
-        .padding(14)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-        )
     }
 
     // MARK: - Source Branch Card
 
     private var sourceBranchCard: some View {
-        SectionCard(title: "源分支 (Source Branch)") {
+        SectionCard(title: "1. 源分支 (Source)") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     HStack(spacing: 6) {
@@ -266,7 +316,7 @@ struct BranchSyncView: View {
     // MARK: - Target Pipeline Flow Card
 
     private var targetPipelineCard: some View {
-        SectionCard(title: "目标分支流向 (Target Flow)") {
+        SectionCard(title: "2. 目标分支队列 (Targets)") {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text(targetPipelineHeaderSubtitle)
@@ -554,34 +604,6 @@ struct BranchSyncView: View {
     }
 
     // MARK: - Bindings
-
-    private var platformMenu: some View {
-        Menu {
-            ForEach(appModel.availablePlatforms) { p in
-                Button {
-                    appModel.selectedPlatformFilter = p
-                } label: {
-                    HStack {
-                        Text(p.displayName)
-                        if appModel.selectedPlatformFilter == p {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: appModel.selectedPlatformFilter.icon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(appModel.selectedPlatformFilter.tintColor)
-                Text(appModel.selectedPlatformFilter.shortName)
-                    .font(.system(size: 11.5, weight: .medium))
-            }
-        }
-        .menuStyle(.borderedButton)
-        .controlSize(.small)
-        .fixedSize()
-    }
 
     private var localOperationModeBinding: Binding<LocalBranchOperationMode> {
         Binding(

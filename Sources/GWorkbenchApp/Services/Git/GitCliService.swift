@@ -146,6 +146,7 @@ final class ProjectScanCache: @unchecked Sendable {
 
     private struct Cached {
         let roots: [String]
+        let forcedPlatform: RepositoryPlatform?
         let projects: [LocalProject]
         let timestamp: Date
     }
@@ -154,19 +155,19 @@ final class ProjectScanCache: @unchecked Sendable {
     private var cached: Cached?
     private let ttl: TimeInterval = 2.0
 
-    func cachedProjects(rootDirs: [String]) -> [LocalProject]? {
+    func cachedProjects(rootDirs: [String], forcedPlatform: RepositoryPlatform? = nil) -> [LocalProject]? {
         lock.lock()
         defer { lock.unlock() }
         guard let cached else { return nil }
-        guard cached.roots == rootDirs else { return nil }
+        guard cached.roots == rootDirs, cached.forcedPlatform == forcedPlatform else { return nil }
         guard Date().timeIntervalSince(cached.timestamp) <= ttl else { return nil }
         return cached.projects
     }
 
-    func store(_ projects: [LocalProject], rootDirs: [String]) {
+    func store(_ projects: [LocalProject], rootDirs: [String], forcedPlatform: RepositoryPlatform? = nil) {
         lock.lock()
         defer { lock.unlock() }
-        cached = Cached(roots: rootDirs, projects: projects, timestamp: Date())
+        cached = Cached(roots: rootDirs, forcedPlatform: forcedPlatform, projects: projects, timestamp: Date())
     }
 
     func invalidate() {
@@ -195,16 +196,118 @@ final class GitLabHostStore: @unchecked Sendable {
     }
 }
 
+/// 全局 Git HTTPS Token 凭据缓存（供 fetch/pull/push 在 HTTPS 仓库下自动认证，不污染 .git/config）
+final class GitCredentialStore: @unchecked Sendable {
+    static let shared = GitCredentialStore()
+    private var gitlabToken: String = ""
+    private var githubToken: String = ""
+    private let lock = NSLock()
+
+    func update(gitlabToken: String, githubToken: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.gitlabToken = gitlabToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.githubToken = githubToken.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func tokens() -> (gitlab: String, github: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (gitlabToken, githubToken)
+    }
+}
+
 final class GitCliService: Sendable {
     init() {}
 
-    func scanLocalProjects(rootDirs: [String]) throws -> [LocalProject] {
+    /// 零子进程纯文件系统快扫：在切换工作区标签的 0~3ms 内立即拿到所有仓库列表与当前分支名
+    func scanProjectPlaceholders(rootDirs: [String], forcedPlatform: RepositoryPlatform? = nil) -> [LocalProject] {
+        guard !rootDirs.isEmpty else { return [] }
+        if let cached = ProjectScanCache.shared.cachedProjects(rootDirs: rootDirs, forcedPlatform: forcedPlatform) {
+            return cached
+        }
+
+        var seen = Set<String>()
+        var raw: [(name: String, path: String, sourceRoot: String, branch: String, platform: RepositoryPlatform)] = []
+
+        for rootDir in rootDirs {
+            let expandedRoot = ProcessRunner.expandPath(rootDir)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: expandedRoot, isDirectory: &isDirectory), isDirectory.boolValue else {
+                continue
+            }
+            guard let children = try? FileManager.default.contentsOfDirectory(atPath: expandedRoot) else {
+                continue
+            }
+            for child in children {
+                let candidate = URL(fileURLWithPath: expandedRoot).appendingPathComponent(child).path
+                var isCandidateDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isCandidateDirectory), isCandidateDirectory.boolValue else {
+                    continue
+                }
+                var isGitDirectory: ObjCBool = false
+                let gitPath = URL(fileURLWithPath: candidate).appendingPathComponent(".git").path
+                guard FileManager.default.fileExists(atPath: gitPath, isDirectory: &isGitDirectory), isGitDirectory.boolValue else {
+                    continue
+                }
+                let normalized = ProcessRunner.normalizePath(candidate)
+                guard seen.insert(normalized).inserted else { continue }
+
+                let branch = Self.readBranchFromHEAD(projectPath: normalized) ?? "HEAD"
+                let remoteURL = Self.readOriginURLFromGitConfig(projectPath: normalized)
+                let platform = forcedPlatform ?? RepositoryPlatform.detect(remoteURL: remoteURL)
+                raw.append((
+                    name: URL(fileURLWithPath: normalized).lastPathComponent,
+                    path: normalized,
+                    sourceRoot: ProcessRunner.normalizePath(expandedRoot),
+                    branch: branch,
+                    platform: platform
+                ))
+            }
+        }
+
+        let nameCounts = Dictionary(grouping: raw, by: \.name).mapValues(\.count)
+        return raw
+            .sorted { $0.name != $1.name ? $0.name < $1.name : $0.path < $1.path }
+            .map { item in
+                let displayName = nameCounts[item.name, default: 0] > 1
+                    ? "\(item.name) (\(URL(fileURLWithPath: item.sourceRoot).lastPathComponent))"
+                    : item.name
+                return LocalProject(
+                    id: item.path,
+                    name: item.name,
+                    displayName: displayName,
+                    path: item.path,
+                    sourceRoot: item.sourceRoot,
+                    currentBranch: item.branch,
+                    baseBranches: [],
+                    localBranches: [item.branch],
+                    remoteURL: nil,
+                    platform: item.platform
+                )
+            }
+    }
+
+    private static func readBranchFromHEAD(projectPath: String) -> String? {
+        let headPath = URL(fileURLWithPath: projectPath).appendingPathComponent(".git/HEAD").path
+        guard let content = try? String(contentsOfFile: headPath, encoding: .utf8) else { return nil }
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("ref: refs/heads/") {
+            return String(trimmed.dropFirst("ref: refs/heads/".count))
+        }
+        if trimmed.count >= 7 {
+            return String(trimmed.prefix(7))
+        }
+        return nil
+    }
+
+    func scanLocalProjects(rootDirs: [String], forcedPlatform: RepositoryPlatform? = nil) throws -> [LocalProject] {
         guard !rootDirs.isEmpty else {
             throw WorkbenchError.message("至少需要一个项目根目录")
         }
 
         // 短期缓存：三个调用方在极短时间内请求同一批根目录时直接复用结果
-        if let cached = ProjectScanCache.shared.cachedProjects(rootDirs: rootDirs) {
+        if let cached = ProjectScanCache.shared.cachedProjects(rootDirs: rootDirs, forcedPlatform: forcedPlatform) {
             return cached
         }
 
@@ -288,16 +391,19 @@ final class GitCliService: Sendable {
                 switch probe {
                 case .url(let value):
                     remoteURL = value
-                    platform = RepositoryPlatform.detect(remoteURL: value)
-                    PlatformCache.shared.set(value, for: c.path)
+                    platform = forcedPlatform ?? RepositoryPlatform.detect(remoteURL: value)
+                    PlatformCache.shared.set(platform: platform, url: value, for: c.path)
                 case .noRemoteConfigured:
                     remoteURL = nil
-                    platform = .local
-                    PlatformCache.shared.set(nil, for: c.path)
+                    platform = forcedPlatform ?? .local
+                    PlatformCache.shared.set(platform: platform, url: nil, for: c.path)
                 case .probeFailed:
                     // 探测失败：绝不因为偶发进程失败就把仓库降级为「本地」
-                    // 优先级：历史缓存 → 直接解析 .git/config → 远端跟踪分支兜底
-                    if let cached = PlatformCache.shared.platform(for: c.path) {
+                    // 优先级：工作区显式平台 → 历史缓存 → 直接解析 .git/config → 远端跟踪分支兜底
+                    if let forcedPlatform {
+                        remoteURL = Self.readOriginURLFromGitConfig(projectPath: c.path)
+                        platform = forcedPlatform
+                    } else if let cached = PlatformCache.shared.platform(for: c.path) {
                         remoteURL = PlatformCache.shared.url(for: c.path)
                         platform = cached
                     } else if let urlFromFile = Self.readOriginURLFromGitConfig(projectPath: c.path) {
@@ -360,7 +466,7 @@ final class GitCliService: Sendable {
                 )
             }
 
-        ProjectScanCache.shared.store(result, rootDirs: rootDirs)
+        ProjectScanCache.shared.store(result, rootDirs: rootDirs, forcedPlatform: forcedPlatform)
         return result
     }
 
@@ -548,7 +654,7 @@ final class GitCliService: Sendable {
     }
 
     /// 并行检测分支是否已经合入每个指定基线分支（支持多候选分支，如权威基线及环境合并分支）
-    /// - targetCandidates: 每个目标对应按优先级排列的候选分支列表，如 "stage" -> ["origin/stage", "stage", "origin/stage_henry_meger", "stage_henry_meger"]
+    /// - targetCandidates: 每个目标对应按优先级排列的候选分支列表，如 "stage" -> ["origin/stage", "stage", "origin/stage_sync", "stage_sync"]
     /// - 返回: (mergedStatus: [基线名: 是否合入], matchedBranches: [基线名: 命中的分支名])
     func checkBranchMergedTargetsWithDetails(
         projectPath: String,
@@ -897,12 +1003,46 @@ final class GitCliService: Sendable {
             .filter { !$0.isEmpty }
     }
 
+    private func runNetworkGit(path: String, arguments: [String]) throws -> ShellResult {
+        let remoteURL = PlatformCache.shared.url(for: path) ?? remoteOriginURL(projectPath: path)
+        if let remoteURL,
+           remoteURL.hasPrefix("http://") || remoteURL.hasPrefix("https://") {
+            let platform = RepositoryPlatform.detect(remoteURL: remoteURL)
+            let tokens = GitCredentialStore.shared.tokens()
+            var username: String?
+            var token: String = ""
+
+            switch platform {
+            case .github:
+                token = GitHubProvider.resolveToken(configuredToken: tokens.github)
+                username = "x-access-token"
+            case .gitlab:
+                token = tokens.gitlab
+                username = "oauth2"
+            case .local, .all:
+                break
+            }
+
+            if let username, !token.isEmpty {
+                let helper = "!f() { echo \"username=$GWORKBENCH_GIT_USER\"; echo \"password=$GWORKBENCH_GIT_TOKEN\"; }; f"
+                let fullArgs = ["-c", "credential.helper=\(helper)"] + arguments
+                let env = [
+                    "GWORKBENCH_GIT_USER": username,
+                    "GWORKBENCH_GIT_TOKEN": token,
+                    "GIT_TERMINAL_PROMPT": "0"
+                ]
+                return try ProcessRunner.runGit(arguments: fullArgs, environment: env)
+            }
+        }
+        return try ProcessRunner.runGit(arguments: arguments)
+    }
+
     func fetch(projectPath: String, remote: String = "origin") throws {
-        _ = try ProcessRunner.runGit(arguments: ["-C", projectPath, "fetch", remote])
+        _ = try runNetworkGit(path: projectPath, arguments: ["-C", projectPath, "fetch", remote])
     }
 
     func pull(projectPath: String, remote: String = "origin", branch: String) throws {
-        _ = try ProcessRunner.runGit(arguments: ["-C", projectPath, "pull", remote, branch])
+        _ = try runNetworkGit(path: projectPath, arguments: ["-C", projectPath, "pull", remote, branch])
     }
 
     func push(projectPath: String, remote: String = "origin", branch: String, setUpstream: Bool = false) throws {
@@ -911,7 +1051,7 @@ final class GitCliService: Sendable {
             args.append("-u")
         }
         args.append(contentsOf: [remote, branch])
-        _ = try ProcessRunner.runGit(arguments: args)
+        _ = try runNetworkGit(path: projectPath, arguments: args)
     }
 
     func deleteLocalBranch(projectPath: String, branch: String) throws {
@@ -919,7 +1059,7 @@ final class GitCliService: Sendable {
     }
 
     func deleteRemoteBranch(projectPath: String, remote: String = "origin", branch: String) throws {
-        _ = try ProcessRunner.runGit(arguments: ["-C", projectPath, "push", remote, "--delete", branch])
+        _ = try runNetworkGit(path: projectPath, arguments: ["-C", projectPath, "push", remote, "--delete", branch])
     }
 
     func addWorktree(projectPath: String, targetPath: String, branch: String, newBranchFrom: String? = nil) throws {
@@ -998,11 +1138,11 @@ final class GitCliService: Sendable {
     }
 
     func fetchWorktree(worktreePath: String) throws {
-        _ = try ProcessRunner.runGit(arguments: ["-C", worktreePath, "fetch"])
+        _ = try runNetworkGit(path: worktreePath, arguments: ["-C", worktreePath, "fetch"])
     }
 
     func pullWorktree(worktreePath: String) throws {
-        _ = try ProcessRunner.runGit(arguments: ["-C", worktreePath, "pull"])
+        _ = try runNetworkGit(path: worktreePath, arguments: ["-C", worktreePath, "pull"])
     }
 
     func pushWorktree(worktreePath: String) throws {
@@ -1010,10 +1150,10 @@ final class GitCliService: Sendable {
         if upstream == nil || upstream == "未配置" {
             let branch = try currentLocalBranch(projectPath: worktreePath)
             if branch != "detached" && branch != "未提交" {
-                _ = try ProcessRunner.runGit(arguments: ["-C", worktreePath, "push", "-u", "origin", branch])
+                _ = try runNetworkGit(path: worktreePath, arguments: ["-C", worktreePath, "push", "-u", "origin", branch])
                 return
             }
         }
-        _ = try ProcessRunner.runGit(arguments: ["-C", worktreePath, "push"])
+        _ = try runNetworkGit(path: worktreePath, arguments: ["-C", worktreePath, "push"])
     }
 }

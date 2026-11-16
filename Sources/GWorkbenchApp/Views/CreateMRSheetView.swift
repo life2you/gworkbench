@@ -77,7 +77,7 @@ struct CreateMRSheetView: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("新建合并请求 (Merge Request)")
+                Text("新建 \(appModel.requestSectionTitle) (\(appModel.requestShortLabel))")
                     .font(.system(size: 14, weight: .semibold))
 
                 HStack(spacing: 6) {
@@ -275,7 +275,7 @@ struct CreateMRSheetView: View {
 
     private var footerBar: some View {
         HStack {
-            Text("将在 GitLab 上创建新合并请求，审批与合流操作在列表中进行。")
+            Text("将在 \(appModel.currentMergeProject?.platform == .github ? "GitHub" : "GitLab") 上创建新 \(appModel.requestShortLabel)，审批与合流操作在列表中进行。")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
 

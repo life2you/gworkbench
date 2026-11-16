@@ -1,5 +1,28 @@
 import Foundation
 
+enum MainlineRestoreResult: Sendable, Equatable {
+    case notConfigured
+    case alreadyOnMainline(branch: String)
+    case switched(branch: String)
+    case branchNotFound(candidates: [String])
+    case failed(branch: String, message: String)
+
+    var logLine: String {
+        switch self {
+        case .notConfigured:
+            return "未配置主干分支，保持停留在当前分支"
+        case .alreadyOnMainline(let branch):
+            return "当前已在主干分支: \(branch)"
+        case .switched(let branch):
+            return "已自动切换回主干分支: \(branch)"
+        case .branchNotFound(let candidates):
+            return "未切回主干分支: 仓库中未找到已配置的主干分支 (\(candidates.joined(separator: ", ")))"
+        case .failed(let branch, let message):
+            return "切回主干分支失败 (\(branch)): \(message)"
+        }
+    }
+}
+
 struct LocalBranchExecutionResult: Sendable {
     let sourceBranch: String
     let targetBranch: String
@@ -17,14 +40,14 @@ final class BranchSyncService: Sendable {
     func effectiveMRBranchMappings(config: MergeWorkflowConfig) -> [BranchMapping] {
         let currentDefaults = config.envBranches.map {
             BranchMapping(
-                source: "\($0)_\(config.mergeBranchMiddle)_meger",
+                source: "\($0)_\(config.mergeBranchMiddle)",
                 target: $0,
                 protectedTarget: config.protectedTargets.contains($0)
             )
         }
 
         let hasCustomMappings = config.branchMap.contains { source, target in
-            source != "\(target)_\(config.mergeBranchMiddle)_meger"
+            source != "\(target)_\(config.mergeBranchMiddle)"
         }
 
         if !hasCustomMappings {
@@ -33,7 +56,7 @@ final class BranchSyncService: Sendable {
 
         var merged = Dictionary(uniqueKeysWithValues: currentDefaults.map { ($0.source, $0.target) })
         for (source, target) in config.branchMap {
-            let isDefaultLike = source == "\(target)_\(config.mergeBranchMiddle)_meger"
+            let isDefaultLike = source == "\(target)_\(config.mergeBranchMiddle)" || source == "\(target)_\(config.mergeBranchMiddle)_meger"
             let targetIsCurrentEnv = config.envBranches.contains(target)
             if isDefaultLike && !targetIsCurrentEnv {
                 continue
@@ -59,13 +82,16 @@ final class BranchSyncService: Sendable {
 
     func localTargetMergeBranches(config: MergeWorkflowConfig, projectName: String) -> [(String, String)] {
         config.envBranches.map { envBranch in
-            (envBranch, mergeBranchName(envBranch: envBranch, config: config, projectName: projectName))
+            if let mapped = config.branchMap.first(where: { $0.value == envBranch })?.key {
+                return (envBranch, mapped)
+            }
+            return (envBranch, mergeBranchName(envBranch: envBranch, config: config, projectName: projectName))
         }
     }
 
     static func mergeBranchName(envBranch: String, middle: String, projectName: String) -> String {
         let actualMiddle = middle == "PROJECT_NAME" ? projectName : middle
-        return "\(envBranch)_\(actualMiddle)_meger"
+        return "\(envBranch)_\(actualMiddle)"
     }
 
     func mergeBranchName(envBranch: String, config: MergeWorkflowConfig, projectName: String) -> String {
@@ -78,7 +104,10 @@ final class BranchSyncService: Sendable {
     ) async throws -> LocalMergeContext {
         onProgress(.init(title: "扫描本地项目", detail: "正在读取可用仓库", current: 1, total: 3))
         let localProjects = try await Task.detached(priority: .userInitiated) {
-            try self.gitCli.scanLocalProjects(rootDirs: config.rootDirs)
+            try self.gitCli.scanLocalProjects(
+                rootDirs: config.rootDirs,
+                forcedPlatform: config.forcedPlatform
+            )
         }.value
 
         onProgress(.init(title: "整理分支数据", detail: "正在读取本地分支与目标映射", current: 2, total: 3))
@@ -176,7 +205,8 @@ final class BranchSyncService: Sendable {
     ) throws -> [LocalBranchExecutionResult] {
         let targets = localTargetMergeBranches(config: config, projectName: project.name)
         var results: [LocalBranchExecutionResult] = []
-        let totalSteps = max(targets.count * 2, 1)
+        let hasMainline = !config.mainlineBranches.filterNonEmpty().isEmpty
+        let totalSteps = max(targets.count * 2 + (hasMainline ? 1 : 0), 1)
         var currentStep = 0
 
         for (envBranch, mergeBranch) in targets {
@@ -226,12 +256,33 @@ final class BranchSyncService: Sendable {
             }
         }
 
+        let restoreResult = restoreMainlineBranchIfConfigured(
+            projectPath: project.path,
+            mainlineBranches: config.mainlineBranches
+        )
+        if case .notConfigured = restoreResult {
+            onProgress(.init(
+                title: "保持当前分支",
+                detail: restoreResult.logLine,
+                current: totalSteps,
+                total: totalSteps
+            ))
+        } else {
+            currentStep += 1
+            onProgress(.init(
+                title: "切回主干分支",
+                detail: restoreResult.logLine,
+                current: totalSteps,
+                total: totalSteps
+            ))
+        }
+
         return results
     }
 
     func mergeToTargetsWithProgress(
         project: MergeProject,
-        config _: MergeWorkflowConfig,
+        config: MergeWorkflowConfig,
         sourceBranch: String,
         targets: [String],
         onProgress: @escaping @Sendable (OperationProgress) -> Void
@@ -244,13 +295,15 @@ final class BranchSyncService: Sendable {
             throw WorkbenchError.message("源分支不存在: \(sourceBranch)")
         }
 
+        let hasMainline = !config.mainlineBranches.filterNonEmpty().isEmpty
+        let totalSteps = targets.count + (hasMainline ? 1 : 0)
         var results: [LocalBranchExecutionResult] = []
         for (index, target) in targets.enumerated() {
             onProgress(.init(
                 title: "合并并推送目标分支",
                 detail: "\(sourceBranch) -> \(target)",
                 current: index + 1,
-                total: targets.count
+                total: totalSteps
             ))
 
             do {
@@ -270,7 +323,61 @@ final class BranchSyncService: Sendable {
                 ))
             }
         }
+
+        let restoreResult = restoreMainlineBranchIfConfigured(
+            projectPath: project.path,
+            mainlineBranches: config.mainlineBranches
+        )
+        if case .notConfigured = restoreResult {
+            onProgress(.init(
+                title: "保持当前分支",
+                detail: restoreResult.logLine,
+                current: totalSteps,
+                total: totalSteps
+            ))
+        } else {
+            onProgress(.init(
+                title: "切回主干分支",
+                detail: restoreResult.logLine,
+                current: totalSteps,
+                total: totalSteps
+            ))
+        }
+
         return results
+    }
+
+    /// 同步/合并完成后，若配置了主干分支，则自动切回首个命中的主干分支；未配置则不做任何切换。
+    func restoreMainlineBranchIfConfigured(
+        projectPath: String,
+        mainlineBranches: [String]
+    ) -> MainlineRestoreResult {
+        let candidates = mainlineBranches.filterNonEmpty()
+        guard !candidates.isEmpty else {
+            return .notConfigured
+        }
+
+        let current = (try? gitCli.currentLocalBranch(projectPath: projectPath))?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        for candidate in candidates {
+            if current == candidate {
+                return .alreadyOnMainline(branch: candidate)
+            }
+            do {
+                if try gitCli.localBranchExists(projectPath: projectPath, branch: candidate) {
+                    try gitCli.checkoutBranch(projectPath: projectPath, branch: candidate)
+                    return .switched(branch: candidate)
+                }
+                if try gitCli.remoteBranchExists(projectPath: projectPath, branch: candidate) {
+                    try gitCli.checkoutNewBranch(projectPath: projectPath, branch: candidate, from: "origin/\(candidate)")
+                    return .switched(branch: candidate)
+                }
+            } catch {
+                return .failed(branch: candidate, message: error.localizedDescription)
+            }
+        }
+
+        return .branchNotFound(candidates: candidates)
     }
 
     func updateBranch(projectPath: String, branch: String) throws {

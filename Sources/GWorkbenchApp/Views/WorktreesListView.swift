@@ -64,25 +64,6 @@ struct WorktreesListView: View {
 
     private var toolbarHeader: some View {
         HStack(spacing: 10) {
-            // 项目与平台选择
-            HStack(spacing: 8) {
-                if appModel.availablePlatforms.count > 2 {
-                    platformMenu
-                }
-
-                Picker("项目", selection: projectBinding) {
-                    ForEach(appModel.filteredWorktreeProjects) { project in
-                        Text("\(project.platform == .github ? "🐙 " : (project.platform == .gitlab ? "🦊 " : ""))\(project.displayName)").tag(Optional(project.id))
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(minWidth: 150, maxWidth: 200)
-            }
-
-            Divider()
-                .frame(height: 18)
-                .padding(.horizontal, 2)
-
             // 工作树分支状态分类分段控制器
             Picker("工作树分类", selection: categoryBinding) {
                 ForEach(WorktreeCategoryFilter.allCases) { filter in
@@ -91,7 +72,7 @@ struct WorktreesListView: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 220)
+            .frame(width: 240)
 
             Spacer()
 
@@ -121,27 +102,11 @@ struct WorktreesListView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
             )
-            .frame(width: 180)
-
-            Button {
-                Task {
-                    await appModel.refreshWorktrees()
-                }
-            } label: {
-                Label("刷新", systemImage: "arrow.clockwise")
-            }
-            .help("重新扫描工作树状态")
-
-            Button {
-                appModel.prepareCreateWorktree()
-            } label: {
-                Label("新建工作树", systemImage: "plus")
-            }
-            .buttonStyle(.borderedProminent)
+            .frame(width: 220)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.vertical, 7)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.25))
     }
 
     // MARK: - Worktrees Table
@@ -236,12 +201,14 @@ struct WorktreesListView: View {
 
     @ViewBuilder
     private func worktreeContextMenu(for item: WorktreeItem) -> some View {
-        Button {
-            appModel.selectedWorktreeID = item.id
-            appModel.openWorktreeInIDE(item)
-        } label: {
-            Label("在 IDE 中打开", systemImage: "arrow.up.forward.app")
-        }
+        IDEOpenContextMenuContent(
+            profiles: appModel.configuredIDEProfiles,
+            defaultProfile: appModel.defaultIDEProfile,
+            onOpen: { ide in
+                appModel.selectedWorktreeID = item.id
+                appModel.openWorktreeInIDE(item, ide: ide)
+            }
+        )
 
         Button {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
@@ -282,34 +249,6 @@ struct WorktreesListView: View {
     }
 
     // MARK: - Bindings
-
-    private var platformMenu: some View {
-        Menu {
-            ForEach(appModel.availablePlatforms) { p in
-                Button {
-                    appModel.selectedPlatformFilter = p
-                } label: {
-                    HStack {
-                        Text(p.displayName)
-                        if appModel.selectedPlatformFilter == p {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: appModel.selectedPlatformFilter.icon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(appModel.selectedPlatformFilter.tintColor)
-                Text(appModel.selectedPlatformFilter.shortName)
-                    .font(.system(size: 11.5, weight: .medium))
-            }
-        }
-        .menuStyle(.borderedButton)
-        .controlSize(.small)
-        .fixedSize()
-    }
 
     private var categoryBinding: Binding<WorktreeCategoryFilter> {
         Binding(

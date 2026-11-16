@@ -18,7 +18,7 @@ final class WorkbenchService: Sendable {
         self.gitCliService = gitCliService
         self.worktreeService = worktreeService ?? WorktreeService(gitCli: gitCliService, configService: configService)
         self.branchSyncService = branchSyncService ?? BranchSyncService(gitCli: gitCliService)
-        self.hostingProvider = hostingProvider ?? GitLabProvider(gitCli: gitCliService)
+        self.hostingProvider = hostingProvider ?? CompositeHostingProvider(gitCli: gitCliService)
     }
 
     func loadWorkbenchConfig() async throws -> GWorkbenchConfig {
@@ -41,11 +41,12 @@ final class WorkbenchService: Sendable {
     }
 
     func loadWorktreeSnapshot(
+        workspace: WorkspaceProfile? = nil,
         onProgress: @escaping @Sendable (OperationProgress) -> Void
     ) async throws -> WorktreeSnapshot {
         onProgress(.init(title: "读取 GWorkbench 配置", detail: "正在定位桌面版配置文件", current: 0, total: 4))
         let config = try await Task.detached(priority: .userInitiated) {
-            try self.configService.loadWorkbenchConfig().asWorktreeConfig()
+            try self.configService.loadWorkbenchConfig().asWorktreeConfig(for: workspace)
         }.value
         return try await worktreeService.loadWorktreeSnapshot(config: config, onProgress: onProgress)
     }
@@ -84,28 +85,33 @@ final class WorkbenchService: Sendable {
     }
 
     func loadLocalMergeContext(
+        workspace: WorkspaceProfile? = nil,
         onProgress: @escaping @Sendable (OperationProgress) -> Void
     ) async throws -> LocalMergeContext {
         onProgress(.init(title: "读取项目配置", detail: "正在定位本地分支同步配置", current: 0, total: 3))
         let config = try await Task.detached(priority: .userInitiated) {
             let workbenchConfig = try self.configService.loadWorkbenchConfig()
-            return workbenchConfig.asMergeWorkflowConfig()
+            return workbenchConfig.asMergeWorkflowConfig(for: workspace)
         }.value
 
         return try await branchSyncService.loadLocalMergeContext(config: config, onProgress: onProgress)
     }
 
     func loadMergeContext(
+        workspace: WorkspaceProfile? = nil,
         onProgress: @escaping @Sendable (OperationProgress) -> Void
     ) async throws -> MergeRequestContext {
-        onProgress(.init(title: "读取 GWorkbench 配置", detail: "正在定位 GitLab 与分支映射配置", current: 0, total: 4))
+        onProgress(.init(title: "读取 GWorkbench 配置", detail: "正在定位托管平台与分支映射配置", current: 0, total: 4))
         let config = try await Task.detached(priority: .userInitiated) {
-            try self.configService.loadWorkbenchConfig().asMergeWorkflowConfig()
+            try self.configService.loadWorkbenchConfig().asMergeWorkflowConfig(for: workspace)
         }.value
 
         onProgress(.init(title: "扫描本地项目", detail: "正在读取可用仓库", current: 1, total: 4))
         let localProjects = try await Task.detached(priority: .userInitiated) {
-            try self.gitCliService.scanLocalProjects(rootDirs: config.rootDirs)
+            try self.gitCliService.scanLocalProjects(
+                rootDirs: config.rootDirs,
+                forcedPlatform: config.forcedPlatform
+            )
         }.value
 
         let mappings = branchSyncService.effectiveMRBranchMappings(config: config)
@@ -203,6 +209,10 @@ final class WorkbenchService: Sendable {
 
     func openInIDE(config: WorktreeConfig, path: String) throws {
         try worktreeService.openInIDE(config: config, path: path)
+    }
+
+    func openInIDE(profile: IDEProfile, path: String) throws {
+        try worktreeService.openInIDE(profile: profile, path: path)
     }
 
     func openInTerminal(path: String, terminalName: String = "Terminal", bundleID: String? = nil) throws {

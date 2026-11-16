@@ -525,17 +525,54 @@ struct ConsoleChangesTabView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let item = appModel.selectedWorktree {
-                    Button {
-                        appModel.openWorktreeInIDE(item)
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: "arrow.up.forward.app")
-                            Text("在 IDE 中打开整个工作树")
+                    if appModel.configuredIDEProfiles.count > 1 {
+                        HStack(spacing: 6) {
+                            Button {
+                                appModel.openWorktreeInIDE(item)
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "arrow.up.forward.app")
+                                    Text("在 \(appModel.defaultIDEProfile.effectiveLabel) 中打开整个工作树")
+                                }
+                                .font(.system(size: 11))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+
+                            Menu {
+                                ForEach(appModel.configuredIDEProfiles) { ide in
+                                    Button {
+                                        appModel.openWorktreeInIDE(item, ide: ide)
+                                    } label: {
+                                        if ide.id == appModel.defaultIDEProfile.id {
+                                            Label("\(ide.effectiveLabel)（默认）", systemImage: "star.fill")
+                                        } else {
+                                            Label(ide.effectiveLabel, systemImage: "macwindow")
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                            .help("选择其他已配置的编辑器打开工作树")
                         }
-                        .font(.system(size: 11))
+                    } else {
+                        Button {
+                            appModel.openWorktreeInIDE(item)
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "arrow.up.forward.app")
+                                Text("在 IDE 中打开整个工作树")
+                            }
+                            .font(.system(size: 11))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.accentColor)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
                 }
             }
             .padding(.horizontal, 10)
@@ -612,9 +649,13 @@ struct ConsoleChangesTabView: View {
             appModel.openFileInIDE(path: change.path)
         }
         .contextMenu {
-            Button("在 IDE 中打开") {
-                appModel.openFileInIDE(path: change.path)
-            }
+            IDEOpenContextMenuContent(
+                profiles: appModel.configuredIDEProfiles,
+                defaultProfile: appModel.defaultIDEProfile,
+                onOpen: { ide in
+                    appModel.openFileInIDE(path: change.path, ide: ide)
+                }
+            )
             Button("复制相对路径") {
                 appModel.copyFilePath(change.path, relative: true)
             }
@@ -1106,3 +1147,1181 @@ struct ProStatusBarView: View {
             .foregroundStyle(.tertiary)
     }
 }
+
+// MARK: - Unified Inspector Design System
+
+enum InspectorButtonTone {
+    case primary
+    case secondary
+    case accent(Color)
+    case destructive
+}
+
+struct InspectorActionButtonStyle: ButtonStyle {
+    var tone: InspectorButtonTone = .secondary
+    var compact: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        InspectorActionButtonBody(
+            configuration: configuration,
+            tone: tone,
+            compact: compact
+        )
+    }
+}
+
+private struct InspectorActionButtonBody: View {
+    let configuration: ButtonStyle.Configuration
+    let tone: InspectorButtonTone
+    let compact: Bool
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering: Bool = false
+
+    var body: some View {
+        configuration.label
+            .font(.system(size: compact ? 11.5 : 12, weight: fontWeight))
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .frame(height: compact ? 26 : 30)
+            .padding(.horizontal, 10)
+            .foregroundStyle(foregroundColor)
+            .background(backgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(borderColor, lineWidth: 0.85)
+            )
+            .scaleEffect(configuration.isPressed && isEnabled ? 0.985 : 1.0)
+            .opacity(isEnabled ? 1.0 : 0.45)
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+            .onHover { hovering in
+                isHovering = hovering
+            }
+            .animation(.easeOut(duration: 0.12), value: isHovering)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+
+    private var fontWeight: Font.Weight {
+        switch tone {
+        case .primary: return .semibold
+        case .accent, .destructive, .secondary: return .medium
+        }
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .primary:
+            return .white
+        case .secondary:
+            return .primary
+        case .accent(let color):
+            return color
+        case .destructive:
+            return Color(red: 1.0, green: 0.45, blue: 0.45)
+        }
+    }
+
+    private var backgroundColor: Color {
+        let activeHover = isHovering && isEnabled
+        let pressed = configuration.isPressed && isEnabled
+        switch tone {
+        case .primary:
+            if pressed { return Color.accentColor.opacity(0.82) }
+            return Color.accentColor.opacity(activeHover ? 1.0 : 0.9)
+        case .secondary:
+            if pressed { return Color(NSColor.controlBackgroundColor).opacity(0.98) }
+            return Color(NSColor.controlBackgroundColor).opacity(activeHover ? 0.95 : 0.72)
+        case .accent(let color):
+            if pressed { return color.opacity(0.26) }
+            return color.opacity(activeHover ? 0.20 : 0.13)
+        case .destructive:
+            if pressed { return Color.red.opacity(0.26) }
+            return Color.red.opacity(activeHover ? 0.20 : 0.12)
+        }
+    }
+
+    private var borderColor: Color {
+        let activeHover = isHovering && isEnabled
+        switch tone {
+        case .primary:
+            return Color.white.opacity(activeHover ? 0.28 : 0.16)
+        case .secondary:
+            return Color.secondary.opacity(activeHover ? 0.36 : 0.22)
+        case .accent(let color):
+            return color.opacity(activeHover ? 0.56 : 0.36)
+        case .destructive:
+            return Color.red.opacity(activeHover ? 0.56 : 0.34)
+        }
+    }
+}
+
+struct IDEOpenSplitButton: View {
+    let profiles: [IDEProfile]
+    let defaultProfile: IDEProfile
+    var tone: InspectorButtonTone = .secondary
+    let onOpen: (IDEProfile) -> Void
+    var onManageIDEs: (() -> Void)? = nil
+
+    @State private var isHoveringMain: Bool = false
+
+    private var mainFontWeight: Font.Weight {
+        switch tone {
+        case .primary: return .semibold
+        default: return .medium
+        }
+    }
+
+    var body: some View {
+        if profiles.count <= 1 {
+            Button {
+                onOpen(defaultProfile)
+            } label: {
+                Label("IDE 中打开", systemImage: "macwindow")
+            }
+            .buttonStyle(InspectorActionButtonStyle(tone: tone))
+            .help("使用 \(defaultProfile.effectiveLabel) 打开")
+        } else {
+            HStack(spacing: 0) {
+                Button {
+                    onOpen(defaultProfile)
+                } label: {
+                    Label(defaultProfile.effectiveLabel, systemImage: "macwindow")
+                        .font(.system(size: 12, weight: mainFontWeight))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 30)
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { isHoveringMain = $0 }
+                .help("使用默认编辑器 \(defaultProfile.effectiveLabel) 打开")
+
+                Rectangle()
+                    .fill(dividerColor)
+                    .frame(width: 0.85, height: 18)
+
+                Menu {
+                    Section("选择已配置的编辑器") {
+                        ForEach(profiles) { ide in
+                            Button {
+                                onOpen(ide)
+                            } label: {
+                                if ide.id == defaultProfile.id {
+                                    Label("\(ide.effectiveLabel)（默认）", systemImage: "star.fill")
+                                } else {
+                                    Label(ide.effectiveLabel, systemImage: "macwindow")
+                                }
+                            }
+                        }
+                    }
+
+                    if let onManageIDEs {
+                        Divider()
+                        Button {
+                            onManageIDEs()
+                        } label: {
+                            Label("管理 IDE 编辑器…", systemImage: "slider.horizontal.3")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .frame(width: 24, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("选择其他已配置的编辑器打开")
+            }
+            .foregroundStyle(foregroundColor)
+            .background(backgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(borderColor, lineWidth: 0.85)
+            )
+            .animation(.easeOut(duration: 0.12), value: isHoveringMain)
+        }
+    }
+
+    private var foregroundColor: Color {
+        switch tone {
+        case .primary: return .white
+        case .secondary: return .primary
+        case .accent(let color): return color
+        case .destructive: return Color(red: 1.0, green: 0.45, blue: 0.45)
+        }
+    }
+
+    private var backgroundColor: Color {
+        switch tone {
+        case .primary:
+            return Color.accentColor.opacity(isHoveringMain ? 1.0 : 0.9)
+        case .secondary:
+            return Color(NSColor.controlBackgroundColor).opacity(isHoveringMain ? 0.95 : 0.72)
+        case .accent(let color):
+            return color.opacity(isHoveringMain ? 0.20 : 0.13)
+        case .destructive:
+            return Color.red.opacity(isHoveringMain ? 0.20 : 0.12)
+        }
+    }
+
+    private var borderColor: Color {
+        switch tone {
+        case .primary: return Color.white.opacity(isHoveringMain ? 0.28 : 0.16)
+        case .secondary: return Color.secondary.opacity(isHoveringMain ? 0.36 : 0.22)
+        case .accent(let color): return color.opacity(isHoveringMain ? 0.56 : 0.36)
+        case .destructive: return Color.red.opacity(isHoveringMain ? 0.56 : 0.34)
+        }
+    }
+
+    private var dividerColor: Color {
+        switch tone {
+        case .primary: return Color.white.opacity(0.28)
+        default: return Color.secondary.opacity(0.28)
+        }
+    }
+}
+
+struct IDEOpenContextMenuContent: View {
+    let profiles: [IDEProfile]
+    let defaultProfile: IDEProfile
+    let onOpen: (IDEProfile) -> Void
+
+    var body: some View {
+        if profiles.count <= 1 {
+            Button {
+                onOpen(defaultProfile)
+            } label: {
+                Label("在 \(defaultProfile.effectiveLabel) 中打开", systemImage: "arrow.up.forward.app")
+            }
+        } else {
+            Menu {
+                ForEach(profiles) { ide in
+                    Button {
+                        onOpen(ide)
+                    } label: {
+                        if ide.id == defaultProfile.id {
+                            Label("\(ide.effectiveLabel)（默认）", systemImage: "star.fill")
+                        } else {
+                            Label(ide.effectiveLabel, systemImage: "macwindow")
+                        }
+                    }
+                }
+            } label: {
+                Label("在 IDE 中打开", systemImage: "arrow.up.forward.app")
+            }
+        }
+    }
+}
+
+struct InspectorHeaderView: View {
+    let title: String
+    let subtitleItems: [String]
+    var monospacedTitle: Bool = false
+    var trailingPill: StatusPill? = nil
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(monospacedTitle
+                          ? .system(size: 16, weight: .bold, design: .monospaced)
+                          : .system(size: 16, weight: .bold))
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+
+                if !subtitleItems.isEmpty {
+                    HStack(spacing: 5) {
+                        ForEach(Array(subtitleItems.enumerated()), id: \.offset) { index, item in
+                            if index > 0 {
+                                Text("·")
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Text(item)
+                        }
+                    }
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 6)
+
+            if let trailingPill {
+                trailingPill
+            }
+        }
+        .padding(.bottom, 2)
+    }
+}
+
+struct InspectorCard<Trailing: View, Content: View>: View {
+    let title: String
+    @ViewBuilder let trailing: Trailing
+    @ViewBuilder let content: Content
+
+    init(
+        title: String,
+        @ViewBuilder trailing: () -> Trailing = { EmptyView() },
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.trailing = trailing()
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                trailing
+            }
+            content
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 0.75)
+        )
+    }
+}
+
+struct InspectorKeyValueRow: View {
+    let label: String
+    let value: String
+    var isMonospaced: Bool = false
+    var canCopy: Bool = false
+    var lineLimit: Int? = 2
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 56, alignment: .leading)
+
+            Text(value)
+                .font(isMonospaced ? .system(size: 11, design: .monospaced) : .system(size: 11.5))
+                .foregroundStyle(.primary)
+                .lineLimit(lineLimit)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+            if canCopy {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(value, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("复制")
+            }
+        }
+    }
+}
+
+struct InspectorActionGroupLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .padding(.top, 2)
+    }
+}
+
+enum WorktreeInspectorFocus {
+    case dashboard
+    case worktree
+}
+
+struct WorktreeInspectorBody: View {
+    @Environment(AppModel.self) private var appModel
+
+    let item: WorktreeItem
+    let focus: WorktreeInspectorFocus
+    var dashboardItem: MergeDashboardItem? = nil
+
+    @State private var showingDeleteConfirm = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                InspectorHeaderView(
+                    title: item.branch,
+                    subtitleItems: [item.project, item.kind.rawValue],
+                    monospacedTitle: true,
+                    trailingPill: StatusPill(
+                        title: item.dirtySummary,
+                        tint: item.isDirty ? .orange : .green
+                    )
+                )
+
+                basicInfoCard
+
+                if focus == .dashboard {
+                    baselineCheckCard
+                }
+
+                if item.kind != .mainRepo {
+                    descriptionCard
+                }
+
+                if focus == .worktree {
+                    baselineCheckCard
+                }
+
+                actionsSection
+
+                if !item.commits.isEmpty {
+                    recentCommitsCard
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .id("\(focus)-\(item.id)")
+        .confirmationDialog(
+            "移除工作树",
+            isPresented: $showingDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("移除此工作树", role: .destructive) {
+                Task {
+                    appModel.selectedWorktreeID = item.id
+                    await appModel.removeWorktree(
+                        item,
+                        deleteLocalBranch: appModel.deleteLocalBranchOnRemove,
+                        deleteRemoteBranch: appModel.deleteRemoteBranchOnRemove
+                    )
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("确定移除「\(item.branch)」？\n路径：\(item.path)")
+        }
+    }
+
+    private var basicInfoCard: some View {
+        InspectorCard(title: "基本信息") {
+            VStack(alignment: .leading, spacing: 7) {
+                InspectorKeyValueRow(label: "路径", value: item.path, isMonospaced: true, canCopy: true)
+                InspectorKeyValueRow(label: "占用空间", value: item.diskUsage, isMonospaced: true)
+                InspectorKeyValueRow(label: "最近提交", value: item.commits.first?.relativeTime ?? item.updatedAt)
+            }
+        }
+    }
+
+    private var descriptionCard: some View {
+        @Bindable var appModel = appModel
+
+        return InspectorCard(title: "工作树备注") {
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("填写工作树用途或任务说明...", text: $appModel.worktreeDescriptionDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11.5))
+                    .onSubmit {
+                        Task {
+                            appModel.selectedWorktreeID = item.id
+                            await appModel.saveSelectedWorktreeDescription()
+                        }
+                    }
+
+                HStack {
+                    Spacer()
+                    if !appModel.worktreeDescriptionDraft.isEmpty {
+                        Button("清空") {
+                            appModel.worktreeDescriptionDraft = ""
+                        }
+                        .controlSize(.mini)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
+                    Button("保存备注") {
+                        Task {
+                            appModel.selectedWorktreeID = item.id
+                            await appModel.saveSelectedWorktreeDescription()
+                        }
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .disabled(appModel.worktreeOperation.isRunning)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var baselineCheckCard: some View {
+        let entries: [(target: String, merged: Bool)] = {
+            if let dashboardItem {
+                return dashboardItem.mergeTargets.map { target in
+                    (target: target, merged: dashboardItem.mergeStatus[target] == true)
+                }
+            }
+            return appModel.worktreeBaselineStatus(for: item)
+        }()
+
+        InspectorCard(title: "基线合入检查") {
+            if item.kind == .mainRepo {
+                Text("主仓库为基准目录")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else if entries.isEmpty {
+                Text("尚未配置检测基线")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(entries, id: \.target) { entry in
+                        HStack {
+                            Text(entry.target)
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            HStack(spacing: 4) {
+                                Image(systemName: entry.merged ? "checkmark.circle.fill" : "circle")
+                                    .font(.system(size: 11))
+                                Text(entry.merged ? "已合入" : "未合入")
+                                    .font(.system(size: 11))
+                            }
+                            .foregroundStyle(entry.merged ? Color.green : Color.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var actionsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            InspectorActionGroupLabel(title: "打开与 Git 同步")
+
+            HStack(spacing: 8) {
+                IDEOpenSplitButton(
+                    profiles: appModel.configuredIDEProfiles,
+                    defaultProfile: appModel.defaultIDEProfile,
+                    tone: .primary,
+                    onOpen: { ide in
+                        appModel.openWorktreeInIDE(item, ide: ide)
+                    },
+                    onManageIDEs: {
+                        appModel.showingSettingsSheet = true
+                    }
+                )
+
+                Button {
+                    appModel.openWorktreeInTerminal(item)
+                } label: {
+                    Label("终端打开", systemImage: "terminal")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    Task {
+                        appModel.selectedWorktreeID = item.id
+                        await appModel.pullSelectedWorktree()
+                    }
+                } label: {
+                    Label("Pull", systemImage: "arrow.down")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+                .disabled(appModel.worktreeOperation.isRunning)
+
+                Button {
+                    Task {
+                        appModel.selectedWorktreeID = item.id
+                        await appModel.pushSelectedWorktree()
+                    }
+                } label: {
+                    Label("Push", systemImage: "arrow.up")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+                .disabled(appModel.worktreeOperation.isRunning)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    appModel.openWorktreeInRebased(item)
+                } label: {
+                    Label("Rebased", systemImage: "arrow.triangle.merge")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: item.path)])
+                } label: {
+                    Label("在访达显示", systemImage: "folder")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+            }
+
+            if item.kind != .mainRepo {
+                InspectorActionGroupLabel(title: "流程流转")
+
+                Button {
+                    appModel.openBranchSync(forBranch: item.branch, projectPath: appModel.currentWorktreeProject?.path)
+                } label: {
+                    Label("一键前往分支同步", systemImage: "arrow.triangle.branch")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .accent(.teal)))
+
+                if item.platform != .local {
+                    Button {
+                        appModel.prepareCreateMergeRequest(fromWorktree: item)
+                    } label: {
+                        Label("为此分支创建 \(appModel.requestShortLabel)", systemImage: "arrow.triangle.pull")
+                    }
+                    .buttonStyle(InspectorActionButtonStyle(tone: .accent(.purple)))
+                }
+
+                InspectorActionGroupLabel(title: "清理工作树")
+
+                HStack(spacing: 12) {
+                    Toggle("删除本地分支", isOn: bindableDeleteLocalBranch)
+                        .font(.system(size: 11))
+                    Toggle("删除远程分支", isOn: bindableDeleteRemoteBranch)
+                        .font(.system(size: 11))
+                        .disabled(!item.canRemoveRemoteBranch)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 2)
+
+                Button(role: .destructive) {
+                    showingDeleteConfirm = true
+                } label: {
+                    Label("移除此工作树", systemImage: "trash")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .destructive))
+                .disabled(appModel.worktreeOperation.isRunning)
+            }
+        }
+    }
+
+    private var recentCommitsCard: some View {
+        InspectorCard(title: "最近提交") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(item.commits.prefix(4))) { commit in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(commit.message)
+                            .font(.system(size: 11.5, weight: .medium))
+                            .lineLimit(2)
+                        HStack(spacing: 6) {
+                            Text(commit.sha)
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+                            Text(commit.author)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(commit.relativeTime)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    if commit.id != item.commits.prefix(4).last?.id {
+                        Divider().opacity(0.4)
+                    }
+                }
+            }
+        }
+    }
+
+    private var bindableDeleteLocalBranch: Binding<Bool> {
+        Binding(
+            get: { appModel.deleteLocalBranchOnRemove },
+            set: { appModel.deleteLocalBranchOnRemove = $0 }
+        )
+    }
+
+    private var bindableDeleteRemoteBranch: Binding<Bool> {
+        Binding(
+            get: { appModel.deleteRemoteBranchOnRemove },
+            set: { appModel.deleteRemoteBranchOnRemove = $0 }
+        )
+    }
+}
+
+// MARK: - Branch Architecture & Tag Flow Editor
+
+struct BranchFlowLayout: Layout {
+    var horizontalSpacing: CGFloat = 6
+    var verticalSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var maxRowWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX > 0 && currentX + size.width > maxWidth {
+                maxRowWidth = max(maxRowWidth, currentX - horizontalSpacing)
+                currentX = 0
+                currentY += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+            currentX += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        maxRowWidth = max(maxRowWidth, currentX > 0 ? currentX - horizontalSpacing : 0)
+        return CGSize(
+            width: proposal.width ?? maxRowWidth,
+            height: currentY + rowHeight
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var currentX = bounds.minX
+        var currentY = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX > bounds.minX && currentX + size.width > bounds.maxX {
+                currentX = bounds.minX
+                currentY += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+            subview.place(
+                at: CGPoint(x: currentX, y: currentY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(size)
+            )
+            currentX += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+struct BranchTagListEditor: View {
+    @Binding var branches: [String]
+    let defaultTint: Color
+    var placeholder: String = "输入分支名后回车添加"
+    var suggestions: [String] = []
+    var minimumCount: Int = 0
+    var badgeProvider: ((String) -> (label: String, tint: Color)?)? = nil
+
+    @State private var inputText: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if branches.isEmpty {
+                Text("暂未配置分支，可在下方输入或点击推荐标签快速添加")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .padding(.vertical, 2)
+            } else {
+                BranchFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                    ForEach(branches, id: \.self) { branch in
+                        let badge = badgeProvider?(branch)
+                        let chipTint = badge?.tint ?? defaultTint
+
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(chipTint)
+                                .frame(width: 5.5, height: 5.5)
+
+                            Text(branch)
+                                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.primary)
+
+                            if let badge {
+                                Text(badge.label)
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(chipTint)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(chipTint.opacity(0.14))
+                                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                            }
+
+                            if branches.count > minimumCount {
+                                Button {
+                                    removeBranch(branch)
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 8.5, weight: .bold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help("移除 \(branch)")
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(chipTint.opacity(0.11))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(chipTint.opacity(0.32), lineWidth: 0.7)
+                        )
+                    }
+                }
+            }
+
+            HStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    TextField(placeholder, text: $inputText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .onSubmit {
+                            addFromInput()
+                        }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4.5)
+                .frame(minWidth: 150, maxWidth: 200)
+                .background(Color(NSColor.textBackgroundColor).opacity(0.55))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 0.6)
+                )
+
+                if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("添加") {
+                        addFromInput()
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                }
+
+                let remainingSuggestions = suggestions.filter { !branches.contains($0) }
+                if !remainingSuggestions.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(remainingSuggestions, id: \.self) { candidate in
+                                Button {
+                                    appendBranch(candidate)
+                                } label: {
+                                    Text("+ \(candidate)")
+                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(Color.secondary.opacity(0.08))
+                                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                                }
+                                .buttonStyle(.plain)
+                                .help("快速添加 \(candidate)")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func addFromInput() {
+        let items = inputText
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !items.isEmpty else { return }
+        for item in items {
+            appendBranch(item)
+        }
+        inputText = ""
+    }
+
+    private func appendBranch(_ branch: String) {
+        let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !branches.contains(trimmed) else { return }
+        branches.append(trimmed)
+    }
+
+    private func removeBranch(_ branch: String) {
+        guard branches.count > minimumCount else { return }
+        branches.removeAll { $0 == branch }
+    }
+}
+
+struct BranchArchitectureEditorView: View {
+    @Binding var draft: WorkspaceProfileDraft
+
+    private var mainlineBinding: Binding<[String]> {
+        Binding(
+            get: { draft.mainlineBranchList },
+            set: { draft.mainlineBranchList = $0 }
+        )
+    }
+
+    private var protectedEnvBinding: Binding<[String]> {
+        Binding(
+            get: { draft.protectedEnvBranchList },
+            set: { draft.protectedEnvBranchList = $0 }
+        )
+    }
+
+    private var baselineBinding: Binding<[String]> {
+        Binding(
+            get: { draft.dashboardBaselineList },
+            set: { draft.dashboardBaselineList = $0 }
+        )
+    }
+
+    private var effectiveMiddle: String {
+        let trimmed = draft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "sync" : trimmed
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // 1. 主干分支（生产环境）
+            tierBlock(
+                icon: "crown.fill",
+                iconTint: .orange,
+                title: "主干分支（生产环境）",
+                badgeTitle: "PROD · 默认合入目标",
+                badgeTint: .orange,
+                description: "运行生产环境的正式分支（可留空不配置）；若已配置，同步环境分支或合并完成后会自动切换回主干分支，未配置则停留在当前分支。"
+            ) {
+                BranchTagListEditor(
+                    branches: mainlineBinding,
+                    defaultTint: .orange,
+                    placeholder: "添加生产分支，回车确认（可留空）",
+                    suggestions: draft.platform == .github ? ["main", "master", "prod"] : ["master", "main", "prod"],
+                    minimumCount: 0
+                )
+            }
+
+            // 2. 保护分支（非生产环境）
+            tierBlock(
+                icon: "shield.lefthalf.filled",
+                iconTint: .teal,
+                title: "保护分支（非生产环境）",
+                badgeTitle: "NON-PROD · 集成流转",
+                badgeTint: .teal,
+                description: "用于联调、测试、预发的非生产保护分支（不直接推送），特性分支通过集成分支同步合入。"
+            ) {
+                VStack(alignment: .leading, spacing: 10) {
+                    BranchTagListEditor(
+                        branches: protectedEnvBinding,
+                        defaultTint: .teal,
+                        placeholder: "添加保护分支，回车确认",
+                        suggestions: ["dev", "test", "stage", "uat", "staging"],
+                        minimumCount: 0
+                    )
+
+                    if draft.platform == .gitlab || !draft.protectedEnvBranchList.isEmpty {
+                        integrationSuffixBar
+                    }
+                }
+            }
+
+            // 3. 看板合入检查基线
+            tierBlock(
+                icon: "checkmark.shield",
+                iconTint: .blue,
+                title: "看板合入检查基线",
+                badgeTitle: nil,
+                badgeTint: .blue,
+                description: "在「看板」和「空间清理」中校验特性分支是否已合入下列基准分支。",
+                headerAction: {
+                    Button {
+                        syncBaselinesFromTopology()
+                    } label: {
+                        Label("同步主干 + 保护分支", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 10.5, weight: .medium))
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                }
+            ) {
+                BranchTagListEditor(
+                    branches: baselineBinding,
+                    defaultTint: .blue,
+                    placeholder: "添加检查基线分支",
+                    suggestions: suggestedBaselines,
+                    minimumCount: 0,
+                    badgeProvider: { branch in
+                        if draft.mainlineBranchList.contains(branch) {
+                            return ("生产", .orange)
+                        }
+                        if draft.protectedEnvBranchList.contains(branch) {
+                            return ("保护", .teal)
+                        }
+                        return nil
+                    }
+                )
+            }
+        }
+    }
+
+    private var suggestedBaselines: [String] {
+        var seen = Set<String>()
+        return (draft.mainlineBranchList + draft.protectedEnvBranchList).filter {
+            !$0.isEmpty && seen.insert($0).inserted
+        }
+    }
+
+    private var integrationSuffixBar: some View {
+        let envs = draft.protectedEnvBranchList
+        let previewPairs = envs.prefix(3).map { "\($0)_\(effectiveMiddle) → \($0)" }
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text("集成分支后缀")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                TextField("sync", text: $draft.mergeBranchMiddle)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .frame(minWidth: 110, maxWidth: 170)
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 4) {
+                    Text("流转:")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                    Text("特性")
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(.tertiary)
+                    Text("<保护>_\(effectiveMiddle)")
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(Color.teal)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(.tertiary)
+                    Text("保护分支")
+                        .foregroundStyle(Color.teal)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 8.5))
+                        .foregroundStyle(.tertiary)
+                    Text(draft.mainlineBranchList.first ?? "未配置主干")
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(draft.mainlineBranchList.isEmpty ? Color.secondary : Color.orange)
+                }
+                .font(.system(size: 10.5))
+                .lineLimit(1)
+            }
+
+            if !previewPairs.isEmpty {
+                BranchFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                    Text("映射示例:")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .padding(.vertical, 2)
+                    ForEach(previewPairs, id: \.self) { pair in
+                        Text(pair)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+                    if envs.count > 3 {
+                        Text("+\(envs.count - 3)")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .padding(.vertical, 2)
+                    }
+                    Text("映射表 \(draft.branchMappings.count) 条")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 2)
+                    Button("同步到映射表") {
+                        draft.branchMappings = draft.buildRecommendedBranchMappings()
+                    }
+                    .controlSize(.mini)
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.45))
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 0.6)
+        )
+    }
+
+    private func syncBaselinesFromTopology() {
+        var seen = Set<String>()
+        let merged = (draft.mainlineBranchList + draft.protectedEnvBranchList).filter {
+            !$0.isEmpty && seen.insert($0).inserted
+        }
+        if !merged.isEmpty {
+            draft.dashboardBaselineList = merged
+        }
+    }
+
+    private func tierBlock<HeaderAction: View, Content: View>(
+        icon: String,
+        iconTint: Color,
+        title: String,
+        badgeTitle: String?,
+        badgeTint: Color,
+        description: String,
+        @ViewBuilder headerAction: () -> HeaderAction = { EmptyView() },
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(iconTint)
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                if let badgeTitle {
+                    StatusPill(title: badgeTitle, tint: badgeTint)
+                }
+
+                Spacer()
+                headerAction()
+            }
+
+            Text(description)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+
+            content()
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(iconTint.opacity(0.18), lineWidth: 0.75)
+        )
+    }
+}
+
+

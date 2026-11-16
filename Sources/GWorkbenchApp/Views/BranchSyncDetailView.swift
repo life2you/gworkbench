@@ -8,125 +8,20 @@ struct BranchSyncDetailView: View {
         Group {
             if let project = appModel.currentLocalMergeProject {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        headerSection(project)
+                    VStack(alignment: .leading, spacing: 12) {
+                        InspectorHeaderView(
+                            title: "同步流水线",
+                            subtitleItems: [project.displayName, appModel.activePlatform.shortName],
+                            trailingPill: queueStatusPill
+                        )
 
-                        quickActionRow(project)
+                        projectSummaryCard(project)
 
-                        inspectorCard(title: "项目配置概览", systemImage: "info.circle") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                inspectorRow(label: "项目名称", value: project.displayName)
-                                inspectorRow(label: "物理路径", value: project.path, isMonospaced: true, canCopy: true)
-                                if project.platform != .local {
-                                    inspectorRow(label: "托管平台", value: project.platform.displayName)
-                                }
-                                if !project.currentBranch.isEmpty {
-                                    inspectorRow(label: "当前分支", value: project.currentBranch, isMonospaced: true)
-                                }
-                                inspectorRow(label: "本地分支", value: "\(project.localBranches.count) 个")
-                                inspectorRow(label: "中间段", value: appModel.localMergeContext?.config.mergeBranchMiddle ?? "-", isMonospaced: true)
-                                inspectorRow(label: "环境分支", value: envBranchSummary)
-                            }
-                        }
+                        pipelineStepsCard
 
-                        inspectorCard(title: "本次执行计划", systemImage: "list.bullet.clipboard") {
-                            VStack(alignment: .leading, spacing: 9) {
-                                HStack(spacing: 8) {
-                                    Text("模式:")
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundStyle(.secondary)
-                                    Text(appModel.localOperationMode.rawValue)
-                                        .font(.system(size: 11.5, weight: .semibold))
-                                }
+                        actionsSection(project)
 
-                                if appModel.localOperationMode.requiresSourceBranch {
-                                    HStack(spacing: 8) {
-                                        Text("源分支:")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(.secondary)
-                                        Text(appModel.localOperationSourceBranch.isEmpty ? "未选择" : appModel.localOperationSourceBranch)
-                                            .font(.system(size: 11.5, design: .monospaced).weight(.medium))
-                                            .foregroundStyle(appModel.localOperationSourceBranch.isEmpty ? .secondary : .primary)
-                                    }
-                                }
-
-                                Divider()
-                                    .opacity(0.5)
-
-                                Text("预计执行流水线:")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-
-                                if appModel.resolvedLocalOperationTargets.isEmpty {
-                                    Text("尚未选定任何目标分支。")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        ForEach(Array(appModel.localOperationPreviewLines.enumerated()), id: \.offset) { index, line in
-                                            if !line.isEmpty && !line.hasPrefix("项目:") && !line.hasPrefix("仓库路径:") && !line.hasPrefix("执行模式:") && !line.hasPrefix("即将执行:") {
-                                                HStack(alignment: .top, spacing: 6) {
-                                                    Image(systemName: "arrow.right.circle.fill")
-                                                        .font(.system(size: 10))
-                                                        .foregroundStyle(Color.accentColor)
-                                                        .padding(.top, 2)
-
-                                                    Text(line)
-                                                        .font(.system(size: 11, design: .monospaced))
-                                                        .foregroundStyle(.primary)
-                                                        .textSelection(.enabled)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        inspectorCard(title: "执行审计与结果", systemImage: "chart.bar.doc.horizontal") {
-                            VStack(alignment: .leading, spacing: 9) {
-                                HStack {
-                                    if appModel.localOperation.isRunning {
-                                        StatusPill(title: "正在执行中...", tint: .orange, systemImage: "hourglass")
-                                    } else if let error = appModel.localOperation.errorMessage, !error.isEmpty {
-                                        StatusPill(title: "执行发生错误", tint: .red, systemImage: "exclamationmark.triangle.fill")
-                                    } else if appModel.localOperation.successMessage != nil {
-                                        StatusPill(title: "执行成功", tint: .green, systemImage: "checkmark.circle.fill")
-                                    } else {
-                                        StatusPill(title: "待命", tint: .gray, systemImage: "clock")
-                                    }
-
-                                    Spacer()
-
-                                    if !appModel.localOperation.logs.isEmpty {
-                                        Button {
-                                            appModel.copyLocalOperationLogs()
-                                        } label: {
-                                            Label("复制全部", systemImage: "doc.on.doc")
-                                                .font(.system(size: 10.5))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundStyle(Color.accentColor)
-                                    }
-                                }
-
-                                if appModel.localOperation.logs.isEmpty {
-                                    Text("执行完成后，这里将显示结构化审计记录。")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        ForEach(Array(appModel.localOperation.logs.suffix(6).enumerated()), id: \.offset) { _, line in
-                                            Text(line)
-                                                .font(.system(size: 10.5, design: .monospaced))
-                                                .foregroundStyle(line.contains("失败") || line.contains("错误") ? .red : .secondary)
-                                                .lineLimit(2)
-                                                .textSelection(.enabled)
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        executionSummaryCard
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -137,165 +32,248 @@ struct BranchSyncDetailView: View {
         }
     }
 
-    // MARK: - Header Section
+    // MARK: - Status Pill
 
-    private func headerSection(_ project: MergeProject) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Text("分支同步")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text("/")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Text("本地项目")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(project.displayName)
-                .font(.system(size: 16, weight: .semibold))
-                .textSelection(.enabled)
-
-            Text(appModel.localOperationMode.subtitle)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 6) {
-                StatusPill(
-                    title: appModel.localOperationMode.rawValue,
-                    tint: .blue,
-                    systemImage: appModel.localOperationMode.systemImage
-                )
-
-                StatusPill(
-                    title: "\(appModel.resolvedLocalOperationTargets.count) 个目标",
-                    tint: .purple,
-                    systemImage: "arrow.triangle.branch"
-                )
-
-                if project.platform != .local {
-                    StatusPill(
-                        title: project.platform.badgeText,
-                        tint: project.platform.tintColor,
-                        systemImage: project.platform.icon
-                    )
-                }
-
-                if !project.currentBranch.isEmpty {
-                    StatusPill(
-                        title: project.currentBranch,
-                        tint: .green,
-                        systemImage: "location.fill",
-                        isMonospaced: true
-                    )
-                }
-            }
-            .padding(.top, 2)
+    private var queueStatusPill: StatusPill {
+        if appModel.localOperation.isRunning {
+            return StatusPill(title: "执行中", tint: .blue)
         }
-        .padding(.bottom, 2)
-    }
-
-    // MARK: - Quick Actions
-
-    private func quickActionRow(_ project: MergeProject) -> some View {
-        HStack(spacing: 6) {
-            Button {
-                appModel.openProjectInIDE(project)
-            } label: {
-                Label(appModel.currentIDELabel, systemImage: "arrow.up.forward.app")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-
-            Button {
-                appModel.openProjectInRebased(project)
-            } label: {
-                Label("Rebased", systemImage: "arrow.triangle.merge")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.path)])
-            } label: {
-                Label("访达", systemImage: "folder")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Button {
-                appModel.openProjectInTerminal(project)
-            } label: {
-                Label("终端", systemImage: "terminal")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Button {
-                appModel.copyProjectPath(project)
-            } label: {
-                Label("复制", systemImage: "doc.on.doc")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+        if appModel.localOperation.errorMessage != nil {
+            return StatusPill(title: "需要关注", tint: .orange)
         }
-    }
-
-    // MARK: - Inspector Components
-
-    private func inspectorRow(label: String, value: String, isMonospaced: Bool = false, canCopy: Bool = false) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 58, alignment: .leading)
-
-            Text(value)
-                .font(isMonospaced ? .system(size: 11.5, design: .monospaced) : .system(size: 11.5))
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if canCopy {
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(value, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("复制")
-            }
+        if let session = appModel.activeSyncSession,
+           !session.targets.isEmpty,
+           session.targets.allSatisfy({
+               if case .success = $0.status { return true }
+               return false
+           }) {
+            return StatusPill(title: "全部成功", tint: .green)
         }
-    }
-
-    private func inspectorCard<Content: View>(title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(title)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(.primary)
-            }
-            content()
-        }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
+        let count = appModel.resolvedLocalOperationTargets.count
+        return StatusPill(
+            title: count > 0 ? "就绪 · \(count) 个目标" : "未选目标",
+            tint: count > 0 ? .teal : .gray
         )
     }
 
-    private var envBranchSummary: String {
-        let envBranches = appModel.localMergeContext?.config.envBranches ?? []
-        return envBranches.isEmpty ? "-" : envBranches.joined(separator: ", ")
+    // MARK: - Card 1: 仓库信息
+
+    private func projectSummaryCard(_ project: MergeProject) -> some View {
+        InspectorCard(title: "仓库信息") {
+            VStack(alignment: .leading, spacing: 7) {
+                InspectorKeyValueRow(label: "路径", value: project.path, isMonospaced: true, canCopy: true)
+                if !project.currentBranch.isEmpty {
+                    InspectorKeyValueRow(label: "当前分支", value: project.currentBranch, isMonospaced: true)
+                }
+                InspectorKeyValueRow(label: "本地分支", value: "\(project.localBranches.count) 个")
+                InspectorKeyValueRow(label: "同步模式", value: appModel.localOperationMode.rawValue)
+            }
+        }
+    }
+
+    // MARK: - Card 2: 目标队列
+
+    private var pipelineStepsCard: some View {
+        let targetCount = appModel.activeSyncSession?.targets.count ?? appModel.resolvedLocalOperationTargets.count
+
+        return InspectorCard(
+            title: "目标队列",
+            trailing: {
+                if targetCount > 0 {
+                    StatusPill(title: "\(targetCount) 个分支", tint: .secondary)
+                }
+            }
+        ) {
+            if let session = appModel.activeSyncSession {
+                VStack(spacing: 6) {
+                    ForEach(session.targets) { item in
+                        stepRow(
+                            icon: pipelineIcon(for: item.status),
+                            iconColor: item.status.tintColor,
+                            target: item.targetBranch,
+                            pillTitle: item.status.displayLabel,
+                            pillTint: item.status.tintColor
+                        )
+                    }
+                }
+            } else if !appModel.resolvedLocalOperationTargets.isEmpty {
+                VStack(spacing: 6) {
+                    ForEach(appModel.resolvedLocalOperationTargets, id: \.self) { target in
+                        stepRow(
+                            icon: "hourglass",
+                            iconColor: .secondary,
+                            target: target,
+                            pillTitle: "等待中",
+                            pillTint: .gray
+                        )
+                    }
+                }
+            } else {
+                Text("请在左侧选择至少一个目标分支以预览同步流水线。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func stepRow(
+        icon: String,
+        iconColor: Color,
+        target: String,
+        pillTitle: String,
+        pillTint: Color
+    ) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 11.5))
+                .foregroundStyle(iconColor)
+            Text(target)
+                .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+            Spacer()
+            StatusPill(title: pillTitle, tint: pillTint)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(pillTint == .gray ? Color.secondary.opacity(0.14) : pillTint.opacity(0.32), lineWidth: 0.75)
+        )
+    }
+
+    // MARK: - Actions Section
+
+    private func actionsSection(_ project: MergeProject) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            InspectorActionGroupLabel(title: "同步与打开")
+
+            Button {
+                Task {
+                    await appModel.executeLocalOperation()
+                }
+            } label: {
+                Label(
+                    appModel.localOperation.isRunning ? "正在执行同步..." : "开始执行同步",
+                    systemImage: appModel.localOperation.isRunning ? "arrow.triangle.2.circlepath" : "play.fill"
+                )
+            }
+            .buttonStyle(InspectorActionButtonStyle(tone: .primary))
+            .disabled(!appModel.canExecuteLocalOperation)
+
+            HStack(spacing: 8) {
+                IDEOpenSplitButton(
+                    profiles: appModel.configuredIDEProfiles,
+                    defaultProfile: appModel.defaultIDEProfile,
+                    tone: .secondary,
+                    onOpen: { ide in
+                        appModel.openProjectInIDE(project, ide: ide)
+                    },
+                    onManageIDEs: {
+                        appModel.showingSettingsSheet = true
+                    }
+                )
+
+                Button {
+                    appModel.openProjectInTerminal(project)
+                } label: {
+                    Label("终端打开", systemImage: "terminal")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    appModel.openProjectInRebased(project)
+                } label: {
+                    Label("Rebased", systemImage: "arrow.triangle.merge")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: project.path)])
+                } label: {
+                    Label("在访达显示", systemImage: "folder")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .secondary))
+            }
+
+            InspectorActionGroupLabel(title: "流程流转")
+
+            Button {
+                appModel.selectedSection = .mergeDashboard
+            } label: {
+                Label("前往看板检查合入", systemImage: "chart.bar.xaxis")
+            }
+            .buttonStyle(InspectorActionButtonStyle(tone: .accent(.teal)))
+
+            if appModel.activePlatform != .local {
+                Button {
+                    let sourceBranch = appModel.localOperationSourceBranch.trimmedNonEmpty ?? project.currentBranch
+                    appModel.openCreateMR(forBranch: sourceBranch, projectPath: project.path)
+                } label: {
+                    Label("为此项目创建 \(appModel.requestShortLabel)", systemImage: "arrow.triangle.pull")
+                }
+                .buttonStyle(InspectorActionButtonStyle(tone: .accent(.purple)))
+            }
+        }
+    }
+
+    // MARK: - Card 3: 最近运行摘要
+
+    private var executionSummaryCard: some View {
+        InspectorCard(
+            title: "最近运行摘要",
+            trailing: {
+                if !appModel.localOperation.logs.isEmpty {
+                    Button {
+                        appModel.copyLocalOperationLogs()
+                    } label: {
+                        Label("复制", systemImage: "doc.on.doc")
+                            .font(.system(size: 10.5))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                }
+            }
+        ) {
+            if appModel.localOperation.logs.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    if appModel.localOperationMode.requiresSourceBranch, !appModel.localOperationSourceBranch.isEmpty {
+                        Text("> source: \(appModel.localOperationSourceBranch)")
+                    }
+                    Text("> 等待确认开始（完整输出见左下控制台）")
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(appModel.localOperation.logs.suffix(5).enumerated()), id: \.offset) { _, line in
+                        Text("> \(line)")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(
+                                line.contains("冲突") || line.contains("CONFLICT") ? Color.orange :
+                                (line.contains("失败") || line.contains("错误") ? Color.red : Color.secondary)
+                            )
+                            .lineLimit(2)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func pipelineIcon(for status: SyncTargetStatus) -> String {
+        switch status {
+        case .pending: return "hourglass"
+        case .inProgress: return "arrow.triangle.2.circlepath"
+        case .success: return "checkmark.square.fill"
+        case .skippedDueToConflict: return "exclamationmark.triangle.fill"
+        case .failed: return "xmark.octagon.fill"
+        }
     }
 }

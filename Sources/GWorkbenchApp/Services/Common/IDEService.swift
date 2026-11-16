@@ -21,17 +21,18 @@ public struct InstalledIDEApp: Identifiable, Hashable, Sendable {
 public final class IDEService: Sendable {
     public static let shared = IDEService()
 
-    /// 知名主流 IDE 与代码编辑器预设列表（包括 Zed）
     public static let supportedPresets: [(name: String, displayName: String, bundleID: String, defaultAppName: String)] = [
+        ("Cursor", "Cursor", "com.todesktop.230313mzl4w4u92", "Cursor"),
+        ("Visual Studio Code", "VS Code", "com.microsoft.VSCode", "Visual Studio Code"),
         ("Zed", "Zed", "dev.zed.Zed", "Zed"),
         ("IntelliJ IDEA", "IntelliJ IDEA", "com.jetbrains.intellij", "IntelliJ IDEA"),
-        ("Visual Studio Code", "VS Code", "com.microsoft.VSCode", "Visual Studio Code"),
-        ("Cursor", "Cursor", "com.todesktop.230313mzl4w4u92", "Cursor"),
         ("Xcode", "Xcode", "com.apple.dt.Xcode", "Xcode"),
-        ("Sublime Text", "Sublime Text", "com.sublimetext.4", "Sublime Text"),
+        ("Windsurf", "Windsurf", "com.exafunction.windsurf", "Windsurf"),
+        ("Trae", "Trae", "com.trae.app", "Trae"),
         ("WebStorm", "WebStorm", "com.jetbrains.WebStorm", "WebStorm"),
         ("PyCharm", "PyCharm", "com.jetbrains.PyCharm", "PyCharm"),
         ("GoLand", "GoLand", "com.jetbrains.goland", "GoLand"),
+        ("Sublime Text", "Sublime Text", "com.sublimetext.4", "Sublime Text"),
         ("Fleet", "Fleet", "Fleet", "Fleet"),
         ("Android Studio", "Android Studio", "com.google.android.studio", "Android Studio")
     ]
@@ -83,17 +84,33 @@ public final class IDEService: Sendable {
 
     public func openDirectory(path: String, ideMode: String, ideCommand: String) throws {
         let expandedPath = ProcessRunner.expandPath(path)
+        let trimmedCommand = ideCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+
         switch ideMode {
         case "app":
-            if !ideCommand.isEmpty {
-                _ = try ProcessRunner.runCommand("open", arguments: ["-a", ideCommand, expandedPath])
+            if !trimmedCommand.isEmpty, trimmedCommand != "open" {
+                _ = try ProcessRunner.runCommand("open", arguments: ["-a", trimmedCommand, expandedPath])
                 return
             }
-            fallthrough
+            _ = try ProcessRunner.runCommand("open", arguments: [expandedPath])
+        case "custom":
+            if trimmedCommand.isEmpty || trimmedCommand == "open" {
+                _ = try ProcessRunner.runCommand("open", arguments: [expandedPath])
+                return
+            }
+            let quotedPath = "'\(expandedPath.replacingOccurrences(of: "'", with: "'\\''"))'"
+            let shellCommand = trimmedCommand.contains("{path}")
+                ? trimmedCommand.replacingOccurrences(of: "{path}", with: quotedPath)
+                : "\(trimmedCommand) \(quotedPath)"
+            _ = try ProcessRunner.runCommand("/bin/zsh", arguments: ["-lc", shellCommand])
         case "system":
             _ = try ProcessRunner.runCommand("open", arguments: [expandedPath])
         default:
-            _ = try ProcessRunner.runCommand("open", arguments: [expandedPath])
+            if !trimmedCommand.isEmpty, trimmedCommand != "open" {
+                _ = try ProcessRunner.runCommand("open", arguments: ["-a", trimmedCommand, expandedPath])
+            } else {
+                _ = try ProcessRunner.runCommand("open", arguments: [expandedPath])
+            }
         }
     }
 }

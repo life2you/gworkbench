@@ -6,7 +6,6 @@ enum AppSection: String, CaseIterable, Identifiable {
     case worktrees
     case branchSync
     case mergeRequests
-    case settings
 
     var id: String { rawValue }
 
@@ -20,8 +19,6 @@ enum AppSection: String, CaseIterable, Identifiable {
             "分支同步"
         case .mergeRequests:
             "合并请求"
-        case .settings:
-            "设置"
         }
     }
 
@@ -35,8 +32,6 @@ enum AppSection: String, CaseIterable, Identifiable {
             "arrow.triangle.branch"
         case .mergeRequests:
             "arrow.triangle.merge"
-        case .settings:
-            "gearshape"
         }
     }
 }
@@ -267,8 +262,12 @@ struct MergeRequestItem: Identifiable, Hashable, Sendable {
     let activity: [ActivityEntry]
     let commits: [CommitEntry]
     let webURL: String
+    var platform: RepositoryPlatform = .gitlab
+    var repoSlug: String? = nil
 
-    var iidLabel: String { "!\(iid)" }
+    var iidLabel: String {
+        platform == .github ? "#\(iid)" : "!\(iid)"
+    }
 }
 
 struct CreateWorktreeDraft: Sendable {
@@ -353,22 +352,87 @@ final class AppModel {
 
     private var consoleDetailsTask: Task<Void, Never>?
     private var consoleDetailsGeneration: Int = 0
+    private var isSwitchingWorkspace: Bool = false
+    private var workspaceSwitchGeneration: Int = 0
+    private var workspaceCaches: [String: WorkspaceViewSnapshotCache] = [:]
+
+    private struct WorkspaceViewSnapshotCache {
+        var worktreeProjects: [LocalProject]
+        var worktrees: [WorktreeItem]
+        var localMergeProjects: [MergeProject]
+        var mergeProjects: [MergeProject]
+        var selectedProjectID: String?
+        var selectedWorktreeID: String?
+        var selectedLocalProjectID: String?
+        var selectedMergeProjectID: String?
+        var mergeDashboardProjectID: String?
+        var mergeDashboardItems: [MergeDashboardItem]
+        var selectedDashboardItemID: String?
+    }
     var selectedMergeRequestID: String?
     var selectedDashboardItemID: String?
     var selectedMergeFilter: MergeRequestFilter = .open
     var selectedWorktreeCategory: WorktreeCategoryFilter = .all
-    var selectedPlatformFilter: RepositoryPlatform = .all {
+    var selectedPlatformFilter: RepositoryPlatform = .github {
         didSet {
             if selectedPlatformFilter != oldValue {
-                if selectedPlatformFilter != .all {
-                    if let cur = currentWorktreeProject, cur.platform != selectedPlatformFilter {
-                        selectedProjectID = filteredWorktreeProjects.first?.id
-                    }
-                    if let cur = currentLocalMergeProject, cur.platform != selectedPlatformFilter {
-                        selectedLocalProjectID = filteredLocalMergeProjects.first?.id
-                    }
-                }
+                handleActivePlatformChanged()
             }
+        }
+    }
+
+    var activeWorkspaceID: String = ""
+    var showingSettingsSheet: Bool = false
+    var sidebarRepoSearchText: String = ""
+    var showingWorkspaceEditorSheet: Bool = false
+    var workspaceEditorDraft: WorkspaceProfileDraft? = nil
+
+    var workspaces: [WorkspaceProfile] {
+        let saved = appConfig?.workspaces ?? []
+        if !saved.isEmpty {
+            return saved
+        }
+        return settingsDraft.workspaces.map { $0.toWorkspaceProfile() }
+    }
+
+    var activeWorkspace: WorkspaceProfile? {
+        let list = workspaces
+        if let matched = list.first(where: { $0.id == activeWorkspaceID }) {
+            return matched
+        }
+        return list.first
+    }
+
+    var activePlatform: RepositoryPlatform {
+        get { activeWorkspace?.platform ?? selectedPlatformFilter }
+        set { selectedPlatformFilter = newValue }
+    }
+
+    var isGitHubActive: Bool {
+        activePlatform == .github
+    }
+
+    var requestSectionTitle: String {
+        isGitHubActive ? "Pull Requests" : "Merge Requests"
+    }
+
+    var requestShortLabel: String {
+        isGitHubActive ? "PR" : "MR"
+    }
+
+    var currentDashboardBaselines: [String] {
+        if let ws = activeWorkspace {
+            return ws.effectiveDashboardBaselines
+        }
+        switch activePlatform {
+        case .github:
+            let configured = appConfig?.githubDashboardBaselines.filterNonEmpty() ?? []
+            return configured.isEmpty ? DefaultDashboardBaselines.github : configured
+        case .gitlab:
+            let configured = appConfig?.gitlabDashboardBaselines.filterNonEmpty() ?? []
+            return configured.isEmpty ? DefaultDashboardBaselines.gitlab : configured
+        case .local, .all:
+            return DefaultDashboardBaselines.local
         }
     }
     var sortOrder: [KeyPathComparator<WorktreeItem>] = [
@@ -402,6 +466,8 @@ final class AppModel {
     // MARK: - Interactive Sync Pipeline State
     var activeSyncSession: ActiveSyncSession? = nil
     var showingRebasedInstallSheet: Bool = false
+    var showingOnboardingSheet: Bool = false
+    var ghCLITokenAvailable: Bool = false
     var isInstallingRebased: Bool = false
     var rebasedInstallLog: String = ""
 
@@ -448,19 +514,46 @@ final class AppModel {
 
     var effectiveWorktreeConfig: WorktreeConfig? {
         if let app = appConfig {
-            return app.asWorktreeConfig()
+            return app.asWorktreeConfig(for: activeWorkspace)
         }
         return worktreeConfig
     }
 
+    var configuredIDEProfiles: [IDEProfile] {
+        if let app = appConfig {
+            return app.effectiveIDEProfiles
+        }
+        if let wt = worktreeConfig {
+            return wt.effectiveIDEProfiles
+        }
+        let fromDraft = settingsDraft.ideProfiles.map { $0.toIDEProfile() }
+        if !fromDraft.isEmpty {
+            return fromDraft
+        }
+        return [
+            IDEProfile(
+                id: "default-ide",
+                label: settingsDraft.ideLabel.isEmpty ? "默认应用" : settingsDraft.ideLabel,
+                mode: settingsDraft.ideMode.isEmpty ? "app" : settingsDraft.ideMode,
+                command: settingsDraft.ideCommand.isEmpty ? "open" : settingsDraft.ideCommand
+            )
+        ]
+    }
+
+    var defaultIDEProfile: IDEProfile {
+        if let app = appConfig {
+            return app.defaultIDEProfile
+        }
+        let profiles = configuredIDEProfiles
+        if !settingsDraft.defaultIDEProfileID.isEmpty,
+           let matched = profiles.first(where: { $0.id == settingsDraft.defaultIDEProfileID }) {
+            return matched
+        }
+        return profiles[0]
+    }
+
     var currentIDELabel: String {
-        if let label = effectiveWorktreeConfig?.ideLabel, !label.isEmpty {
-            return label
-        }
-        if !settingsDraft.ideLabel.isEmpty {
-            return settingsDraft.ideLabel
-        }
-        return "IDE"
+        defaultIDEProfile.effectiveLabel
     }
 
     var selectedWorktree: WorktreeItem? {
@@ -505,6 +598,20 @@ final class AppModel {
         }
     }
 
+    var sidebarFilteredProjects: [LocalProject] {
+        let q = sidebarRepoSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return filteredWorktreeProjects }
+        return filteredWorktreeProjects.filter {
+            $0.displayName.localizedCaseInsensitiveContains(q)
+                || $0.name.localizedCaseInsensitiveContains(q)
+                || $0.currentBranch.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    var dirtyProjectNames: Set<String> {
+        Set(worktrees.filter(\.isDirty).map(\.projectName))
+    }
+
     var filteredLocalMergeProjects: [MergeProject] {
         localMergeProjects.filter { project in
             selectedPlatformFilter == .all || project.platform == selectedPlatformFilter
@@ -525,19 +632,353 @@ final class AppModel {
         return localMergeProjects.filter { $0.platform == platform }.count
     }
 
-    var availablePlatforms: [RepositoryPlatform] {
+    var switchablePlatforms: [RepositoryPlatform] {
         let platforms = Set(worktreeProjects.map(\.platform))
-        var list: [RepositoryPlatform] = [.all]
-        for p in [RepositoryPlatform.gitlab, RepositoryPlatform.github, RepositoryPlatform.local] {
-            if platforms.contains(p) {
-                list.append(p)
-            }
+        var list: [RepositoryPlatform] = [.github, .gitlab]
+        if platforms.contains(.local) {
+            list.append(.local)
         }
         return list
     }
 
+    var availablePlatforms: [RepositoryPlatform] {
+        switchablePlatforms
+    }
+
+    var appVersionString: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.2.9"
+    }
+
+    var sidebarPlatformStatusText: String {
+        if let ws = activeWorkspace {
+            switch ws.platform {
+            case .github:
+                let cleanHost = ws.host
+                    .replacingOccurrences(of: "https://", with: "")
+                    .replacingOccurrences(of: "http://", with: "")
+                let hostLabel = cleanHost.isEmpty ? "github.com" : cleanHost
+                if !ws.token.isEmpty {
+                    return "\(ws.name) · \(hostLabel) (PAT)"
+                }
+                return ghCLITokenAvailable ? "\(ws.name) · \(hostLabel) (gh CLI)" : "\(ws.name) · \(hostLabel)"
+            case .gitlab:
+                let cleanHost = ws.host
+                    .replacingOccurrences(of: "https://", with: "")
+                    .replacingOccurrences(of: "http://", with: "")
+                return cleanHost.isEmpty ? "\(ws.name) · 未配置 Host" : "\(ws.name) · \(cleanHost)"
+            case .local, .all:
+                return ws.name
+            }
+        }
+        switch activePlatform {
+        case .github:
+            if !(appConfig?.githubToken ?? "").isEmpty {
+                return "GitHub 模式 · PAT 已配置"
+            }
+            return ghCLITokenAvailable ? "GitHub 模式 · gh 凭据已认证" : "GitHub 模式 · 未配置凭据"
+        case .gitlab:
+            let host = appConfig?.gitlabHost ?? ""
+            if !host.isEmpty {
+                let clean = host
+                    .replacingOccurrences(of: "https://", with: "")
+                    .replacingOccurrences(of: "http://", with: "")
+                return "GitLab 模式 · \(clean)"
+            }
+            return "GitLab 模式 · 未配置实例"
+        case .local, .all:
+            return "本地 Git 模式"
+        }
+    }
+
+    func selectWorkspace(_ id: String) {
+        guard let target = workspaces.first(where: { $0.id == id }) else { return }
+        let previousID = activeWorkspaceID
+        if previousID == target.id { return }
+
+        // 1. 缓存旧工作区快照，避免切回时重复冷扫描
+        if !previousID.isEmpty, !worktreeProjects.isEmpty {
+            workspaceCaches[previousID] = WorkspaceViewSnapshotCache(
+                worktreeProjects: worktreeProjects,
+                worktrees: worktrees,
+                localMergeProjects: localMergeProjects,
+                mergeProjects: mergeProjects,
+                selectedProjectID: selectedProjectID,
+                selectedWorktreeID: selectedWorktreeID,
+                selectedLocalProjectID: selectedLocalProjectID,
+                selectedMergeProjectID: selectedMergeProjectID,
+                mergeDashboardProjectID: mergeDashboardProjectID,
+                mergeDashboardItems: mergeDashboardItems,
+                selectedDashboardItemID: selectedDashboardItemID
+            )
+        }
+
+        workspaceSwitchGeneration += 1
+        let expectedGen = workspaceSwitchGeneration
+        let expectedWSID = target.id
+
+        isSwitchingWorkspace = true
+        activeWorkspaceID = target.id
+        settingsDraft.activeWorkspaceID = target.id
+        settingsDraft.activePlatform = target.platform.rawValue
+        selectedPlatformFilter = target.platform
+        isSwitchingWorkspace = false
+
+        GitLabHostStore.shared.update(target.platform == .gitlab ? target.host : appConfig?.gitlabHost)
+        GitCredentialStore.shared.update(
+            gitlabToken: target.platform == .gitlab ? target.token : (appConfig?.gitlabToken ?? ""),
+            githubToken: target.platform == .github ? target.token : (appConfig?.githubToken ?? "")
+        )
+
+        if let cached = workspaceCaches[target.id] {
+            // 2A. 命中缓存：0ms 立即恢复全部仓库、工作树与上次选中项
+            worktreeProjects = cached.worktreeProjects
+            worktrees = cached.worktrees
+            localMergeProjects = cached.localMergeProjects
+            mergeProjects = cached.mergeProjects
+            selectedProjectID = cached.selectedProjectID ?? cached.worktreeProjects.first?.id
+            selectedWorktreeID = cached.selectedWorktreeID ?? filteredWorktrees.first?.id
+            selectedLocalProjectID = cached.selectedLocalProjectID ?? cached.localMergeProjects.first?.id
+            selectedMergeProjectID = cached.selectedMergeProjectID ?? cached.mergeProjects.first?.id
+            mergeDashboardProjectID = cached.mergeDashboardProjectID
+            mergeDashboardItems = cached.mergeDashboardItems
+            selectedDashboardItemID = cached.selectedDashboardItemID
+            syncSelectedWorktreeDescriptionDraft()
+            syncSelectedWorktreeDetails()
+            syncCreateWorktreeDefaults(resetBranchName: false)
+            syncLocalOperationDefaults(resetSourceBranch: false)
+        } else {
+            // 2B. 首次切入：零子进程纯文件系统快扫（<3ms），让左侧仓库列表立即出现
+            let placeholders = service.gitCliService.scanProjectPlaceholders(
+                rootDirs: target.projectsRootDirs,
+                forcedPlatform: target.platform
+            )
+            worktreeProjects = placeholders
+            worktrees = []
+            localMergeProjects = []
+            mergeProjects = []
+            mergeRequests = []
+            selectedProjectID = placeholders.first?.id
+            selectedWorktreeID = nil
+            selectedLocalProjectID = nil
+            selectedMergeProjectID = nil
+            selectedMergeRequestID = nil
+            mergeDashboardProjectID = nil
+            mergeDashboardItems = []
+            selectedDashboardItemID = nil
+        }
+
+        if let current = appConfig {
+            let updatedConfig = GWorkbenchConfig(
+                configPath: current.configPath,
+                metadataPath: current.metadataPath,
+                worktreeProjectsRootDirs: current.worktreeProjectsRootDirs,
+                worktreesRootDir: current.worktreesRootDir,
+                worktreePathTemplate: current.worktreePathTemplate,
+                ideMode: current.ideMode,
+                ideCommand: current.ideCommand,
+                ideLabel: current.ideLabel,
+                ideProfiles: current.ideProfiles,
+                defaultIDEProfileID: current.defaultIDEProfileID,
+                terminalApp: current.terminalApp,
+                terminalBundleID: current.terminalBundleID,
+                terminalLaunchHookMode: current.terminalLaunchHookMode,
+                terminalLaunchCommand: current.terminalLaunchCommand,
+                gitlabHost: current.gitlabHost,
+                gitlabToken: current.gitlabToken,
+                githubHost: current.githubHost,
+                githubToken: current.githubToken,
+                aiProvider: current.aiProvider,
+                aiBaseURL: current.aiBaseURL,
+                aiAPIKey: current.aiAPIKey,
+                aiModel: current.aiModel,
+                aiCustomPrompt: current.aiCustomPrompt,
+                activeWorkflowPreset: current.activeWorkflowPreset,
+                activePlatform: target.platform.rawValue,
+                activeWorkspaceID: target.id,
+                workspaces: current.workspaces,
+                githubDefaultTargetBranch: current.githubDefaultTargetBranch,
+                githubDashboardBaselines: current.githubDashboardBaselines,
+                gitlabDashboardBaselines: current.gitlabDashboardBaselines,
+                mergeRootDirs: current.mergeRootDirs,
+                mergeBranchMiddle: current.mergeBranchMiddle,
+                envBranches: current.envBranches,
+                branchMap: current.branchMap,
+                protectedTargets: current.protectedTargets,
+                autoMergeDelaySeconds: current.autoMergeDelaySeconds,
+                autoMergeRetryCount: current.autoMergeRetryCount,
+                syncIDEConfigs: current.syncIDEConfigs,
+                ideConfigSyncItems: current.ideConfigSyncItems
+            )
+            appConfig = updatedConfig
+            worktreeConfig = updatedConfig.asWorktreeConfig(for: target)
+            Task.detached(priority: .utility) { [service] in
+                _ = try? await service.saveWorkbenchConfig(updatedConfig)
+            }
+        }
+
+        // 3. 后台静默更新全量工作树与远端状态（带代际防覆盖校验）
+        Task {
+            guard self.workspaceSwitchGeneration == expectedGen, self.activeWorkspace?.id == expectedWSID else { return }
+            await refreshWorktrees(silent: true)
+            guard self.workspaceSwitchGeneration == expectedGen, self.activeWorkspace?.id == expectedWSID else { return }
+            await refreshLocalMergeProjects(silent: true)
+            guard self.workspaceSwitchGeneration == expectedGen, self.activeWorkspace?.id == expectedWSID else { return }
+            await refreshMergeProjects(silent: true)
+            if selectedSection == .mergeDashboard, self.workspaceSwitchGeneration == expectedGen {
+                await refreshMergeDashboard()
+            }
+        }
+    }
+
+    func openNewWorkspaceEditor(defaultPlatform: RepositoryPlatform = .gitlab) {
+        workspaceEditorDraft = WorkspaceProfileDraft(
+            id: UUID().uuidString,
+            name: defaultPlatform == .github ? "GitHub 工作区" : "私有 GitLab",
+            platform: defaultPlatform,
+            projectsRootDirs: [],
+            worktreesRootDir: "",
+            host: defaultPlatform == .github ? "https://github.com" : "",
+            token: "",
+            defaultTargetBranch: defaultPlatform == .github ? "main" : "master",
+            dashboardBaselinesText: defaultPlatform == .github
+                ? DefaultDashboardBaselines.github.joined(separator: ", ")
+                : DefaultDashboardBaselines.gitlab.joined(separator: ", "),
+            envBranchesText: defaultPlatform == .gitlab ? "dev, test, stage, uat" : "",
+            mergeBranchMiddle: "sync",
+            branchMappings: []
+        )
+        showingWorkspaceEditorSheet = true
+    }
+
+    func openEditWorkspaceEditor(_ profile: WorkspaceProfile) {
+        workspaceEditorDraft = WorkspaceProfileDraft(profile: profile)
+        showingWorkspaceEditorSheet = true
+    }
+
+    func saveWorkspaceEditorDraft(_ draft: WorkspaceProfileDraft, switchToIt: Bool = true) async {
+        let profile = draft.toWorkspaceProfile()
+        if let idx = settingsDraft.workspaces.firstIndex(where: { $0.id == profile.id }) {
+            settingsDraft.workspaces[idx] = WorkspaceProfileDraft(profile: profile)
+        } else {
+            settingsDraft.workspaces.append(WorkspaceProfileDraft(profile: profile))
+        }
+        if switchToIt || settingsDraft.activeWorkspaceID.isEmpty {
+            activeWorkspaceID = profile.id
+            settingsDraft.activeWorkspaceID = profile.id
+            settingsDraft.activePlatform = profile.platform.rawValue
+            selectedPlatformFilter = profile.platform
+        }
+        showingWorkspaceEditorSheet = false
+        workspaceEditorDraft = nil
+        workspaceCaches.removeValue(forKey: profile.id)
+        await saveSettings()
+    }
+
+    func deleteWorkspaceProfile(id: String) async {
+        guard settingsDraft.workspaces.count > 1 else {
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "无法删除",
+                detail: "至少需要保留一个工作区标签",
+                errorMessage: "至少需要保留一个工作区标签"
+            )
+            return
+        }
+        settingsDraft.workspaces.removeAll { $0.id == id }
+        if activeWorkspaceID == id || settingsDraft.activeWorkspaceID == id {
+            if let next = settingsDraft.workspaces.first {
+                activeWorkspaceID = next.id
+                settingsDraft.activeWorkspaceID = next.id
+                settingsDraft.activePlatform = next.platform.rawValue
+                selectedPlatformFilter = next.platform
+            }
+        }
+        workspaceCaches.removeValue(forKey: id)
+        await saveSettings()
+    }
+
+    func worktreeBaselineStatus(for item: WorktreeItem) -> [(target: String, merged: Bool)] {
+        let targets = currentDashboardBaselines
+        if let dashItem = mergeDashboardItems.first(where: { $0.id == item.id || $0.branch == item.branch }) {
+            return targets.map { ($0, dashItem.mergeStatus[$0] ?? false) }
+        }
+        return targets.map { ($0, false) }
+    }
+
+    func prepareCreateMergeRequest(fromWorktree item: WorktreeItem) {
+        if let project = mergeProjects.first(where: { $0.path == item.projectPath }) {
+            selectedMergeProjectID = project.id
+        }
+        selectedSection = .mergeRequests
+        prepareCreateMergeRequest()
+        if !item.branch.isEmpty {
+            createMRDraft.sourceBranch = item.branch
+        }
+    }
+
+    func setActivePlatform(_ platform: RepositoryPlatform) {
+        guard platform != .all else { return }
+        selectedPlatformFilter = platform
+        if settingsDraft.activePlatform != platform.rawValue {
+            settingsDraft.activePlatform = platform.rawValue
+        }
+    }
+
+    private func handleActivePlatformChanged() {
+        guard !isSwitchingWorkspace else { return }
+        let wtProjects = filteredWorktreeProjects
+        if let cur = currentWorktreeProject, cur.platform != activePlatform {
+            selectedProjectID = wtProjects.first?.id
+        } else if selectedProjectID == nil || !wtProjects.contains(where: { $0.id == selectedProjectID }) {
+            selectedProjectID = wtProjects.first?.id
+        }
+
+        if selectedWorktreeID == nil || !filteredWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
+            selectedWorktreeID = filteredWorktrees.first?.id
+        }
+
+        let localProjects = filteredLocalMergeProjects
+        if let cur = currentLocalMergeProject, cur.platform != activePlatform {
+            selectedLocalProjectID = localProjects.first?.id
+        } else if selectedLocalProjectID == nil || !localProjects.contains(where: { $0.id == selectedLocalProjectID }) {
+            selectedLocalProjectID = localProjects.first?.id
+        }
+        syncLocalOperationDefaults(resetSourceBranch: false)
+
+        let mrProjects = filteredMergeProjects
+        if let cur = currentMergeProject, cur.platform != activePlatform {
+            selectedMergeProjectID = mrProjects.first?.id
+        } else if selectedMergeProjectID == nil || !mrProjects.contains(where: { $0.id == selectedMergeProjectID }) {
+            selectedMergeProjectID = mrProjects.first?.id
+        }
+
+        mergeDashboardProjectID = nil
+        mergeDashboardItems = []
+        selectedDashboardItemID = nil
+
+        if selectedSection == .mergeDashboard {
+            Task {
+                await refreshMergeDashboard()
+            }
+        } else if selectedSection == .mergeRequests && currentMergeProject != nil {
+            Task {
+                await refreshMergeRequests(silent: true)
+            }
+        }
+    }
+
+    var filteredMergeProjects: [MergeProject] {
+        mergeProjects.filter { project in
+            activePlatform == .all || project.platform == activePlatform
+        }
+    }
+
     var currentMergeProject: MergeProject? {
-        mergeProjects.first(where: { $0.id == selectedMergeProjectID }) ?? mergeProjects.first
+        if let id = selectedMergeProjectID {
+            return filteredMergeProjects.first(where: { $0.id == id })
+                ?? mergeProjects.first(where: { $0.id == id })
+        }
+        return filteredMergeProjects.first ?? mergeProjects.first
     }
 
     var worktreeCountByProject: [String: Int] {
@@ -723,11 +1164,12 @@ final class AppModel {
 
     func analyzeCurrentProjectWorktrees() async {
         guard let project = currentWorktreeProject else { return }
+        let baselines = currentDashboardBaselines
         isSweeperAnalyzing = true
         sweeperOperation = OperationState(
             isRunning: true,
             title: "正在分析",
-            detail: "正在比对 master / stage / test / uat 的合入状态..."
+            detail: "正在比对 \(baselines.joined(separator: " / ")) 的合入状态..."
         )
 
         let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
@@ -739,11 +1181,9 @@ final class AppModel {
             existingBranches.insert("origin/\(name)")
         }
 
-        let candidatesByTarget = resolveCandidateBases(
-            targets: SweeperMergeTarget.ordered.map(\.rawValue)
-        )
+        let candidatesByTarget = resolveCandidateBases(targets: baselines)
 
-        for target in SweeperMergeTarget.ordered.map(\.rawValue) {
+        for target in baselines {
             if (try? service.gitCliService.remoteBranchExists(projectPath: project.path, branch: target)) == true {
                 existingBranches.insert("origin/\(target)")
             }
@@ -755,6 +1195,7 @@ final class AppModel {
         let results = await WorktreeSweeperAnalyzer.analyze(
             projectWorktrees: projectWorktrees,
             projectPath: project.path,
+            targets: baselines,
             candidateBasesByTarget: candidatesByTarget,
             existingBranches: existingBranches,
             gitCli: service.gitCliService
@@ -872,8 +1313,8 @@ final class AppModel {
         }.value
 
         let projectWorktrees = worktrees.filter { $0.projectPath == project.path }
-        let mergeTargets = SweeperMergeTarget.ordered
-        let targetNames = mergeTargets.map(\.rawValue)
+        let mergeTargets = currentDashboardBaselines
+        let targetNames = mergeTargets
         let candidatesByTarget = resolveCandidateBases(targets: targetNames)
 
         // 构建分支引用集合
@@ -890,6 +1331,8 @@ final class AppModel {
                 existingBranches.insert(target)
             }
         }
+
+        let existingBranchSet = existingBranches
 
         // 后台并发分析
         let items = await Task.detached(priority: .utility) { () -> [MergeDashboardItem] in
@@ -913,8 +1356,8 @@ final class AppModel {
                 let wt = projectWorktrees[index]
                 let isMain = wt.kind == .mainRepo
 
-                let statuses: [SweeperMergeTarget: Bool]
-                let matchedMap: [SweeperMergeTarget: String]
+                let statuses: [String: Bool]
+                let matchedMap: [String: String]
 
                 if isMain {
                     statuses = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, true) })
@@ -925,11 +1368,11 @@ final class AppModel {
                         branch: wt.branch,
                         targets: targetNames,
                         candidateBasesByTarget: candidatesByTarget,
-                        existingBranches: existingBranches
+                        existingBranches: existingBranchSet
                     )
-                    statuses = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, detail.mergedStatus[$0.rawValue] ?? false) })
+                    statuses = Dictionary(uniqueKeysWithValues: mergeTargets.map { ($0, detail.mergedStatus[$0] ?? false) })
                     matchedMap = Dictionary(uniqueKeysWithValues: mergeTargets.compactMap { target in
-                        if let matched = detail.matchedBranches[target.rawValue] {
+                        if let matched = detail.matchedBranches[target] {
                             return (target, matched)
                         }
                         return nil
@@ -966,6 +1409,9 @@ final class AppModel {
 
         mergeDashboardProjectID = targetProjectID
         mergeDashboardItems = sortedItems
+        if selectedDashboardItemID == nil || !sortedItems.contains(where: { $0.id == selectedDashboardItemID }) {
+            selectedDashboardItemID = sortedItems.first(where: { $0.kind != .mainRepo })?.id ?? sortedItems.first?.id
+        }
         isMergeDashboardAnalyzing = false
     }
 
@@ -1138,6 +1584,12 @@ final class AppModel {
             }
         }
 
+        if let mainline = activeWorkspace?.primaryMainlineBranch ?? localMergeContext?.config.mainlineBranches.first {
+            lines.append("- 完成后自动切回主干分支 `\(mainline)`")
+        } else {
+            lines.append("- 未配置主干分支，完成后保持当前分支")
+        }
+
         if resolvedLocalOperationTargets.isEmpty && localOperationMode != .syncEnvironments {
             lines.append("- 当前还没有选中任何目标分支")
         }
@@ -1186,15 +1638,62 @@ final class AppModel {
             gitVersion = ver
         }
         await refreshSettings()
+        if let ws = activeWorkspace, !ws.projectsRootDirs.isEmpty {
+            let placeholders = service.gitCliService.scanProjectPlaceholders(
+                rootDirs: ws.projectsRootDirs,
+                forcedPlatform: ws.platform
+            )
+            if !placeholders.isEmpty {
+                worktreeProjects = placeholders
+                selectedProjectID = placeholders.first?.id
+            }
+        }
+        if workspaces.isEmpty && appConfig?.worktreeProjectsRootDirs.isEmpty == true {
+            showingOnboardingSheet = true
+        }
+        Task.detached(priority: .utility) {
+            let hasGH = !GitHubProvider.resolveToken(configuredToken: "").isEmpty
+            await MainActor.run {
+                self.ghCLITokenAvailable = hasGH
+            }
+        }
         // 核心工作区（工作树）立即加载并渲染（并发并行扫描，只需 ~0.25s）
         await refreshWorktrees()
 
-        // 分支同步与远程 GitLab 项目在后台异步并发加载，绝不拖慢首次打开速度
+        // 分支同步与远程项目在后台异步并发加载，并预热其余工作区缓存实现秒切
         Task {
             await refreshLocalMergeProjects(silent: true)
         }
         Task {
             await refreshMergeProjects(silent: true)
+        }
+        Task {
+            await prewarmInactiveWorkspaces()
+        }
+    }
+
+    private func prewarmInactiveWorkspaces() async {
+        let activeID = activeWorkspace?.id
+        let others = workspaces.filter { $0.id != activeID && !$0.projectsRootDirs.isEmpty }
+        for ws in others {
+            if workspaceCaches[ws.id] != nil { continue }
+            if let snapshot = try? await service.loadWorktreeSnapshot(workspace: ws, onProgress: { _ in }) {
+                if workspaceCaches[ws.id] == nil {
+                    workspaceCaches[ws.id] = WorkspaceViewSnapshotCache(
+                        worktreeProjects: snapshot.projects,
+                        worktrees: snapshot.worktrees,
+                        localMergeProjects: [],
+                        mergeProjects: [],
+                        selectedProjectID: snapshot.projects.first?.id,
+                        selectedWorktreeID: snapshot.worktrees.first(where: { $0.projectPath == snapshot.projects.first?.path })?.id,
+                        selectedLocalProjectID: nil,
+                        selectedMergeProjectID: nil,
+                        mergeDashboardProjectID: nil,
+                        mergeDashboardItems: [],
+                        selectedDashboardItemID: nil
+                    )
+                }
+            }
         }
     }
 
@@ -1205,10 +1704,28 @@ final class AppModel {
         do {
             let config = try await service.loadWorkbenchConfig()
             appConfig = config
-            worktreeConfig = config.asWorktreeConfig()
-            // 让平台判定兜底逻辑拿到当前配置的 GitLab 主机
-            GitLabHostStore.shared.update(config.gitlabHost)
+            if !config.activeWorkspaceID.isEmpty {
+                activeWorkspaceID = config.activeWorkspaceID
+            } else if let firstWS = config.workspaces.first {
+                activeWorkspaceID = firstWS.id
+            }
+            let currentWS = config.currentWorkspace
+            worktreeConfig = config.asWorktreeConfig(for: currentWS)
+            // 让平台判定兜底逻辑拿到当前工作区的 GitLab/GitHub 主机与凭据
+            GitLabHostStore.shared.update(currentWS?.platform == .gitlab ? currentWS?.host : config.gitlabHost)
+            GitCredentialStore.shared.update(
+                gitlabToken: currentWS?.platform == .gitlab ? (currentWS?.token ?? config.gitlabToken) : config.gitlabToken,
+                githubToken: currentWS?.platform == .github ? (currentWS?.token ?? config.githubToken) : config.githubToken
+            )
+            if let wsPlatform = currentWS?.platform {
+                selectedPlatformFilter = wsPlatform
+            } else if let restored = RepositoryPlatform(rawValue: config.activePlatform), restored != .all {
+                selectedPlatformFilter = restored
+            }
             settingsDraft = SettingsDraft(config: config)
+            if settingsDraft.activeWorkspaceID.isEmpty {
+                settingsDraft.activeWorkspaceID = activeWorkspaceID
+            }
             settingsTokenVisible = false
             settingsOperation = OperationState(
                 isRunning: false,
@@ -1251,12 +1768,12 @@ final class AppModel {
             await refreshLocalMergeProjects(silent: true)
         case .mergeRequests:
             await refreshMergeRequests(silent: true)
-        case .settings:
-            break
         }
     }
 
     func refreshWorktrees(silent: Bool = false) async {
+        let expectedWSID = activeWorkspace?.id
+        let expectedGen = workspaceSwitchGeneration
         if !silent {
             appendWorktreeLog("开始扫描工作树...")
             worktreeOperation = OperationState(
@@ -1275,7 +1792,7 @@ final class AppModel {
                 }
             }
 
-            let snapshot = try await service.loadWorktreeSnapshot { [weak self] progress in
+            let snapshot = try await service.loadWorktreeSnapshot(workspace: activeWorkspace) { [weak self] progress in
                 if !silent {
                     Task { @MainActor in
                         self?.worktreeOperation = OperationState(
@@ -1289,12 +1806,37 @@ final class AppModel {
                 }
             }
 
+            guard expectedGen == workspaceSwitchGeneration, expectedWSID == activeWorkspace?.id else {
+                if let expectedWSID {
+                    workspaceCaches[expectedWSID] = WorkspaceViewSnapshotCache(
+                        worktreeProjects: snapshot.projects,
+                        worktrees: snapshot.worktrees,
+                        localMergeProjects: workspaceCaches[expectedWSID]?.localMergeProjects ?? [],
+                        mergeProjects: workspaceCaches[expectedWSID]?.mergeProjects ?? [],
+                        selectedProjectID: snapshot.projects.first?.id,
+                        selectedWorktreeID: snapshot.worktrees.first?.id,
+                        selectedLocalProjectID: workspaceCaches[expectedWSID]?.selectedLocalProjectID,
+                        selectedMergeProjectID: workspaceCaches[expectedWSID]?.selectedMergeProjectID,
+                        mergeDashboardProjectID: nil,
+                        mergeDashboardItems: [],
+                        selectedDashboardItemID: nil
+                    )
+                }
+                return
+            }
+
             worktreeConfig = snapshot.config
             worktreeProjects = snapshot.projects
             worktrees = snapshot.worktrees
 
-            if selectedProjectID == nil || !worktreeProjects.contains(where: { $0.id == selectedProjectID }) {
-                selectedProjectID = worktreeProjects.first?.id
+            if activeWorkspace == nil, !worktreeProjects.isEmpty, filteredWorktreeProjects.isEmpty {
+                if let firstAvailable = switchablePlatforms.first {
+                    selectedPlatformFilter = firstAvailable
+                }
+            }
+
+            if selectedProjectID == nil || !filteredWorktreeProjects.contains(where: { $0.id == selectedProjectID }) {
+                selectedProjectID = filteredWorktreeProjects.first?.id ?? worktreeProjects.first?.id
             }
 
             if selectedWorktreeID == nil || !filteredWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
@@ -1387,7 +1929,7 @@ final class AppModel {
         globalErrorMessage = nil
 
         do {
-            let context = try await service.loadLocalMergeContext { [weak self] progress in
+            let context = try await service.loadLocalMergeContext(workspace: activeWorkspace) { [weak self] progress in
                 if !silent {
                     Task { @MainActor in
                         self?.localOperation = OperationState(
@@ -1403,8 +1945,11 @@ final class AppModel {
             localMergeContext = context
             localMergeProjects = context.projects
 
-            if selectedLocalProjectID == nil || !localMergeProjects.contains(where: { $0.id == selectedLocalProjectID }) {
-                selectedLocalProjectID = localMergeProjects.first?.id
+            if let currentPath = currentWorktreeProject?.path,
+               let matched = filteredLocalMergeProjects.first(where: { $0.path == currentPath }) {
+                selectedLocalProjectID = matched.id
+            } else if selectedLocalProjectID == nil || !filteredLocalMergeProjects.contains(where: { $0.id == selectedLocalProjectID }) {
+                selectedLocalProjectID = filteredLocalMergeProjects.first?.id ?? localMergeProjects.first?.id
             }
 
             syncLocalOperationDefaults(resetSourceBranch: false)
@@ -1438,7 +1983,7 @@ final class AppModel {
         globalErrorMessage = nil
 
         do {
-            let context = try await service.loadMergeContext { [weak self] progress in
+            let context = try await service.loadMergeContext(workspace: activeWorkspace) { [weak self] progress in
                 if !silent {
                     Task { @MainActor in
                         self?.mrOperation = OperationState(
@@ -1453,8 +1998,11 @@ final class AppModel {
             mergeRequestContext = context
             mergeProjects = context.projects
 
-            if selectedMergeProjectID == nil || !mergeProjects.contains(where: { $0.id == selectedMergeProjectID }) {
-                selectedMergeProjectID = mergeProjects.first?.id
+            if let currentPath = currentWorktreeProject?.path,
+               let matched = filteredMergeProjects.first(where: { $0.path == currentPath }) {
+                selectedMergeProjectID = matched.id
+            } else if selectedMergeProjectID == nil || !filteredMergeProjects.contains(where: { $0.id == selectedMergeProjectID }) {
+                selectedMergeProjectID = filteredMergeProjects.first?.id ?? mergeProjects.first?.id
             }
 
             await refreshMergeRequests(silent: silent)
@@ -1528,7 +2076,95 @@ final class AppModel {
         }
     }
 
+    func selectWorkspaceProject(_ project: LocalProject) {
+        let prevProjectID = selectedProjectID
+        selectedProjectID = project.id
+
+        if !filteredWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
+            selectedWorktreeID = filteredWorktrees.first?.id
+        }
+        syncSelectedWorktreeDescriptionDraft()
+        syncSelectedWorktreeDetails()
+        syncCreateWorktreeDefaults(resetBranchName: false)
+
+        if let matchedLocal = localMergeProjects.first(where: { $0.path == project.path || $0.name == project.name }) {
+            selectedLocalProjectID = matchedLocal.id
+            syncLocalOperationDefaults(resetSourceBranch: false)
+        }
+
+        if let matchedMerge = mergeProjects.first(where: { $0.path == project.path || $0.name == project.name }) {
+            if selectedMergeProjectID != matchedMerge.id {
+                selectedMergeProjectID = matchedMerge.id
+                selectedBatchApproveMRIDs.removeAll()
+                createMRDraft = CreateMRDraft()
+                if selectedSection == .mergeRequests {
+                    Task {
+                        await refreshMergeRequests()
+                    }
+                }
+            }
+        }
+
+        if prevProjectID != project.id {
+            mergeDashboardProjectID = nil
+            mergeDashboardItems = []
+            selectedDashboardItemID = nil
+            if selectedSection == .mergeDashboard {
+                Task {
+                    await refreshMergeDashboard()
+                }
+            }
+        }
+    }
+
+    func openBranchSync(forBranch branch: String, projectPath: String?) {
+        if let projectPath,
+           let matchedWorktreeProj = worktreeProjects.first(where: { $0.path == projectPath }) {
+            selectWorkspaceProject(matchedWorktreeProj)
+        }
+        if let projectPath,
+           let matchedLocal = localMergeProjects.first(where: { $0.path == projectPath }) {
+            selectedLocalProjectID = matchedLocal.id
+        }
+        if !branch.isEmpty {
+            localOperationSourceBranch = branch
+            if localOperationMode == .syncEnvironments {
+                localOperationMode = .mergeCustom
+            }
+        }
+        syncLocalOperationDefaults(resetSourceBranch: false)
+        if !branch.isEmpty {
+            localOperationSourceBranch = branch
+        }
+        selectedSection = .branchSync
+    }
+
+    func openCreateMR(forBranch branch: String, projectPath: String?) {
+        if let projectPath,
+           let matchedWorktreeProj = worktreeProjects.first(where: { $0.path == projectPath }) {
+            selectWorkspaceProject(matchedWorktreeProj)
+        }
+        selectedSection = .mergeRequests
+        Task {
+            if mergeRequestContext == nil || mergeProjects.isEmpty {
+                await refreshMergeProjects(silent: true)
+            }
+            if let projectPath,
+               let matchedMerge = mergeProjects.first(where: { $0.path == projectPath }) {
+                selectedMergeProjectID = matchedMerge.id
+            }
+            prepareCreateMergeRequest()
+            if !branch.isEmpty {
+                createMRDraft.sourceBranch = branch
+            }
+        }
+    }
+
     func selectProject(_ projectID: String) {
+        if let proj = worktreeProjects.first(where: { $0.id == projectID }) {
+            selectWorkspaceProject(proj)
+            return
+        }
         guard selectedProjectID != projectID else { return }
         selectedProjectID = projectID
         if !filteredWorktrees.contains(where: { $0.id == selectedWorktreeID }) {
@@ -1537,14 +2173,19 @@ final class AppModel {
         syncSelectedWorktreeDescriptionDraft()
         syncSelectedWorktreeDetails()
         syncCreateWorktreeDefaults(resetBranchName: false)
-        // 切换不同项目时重置看板数据，触发重新分析
         mergeDashboardProjectID = nil
         mergeDashboardItems = []
     }
 
     func selectDashboardProject(_ projectID: String) {
+        if let proj = worktreeProjects.first(where: { $0.id == projectID }) {
+            if selectedProjectID == projectID && mergeDashboardProjectID == projectID && !mergeDashboardItems.isEmpty {
+                return
+            }
+            selectWorkspaceProject(proj)
+            return
+        }
         if selectedProjectID == projectID && mergeDashboardProjectID == projectID && !mergeDashboardItems.isEmpty {
-            // 点击同一个已加载项目，无需任何操作，更不要清空数据
             return
         }
         selectedProjectID = projectID
@@ -1632,11 +2273,11 @@ final class AppModel {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    func openProjectInIDE(_ project: MergeProject) {
-        guard let config = effectiveWorktreeConfig else { return }
+    func openProjectInIDE(_ project: MergeProject, ide: IDEProfile? = nil) {
+        let profile = ide ?? defaultIDEProfile
         do {
-            try service.openInIDE(config: config, path: project.path)
-            appendLocalOperationLog("已在 \(config.ideLabel) 中打开: \(project.displayName)")
+            try service.openInIDE(profile: profile, path: project.path)
+            appendLocalOperationLog("已在 \(profile.effectiveLabel) 中打开: \(project.displayName)")
         } catch {
             appendLocalOperationLog("打开 IDE 失败: \(error.localizedDescription)")
         }
@@ -1796,17 +2437,17 @@ final class AppModel {
         worktreeOperation.logs.removeAll()
     }
 
-    func openWorktreeInIDE(_ item: WorktreeItem) {
-        guard let config = effectiveWorktreeConfig else { return }
+    func openWorktreeInIDE(_ item: WorktreeItem, ide: IDEProfile? = nil) {
+        let profile = ide ?? defaultIDEProfile
         do {
-            try service.openInIDE(config: config, path: item.path)
-            appendWorktreeLog("已在 \(config.ideLabel) 中打开: \(item.branch) (\(item.path))")
+            try service.openInIDE(profile: profile, path: item.path)
+            appendWorktreeLog("已在 \(profile.effectiveLabel) 中打开: \(item.branch) (\(item.path))")
             worktreeOperation = OperationState(
                 isRunning: false,
                 title: "已打开 IDE",
                 detail: item.path,
                 logs: worktreeOperation.logs,
-                successMessage: "已使用 \(config.ideLabel) 打开"
+                successMessage: "已使用 \(profile.effectiveLabel) 打开"
             )
         } catch {
             appendWorktreeLog("打开 IDE 失败: \(error.localizedDescription)")
@@ -1878,7 +2519,7 @@ final class AppModel {
         appendWorktreeLog("已复制分支名称: \(item.branch)")
     }
 
-    func openFileInIDE(path: String) {
+    func openFileInIDE(path: String, ide: IDEProfile? = nil) {
         guard let item = selectedWorktree else { return }
         let fullPath: String
         if path.hasPrefix("/") {
@@ -1886,14 +2527,10 @@ final class AppModel {
         } else {
             fullPath = URL(fileURLWithPath: item.path).appendingPathComponent(path).path
         }
+        let profile = ide ?? defaultIDEProfile
         do {
-            if let config = effectiveWorktreeConfig {
-                try service.openInIDE(config: config, path: fullPath)
-                appendWorktreeLog("已在 \(config.ideLabel) 中打开: \(path)")
-            } else {
-                _ = try ProcessRunner.runCommand("open", arguments: [ProcessRunner.expandPath(fullPath)])
-                appendWorktreeLog("已打开文件: \(path)")
-            }
+            try service.openInIDE(profile: profile, path: fullPath)
+            appendWorktreeLog("已在 \(profile.effectiveLabel) 中打开: \(path)")
         } catch {
             appendWorktreeLog("打开文件失败: \(error.localizedDescription)")
         }
@@ -2161,9 +2798,42 @@ final class AppModel {
         }
     }
 
-    func openSelectedWorktreeInIDE() {
+    func openSelectedWorktreeInIDE(ide: IDEProfile? = nil) {
         if let item = selectedWorktree {
-            openWorktreeInIDE(item)
+            openWorktreeInIDE(item, ide: ide)
+        }
+    }
+
+    func openCurrentSelectionInIDE(_ ide: IDEProfile? = nil) {
+        switch selectedSection {
+        case .mergeDashboard:
+            if let wt = selectedDashboardWorktree {
+                openWorktreeInIDE(wt, ide: ide)
+            } else if let project = currentWorktreeProject {
+                let profile = ide ?? defaultIDEProfile
+                try? service.openInIDE(profile: profile, path: project.path)
+            }
+        case .worktrees:
+            if let wt = selectedWorktree {
+                openWorktreeInIDE(wt, ide: ide)
+            } else if let project = currentWorktreeProject {
+                let profile = ide ?? defaultIDEProfile
+                try? service.openInIDE(profile: profile, path: project.path)
+            }
+        case .branchSync:
+            if let project = currentLocalMergeProject {
+                openProjectInIDE(project, ide: ide)
+            }
+        case .mergeRequests:
+            if let project = currentWorktreeProject {
+                let profile = ide ?? defaultIDEProfile
+                try? service.openInIDE(profile: profile, path: project.path)
+            }
+        case .none:
+            if let project = currentWorktreeProject {
+                let profile = ide ?? defaultIDEProfile
+                try? service.openInIDE(profile: profile, path: project.path)
+            }
         }
     }
 
@@ -2186,22 +2856,126 @@ final class AppModel {
         scannedIDEs = IDEService.shared.scanInstalledIDEs()
     }
 
+    func isInstalledIDEConfigured(_ ide: InstalledIDEApp) -> Bool {
+        settingsDraft.ideProfiles.contains {
+            $0.mode == "app" && (
+                $0.command.caseInsensitiveCompare(ide.name) == .orderedSame ||
+                $0.command.caseInsensitiveCompare(ide.defaultAppName) == .orderedSame ||
+                $0.label.caseInsensitiveCompare(ide.displayName) == .orderedSame
+            )
+        }
+    }
+
+    func toggleInstalledIDEInDraft(_ ide: InstalledIDEApp) {
+        if let existingIndex = settingsDraft.ideProfiles.firstIndex(where: {
+            $0.mode == "app" && (
+                $0.command.caseInsensitiveCompare(ide.name) == .orderedSame ||
+                $0.command.caseInsensitiveCompare(ide.defaultAppName) == .orderedSame ||
+                $0.label.caseInsensitiveCompare(ide.displayName) == .orderedSame
+            )
+        }) {
+            let removedID = settingsDraft.ideProfiles[existingIndex].id
+            removeIDEProfile(id: removedID)
+            return
+        }
+
+        // 如果当前只有系统占位项 ("open" / "默认应用")，直接替换为所选编辑器
+        if settingsDraft.ideProfiles.count == 1,
+           let only = settingsDraft.ideProfiles.first,
+           only.command == "open" || only.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let newProfile = IDEProfileDraft(
+                id: only.id,
+                label: ide.displayName,
+                mode: "app",
+                command: ide.name
+            )
+            settingsDraft.ideProfiles = [newProfile]
+            setDefaultIDEProfile(id: newProfile.id)
+            return
+        }
+
+        let newProfile = IDEProfileDraft(
+            id: "ide-\(UUID().uuidString.prefix(8))",
+            label: ide.displayName,
+            mode: "app",
+            command: ide.name
+        )
+        settingsDraft.ideProfiles.append(newProfile)
+        if settingsDraft.defaultIDEProfileID.isEmpty {
+            setDefaultIDEProfile(id: newProfile.id)
+        }
+    }
+
+    func addCustomIDEProfile() {
+        let newProfile = IDEProfileDraft(
+            id: "ide-\(UUID().uuidString.prefix(8))",
+            label: "自定义编辑器",
+            mode: "custom",
+            command: ""
+        )
+        settingsDraft.ideProfiles.append(newProfile)
+        if settingsDraft.defaultIDEProfileID.isEmpty {
+            setDefaultIDEProfile(id: newProfile.id)
+        }
+    }
+
+    func removeIDEProfile(id: String) {
+        settingsDraft.ideProfiles.removeAll { $0.id == id }
+        if settingsDraft.ideProfiles.isEmpty {
+            let fallback = IDEProfileDraft(id: "default-ide", label: "默认应用", mode: "app", command: "open")
+            settingsDraft.ideProfiles = [fallback]
+            setDefaultIDEProfile(id: fallback.id)
+            return
+        }
+        if settingsDraft.defaultIDEProfileID == id || !settingsDraft.ideProfiles.contains(where: { $0.id == settingsDraft.defaultIDEProfileID }) {
+            if let first = settingsDraft.ideProfiles.first {
+                setDefaultIDEProfile(id: first.id)
+            }
+        }
+    }
+
+    func setDefaultIDEProfile(id: String) {
+        settingsDraft.defaultIDEProfileID = id
+        if let matched = settingsDraft.ideProfiles.first(where: { $0.id == id }) {
+            settingsDraft.ideMode = matched.mode
+            settingsDraft.ideCommand = matched.command
+            settingsDraft.ideLabel = matched.label
+        }
+    }
+
     func selectIDE(_ ide: InstalledIDEApp) {
-        settingsDraft.ideMode = "app"
-        settingsDraft.ideCommand = ide.name
-        settingsDraft.ideLabel = ide.displayName
+        if !isInstalledIDEConfigured(ide) {
+            toggleInstalledIDEInDraft(ide)
+        }
+        if let matched = settingsDraft.ideProfiles.first(where: {
+            $0.command.caseInsensitiveCompare(ide.name) == .orderedSame ||
+            $0.label.caseInsensitiveCompare(ide.displayName) == .orderedSame
+        }) {
+            setDefaultIDEProfile(id: matched.id)
+        }
         Task {
             await saveSettings()
         }
     }
 
-    func testOpenIDE() {
-        let mode = settingsDraft.ideMode.trimmingCharacters(in: .whitespacesAndNewlines)
-        let command = settingsDraft.ideCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+    func testOpenIDE(_ draftProfile: IDEProfileDraft? = nil) {
+        let profile: IDEProfile
+        if let draftProfile {
+            profile = draftProfile.toIDEProfile()
+        } else if let matched = settingsDraft.ideProfiles.first(where: { $0.id == settingsDraft.defaultIDEProfileID }) {
+            profile = matched.toIDEProfile()
+        } else {
+            profile = IDEProfile(
+                id: "default-ide",
+                label: settingsDraft.ideLabel,
+                mode: settingsDraft.ideMode,
+                command: settingsDraft.ideCommand
+            )
+        }
         let testPath = currentWorktreeProject?.path ?? FileManager.default.homeDirectoryForCurrentUser.path
         do {
-            try IDEService.shared.openDirectory(path: testPath, ideMode: mode, ideCommand: command)
-            let label = settingsDraft.ideLabel.isEmpty ? command : settingsDraft.ideLabel
+            try IDEService.shared.openDirectory(path: testPath, ideMode: profile.mode, ideCommand: profile.command)
+            let label = profile.effectiveLabel
             settingsOperation = OperationState(
                 isRunning: false,
                 title: "已打开 IDE",
@@ -2223,6 +2997,55 @@ final class AppModel {
         if preset.id != "custom" {
             settingsDraft.aiBaseURL = preset.defaultBaseURL
             settingsDraft.aiModel = preset.defaultModel
+        }
+    }
+
+    func testGitHubConnection(host: String? = nil, token: String? = nil) async {
+        let activeDraft = settingsDraft.workspaces.first(where: { $0.id == activeWorkspaceID })
+        let resolvedHost = (host ?? activeDraft?.host ?? settingsDraft.githubHost).trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedToken = (token ?? activeDraft?.token ?? settingsDraft.githubToken).trimmingCharacters(in: .whitespacesAndNewlines)
+        settingsOperation = OperationState(isRunning: true, title: "测试 GitHub 连通性", detail: "正在请求 \(GitHubProvider.apiBaseURL(from: resolvedHost))/user ...")
+        do {
+            let msg = try await GitHubProvider.testConnection(configuredToken: resolvedToken, host: resolvedHost)
+            ghCLITokenAvailable = !GitHubProvider.resolveToken(configuredToken: resolvedToken, host: resolvedHost).isEmpty
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "GitHub 连通成功",
+                detail: msg,
+                fractionCompleted: 1,
+                successMessage: msg
+            )
+        } catch {
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "GitHub 连通失败",
+                detail: error.localizedDescription,
+                errorMessage: error.localizedDescription
+            )
+        }
+    }
+
+    func testGitLabConnection(host: String? = nil, token: String? = nil) async {
+        let activeDraft = settingsDraft.workspaces.first(where: { $0.id == activeWorkspaceID })
+        let resolvedHost = host ?? activeDraft?.host ?? settingsDraft.gitlabHost
+        let resolvedToken = token ?? activeDraft?.token ?? settingsDraft.gitlabToken
+        settingsOperation = OperationState(isRunning: true, title: "测试 GitLab 连通性", detail: "正在验证实例与访问令牌...")
+        do {
+            let msg = try await GitLabProvider.testConnection(host: resolvedHost, token: resolvedToken)
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "GitLab 连通成功",
+                detail: msg,
+                fractionCompleted: 1,
+                successMessage: msg
+            )
+        } catch {
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "GitLab 连通失败",
+                detail: error.localizedDescription,
+                errorMessage: error.localizedDescription
+            )
         }
     }
 
@@ -2429,6 +3252,8 @@ final class AppModel {
             for line in logs {
                 appendLocalOperationLog(line)
             }
+
+            await refreshSingleLocalMergeProjectBranchState(projectPath: project.path)
 
             let successCount = logs.filter { !$0.hasPrefix("失败:") && !$0.hasPrefix("错误:") }.count
             localOperation = OperationState(
@@ -2653,13 +3478,31 @@ final class AppModel {
         )
     }
 
-    /// 流水线全部处理完成，收尾归位初始分支
+    /// 流水线全部处理完成，若配置了主干分支则自动切回主干分支；未配置则保持当前分支
     private func finishInteractiveSyncPipeline() async {
         guard let session = activeSyncSession else { return }
         let projectPath = session.projectPath
+        let mainlineBranches = activeWorkspace?.configuredMainlineBranches
+            ?? localMergeContext?.config.mainlineBranches
+            ?? []
 
-        appendLocalOperationLog("流水线完成，正在归位切回初始分支: \(session.initialBranch)...")
-        try? GitCliService().checkoutBranch(projectPath: projectPath, branch: session.initialBranch)
+        let restoreResult = await Task.detached(priority: .userInitiated) {
+            BranchSyncService().restoreMainlineBranchIfConfigured(
+                projectPath: projectPath,
+                mainlineBranches: mainlineBranches
+            )
+        }.value
+
+        switch restoreResult {
+        case .notConfigured:
+            appendLocalOperationLog("ℹ️ \(restoreResult.logLine)")
+        case .alreadyOnMainline, .switched:
+            appendLocalOperationLog("✅ \(restoreResult.logLine)")
+        case .branchNotFound, .failed:
+            appendLocalOperationLog("⚠️ \(restoreResult.logLine)")
+        }
+
+        await refreshSingleLocalMergeProjectBranchState(projectPath: projectPath)
 
         let total = session.targets.count
         let succ = session.successfulCount
@@ -2681,6 +3524,36 @@ final class AppModel {
             successMessage: summary
         )
         activeSyncSession = nil
+    }
+
+    private func refreshSingleLocalMergeProjectBranchState(projectPath: String) async {
+        let updated = await Task.detached(priority: .userInitiated) { () -> (String, [String], [String])? in
+            let cli = GitCliService()
+            guard let current = try? cli.currentLocalBranch(projectPath: projectPath) else { return nil }
+            let locals = (try? cli.localBranches(projectPath: projectPath)) ?? []
+            let remotes = (try? cli.remoteBranches(projectPath: projectPath)) ?? []
+            return (current, locals, remotes)
+        }.value
+
+        guard let (current, locals, remotes) = updated else { return }
+        if let idx = localMergeProjects.firstIndex(where: { $0.path == projectPath }) {
+            let old = localMergeProjects[idx]
+            localMergeProjects[idx] = MergeProject(
+                id: old.id,
+                name: old.name,
+                displayName: old.displayName,
+                path: old.path,
+                sourceRoot: old.sourceRoot,
+                currentBranch: current,
+                gitLabProjectID: old.gitLabProjectID,
+                githubRepoSlug: old.githubRepoSlug,
+                branchMappings: old.branchMappings,
+                remoteBranches: remotes.isEmpty ? old.remoteBranches : remotes,
+                localBranches: locals.isEmpty ? old.localBranches : locals,
+                remoteURL: old.remoteURL,
+                platform: old.platform
+            )
+        }
     }
 
     /// 刷新当前冲突文件状态（可由定时器或用户点击触发）
@@ -2718,6 +3591,24 @@ final class AppModel {
     }
 
     func prepareCreateMergeRequest() {
+        if let project = currentMergeProject, project.platform == .github {
+            let preferredTarget = mergeRequestContext?.config.githubDefaultTargetBranch ?? "main"
+            let defaultTargetBranch = availableMRTargetBranches.contains(preferredTarget)
+                ? preferredTarget
+                : (availableMRTargetBranches.first(where: { $0 == "main" || $0 == "master" })
+                    ?? availableMRTargetBranches.first
+                    ?? preferredTarget)
+            let defaultSourceBranch = availableMRSourceBranches.first(where: { $0 == project.currentBranch && $0 != defaultTargetBranch })
+                ?? availableMRSourceBranches.first(where: { $0 != defaultTargetBranch })
+                ?? availableMRSourceBranches.first
+                ?? project.currentBranch
+
+            createMRDraft.sourceBranch = defaultSourceBranch
+            createMRDraft.targetBranch = defaultTargetBranch
+            showingCreateMRSheet = true
+            return
+        }
+
         let defaultSourceBranch = availableMRMappings
             .map(\.source)
             .first { availableMRSourceBranches.contains($0) }
@@ -2916,8 +3807,21 @@ final class AppModel {
             let config = try makeConfigFromDraft()
             let saved = try await service.saveWorkbenchConfig(config)
             appConfig = saved
-            worktreeConfig = saved.asWorktreeConfig()
-            GitLabHostStore.shared.update(saved.gitlabHost)
+            if !saved.activeWorkspaceID.isEmpty {
+                activeWorkspaceID = saved.activeWorkspaceID
+            } else if let first = saved.workspaces.first {
+                activeWorkspaceID = first.id
+            }
+            let currentWS = saved.currentWorkspace
+            if let wsPlatform = currentWS?.platform {
+                selectedPlatformFilter = wsPlatform
+            }
+            worktreeConfig = saved.asWorktreeConfig(for: currentWS)
+            GitLabHostStore.shared.update(currentWS?.platform == .gitlab ? currentWS?.host : saved.gitlabHost)
+            GitCredentialStore.shared.update(
+                gitlabToken: currentWS?.platform == .gitlab ? (currentWS?.token ?? saved.gitlabToken) : saved.gitlabToken,
+                githubToken: currentWS?.platform == .github ? (currentWS?.token ?? saved.githubToken) : saved.githubToken
+            )
             settingsDraft = SettingsDraft(config: saved)
             settingsTokenVisible = false
             settingsOperation = OperationState(
@@ -2927,6 +3831,7 @@ final class AppModel {
                 fractionCompleted: 1,
                 successMessage: "保存成功"
             )
+            ProjectScanCache.shared.invalidate()
             await refreshWorktrees()
             await refreshLocalMergeProjects()
             await refreshMergeProjects()
@@ -2945,8 +3850,21 @@ final class AppModel {
         do {
             let config = try await service.reloadWorkbenchConfig()
             appConfig = config
-            worktreeConfig = config.asWorktreeConfig()
-            GitLabHostStore.shared.update(config.gitlabHost)
+            if !config.activeWorkspaceID.isEmpty {
+                activeWorkspaceID = config.activeWorkspaceID
+            } else if let first = config.workspaces.first {
+                activeWorkspaceID = first.id
+            }
+            let currentWS = config.currentWorkspace
+            if let wsPlatform = currentWS?.platform {
+                selectedPlatformFilter = wsPlatform
+            }
+            worktreeConfig = config.asWorktreeConfig(for: currentWS)
+            GitLabHostStore.shared.update(currentWS?.platform == .gitlab ? currentWS?.host : config.gitlabHost)
+            GitCredentialStore.shared.update(
+                gitlabToken: currentWS?.platform == .gitlab ? (currentWS?.token ?? config.gitlabToken) : config.gitlabToken,
+                githubToken: currentWS?.platform == .github ? (currentWS?.token ?? config.githubToken) : config.githubToken
+            )
             settingsDraft = SettingsDraft(config: config)
             settingsTokenVisible = false
             settingsOperation = OperationState(
@@ -2956,6 +3874,7 @@ final class AppModel {
                 fractionCompleted: 1,
                 successMessage: "重新加载完成"
             )
+            ProjectScanCache.shared.invalidate()
             await refreshWorktrees()
             await refreshLocalMergeProjects()
             await refreshMergeProjects()
@@ -2971,7 +3890,9 @@ final class AppModel {
 
     private func suggestedWorktreePath(projectName: String, branchName: String) -> String {
         let basePath: String
-        if let wtPath = worktreeConfig?.worktreesRootDir, !wtPath.isEmpty {
+        if let wsRoot = activeWorkspace?.worktreesRootDir.trimmedNonEmpty {
+            basePath = wsRoot
+        } else if let wtPath = worktreeConfig?.worktreesRootDir, !wtPath.isEmpty {
             basePath = wtPath
         } else if let appPath = appConfig?.worktreesRootDir, !appPath.isEmpty {
             basePath = appPath
@@ -3057,27 +3978,63 @@ final class AppModel {
             throw WorkbenchError.message("自动合并重试次数必须是非负整数")
         }
 
-        let worktreeRoots = settingsDraft.worktreeProjectsRootDirs
+        let workspaceProfiles = settingsDraft.workspaces.map { $0.toWorkspaceProfile() }
+        for wsDraft in settingsDraft.workspaces {
+            _ = try parseBranchMappings(wsDraft.branchMappings)
+        }
+        let workspaceRoots = Array(Set(workspaceProfiles.flatMap(\.projectsRootDirs))).sorted()
+        let draftWorktreeRoots = settingsDraft.worktreeProjectsRootDirs
             .map(\.path)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        let mergeRoots = settingsDraft.mergeRootDirs
+        let draftMergeRoots = settingsDraft.mergeRootDirs
             .map(\.path)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        let worktreeRoots = workspaceRoots.isEmpty ? draftWorktreeRoots : workspaceRoots
+        let mergeRoots = workspaceRoots.isEmpty ? (draftMergeRoots.isEmpty ? worktreeRoots : draftMergeRoots) : workspaceRoots
+
         let envBranches = parseList(settingsDraft.envBranchesText)
         let protectedTargets = parseList(settingsDraft.protectedTargetsText)
-        let branchMap = try parseBranchMappings(settingsDraft.branchMappings)
+        let githubBaselines = parseList(settingsDraft.githubDashboardBaselinesText)
+        let gitlabBaselines = parseList(settingsDraft.gitlabDashboardBaselinesText)
+        let globalBranchMap = try parseBranchMappings(settingsDraft.branchMappings)
 
         guard !worktreeRoots.isEmpty else {
-            throw WorkbenchError.message("至少需要一个工作树项目根目录")
+            throw WorkbenchError.message("至少需要为一个工作区标签绑定一个代码仓库目录")
         }
-        guard !mergeRoots.isEmpty else {
-            throw WorkbenchError.message("至少需要一个 MR 项目根目录")
+
+        let resolvedActiveWorkspaceID = settingsDraft.activeWorkspaceID.trimmedNonEmpty
+            ?? (activeWorkspaceID.trimmedNonEmpty)
+            ?? workspaceProfiles.first?.id
+            ?? ""
+        let resolvedActiveWS = workspaceProfiles.first(where: { $0.id == resolvedActiveWorkspaceID }) ?? workspaceProfiles.first
+        let firstGitLab = workspaceProfiles.first(where: { $0.platform == .gitlab })
+        let firstGitHub = workspaceProfiles.first(where: { $0.platform == .github })
+        let fallbackGitLabLike = (resolvedActiveWS?.platform == .gitlab ? resolvedActiveWS : nil) ?? firstGitLab ?? resolvedActiveWS
+        let effectiveEnvs = !(fallbackGitLabLike?.envBranches.isEmpty ?? true)
+            ? (fallbackGitLabLike?.envBranches ?? [])
+            : (envBranches.isEmpty ? ["dev", "test", "stage", "uat"] : envBranches)
+        let effectiveMiddle = fallbackGitLabLike?.mergeBranchMiddle.trimmedNonEmpty
+            ?? settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveBranchMap = !(fallbackGitLabLike?.branchMap.isEmpty ?? true)
+            ? (fallbackGitLabLike?.branchMap ?? [:])
+            : globalBranchMap
+
+        var builtIDEProfiles = settingsDraft.ideProfiles
+            .map { $0.toIDEProfile() }
+            .filter { !$0.command.isEmpty || $0.mode == "system" }
+        if builtIDEProfiles.isEmpty {
+            builtIDEProfiles = [
+                IDEProfile(
+                    id: "default-ide",
+                    label: settingsDraft.ideLabel.trimmedNonEmpty ?? "默认应用",
+                    mode: settingsDraft.ideMode.trimmedNonEmpty ?? "app",
+                    command: settingsDraft.ideCommand.trimmedNonEmpty ?? "open"
+                )
+            ]
         }
-        guard !envBranches.isEmpty else {
-            throw WorkbenchError.message("环境分支不能为空")
-        }
+        let primaryIDE = builtIDEProfiles.first(where: { $0.id == settingsDraft.defaultIDEProfileID }) ?? builtIDEProfiles[0]
 
         return GWorkbenchConfig(
             configPath: settingsDraft.configPath,
@@ -3085,27 +4042,35 @@ final class AppModel {
             worktreeProjectsRootDirs: worktreeRoots,
             worktreesRootDir: settingsDraft.worktreesRootDir.trimmingCharacters(in: .whitespacesAndNewlines),
             worktreePathTemplate: settingsDraft.worktreePathTemplate.trimmingCharacters(in: .whitespacesAndNewlines),
-            ideMode: settingsDraft.ideMode.trimmingCharacters(in: .whitespacesAndNewlines),
-            ideCommand: settingsDraft.ideCommand.trimmingCharacters(in: .whitespacesAndNewlines),
-            ideLabel: settingsDraft.ideLabel.trimmingCharacters(in: .whitespacesAndNewlines),
+            ideMode: primaryIDE.mode,
+            ideCommand: primaryIDE.command,
+            ideLabel: primaryIDE.effectiveLabel,
+            ideProfiles: builtIDEProfiles,
+            defaultIDEProfileID: primaryIDE.id,
             terminalApp: settingsDraft.terminalApp.trimmingCharacters(in: .whitespacesAndNewlines),
             terminalBundleID: settingsDraft.terminalBundleID.trimmingCharacters(in: .whitespacesAndNewlines),
             terminalLaunchHookMode: settingsDraft.terminalLaunchHookMode.trimmingCharacters(in: .whitespacesAndNewlines),
             terminalLaunchCommand: settingsDraft.terminalLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines),
-            gitlabHost: settingsDraft.gitlabHost.trimmingCharacters(in: .whitespacesAndNewlines),
-            gitlabToken: settingsDraft.gitlabToken.trimmingCharacters(in: .whitespacesAndNewlines),
-            githubToken: settingsDraft.githubToken.trimmingCharacters(in: .whitespacesAndNewlines),
+            gitlabHost: (firstGitLab?.host ?? settingsDraft.gitlabHost).trimmingCharacters(in: .whitespacesAndNewlines),
+            gitlabToken: (firstGitLab?.token ?? settingsDraft.gitlabToken).trimmingCharacters(in: .whitespacesAndNewlines),
+            githubHost: (firstGitHub?.host ?? settingsDraft.githubHost).trimmingCharacters(in: .whitespacesAndNewlines),
+            githubToken: (firstGitHub?.token ?? settingsDraft.githubToken).trimmingCharacters(in: .whitespacesAndNewlines),
             aiProvider: settingsDraft.aiProvider.trimmingCharacters(in: .whitespacesAndNewlines),
             aiBaseURL: settingsDraft.aiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             aiAPIKey: settingsDraft.aiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
             aiModel: settingsDraft.aiModel.trimmingCharacters(in: .whitespacesAndNewlines),
             aiCustomPrompt: settingsDraft.aiCustomPrompt.trimmingCharacters(in: .whitespacesAndNewlines),
             activeWorkflowPreset: settingsDraft.activeWorkflowPreset.trimmingCharacters(in: .whitespacesAndNewlines),
-            githubDefaultTargetBranch: settingsDraft.githubDefaultTargetBranch.trimmingCharacters(in: .whitespacesAndNewlines),
+            activePlatform: resolvedActiveWS?.platform.rawValue ?? activePlatform.rawValue,
+            activeWorkspaceID: resolvedActiveWorkspaceID,
+            workspaces: workspaceProfiles,
+            githubDefaultTargetBranch: firstGitHub?.defaultTargetBranch ?? settingsDraft.githubDefaultTargetBranch.trimmingCharacters(in: .whitespacesAndNewlines),
+            githubDashboardBaselines: firstGitHub?.effectiveDashboardBaselines ?? (githubBaselines.isEmpty ? DefaultDashboardBaselines.github : githubBaselines),
+            gitlabDashboardBaselines: firstGitLab?.effectiveDashboardBaselines ?? (gitlabBaselines.isEmpty ? DefaultDashboardBaselines.gitlab : gitlabBaselines),
             mergeRootDirs: mergeRoots,
-            mergeBranchMiddle: settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines),
-            envBranches: envBranches,
-            branchMap: branchMap,
+            mergeBranchMiddle: effectiveMiddle,
+            envBranches: effectiveEnvs,
+            branchMap: effectiveBranchMap,
             protectedTargets: protectedTargets,
             autoMergeDelaySeconds: delay,
             autoMergeRetryCount: retry,
@@ -3162,12 +4127,27 @@ final class AppModel {
         settingsDraft.mergeRootDirs.removeAll { $0.id == id }
     }
 
+    var activeWorkspaceDraftIndex: Int? {
+        let targetID = activeWorkspace?.id ?? settingsDraft.activeWorkspaceID
+        return settingsDraft.workspaces.firstIndex(where: { $0.id == targetID })
+            ?? (settingsDraft.workspaces.isEmpty ? nil : 0)
+    }
+
     var currentDraftTargetBranchOptions: [String] {
-        let envs = parseList(settingsDraft.envBranchesText)
         let protectedTargets = parseList(settingsDraft.protectedTargetsText)
         var list: [String] = []
-        for e in envs where !list.contains(e) {
-            list.append(e)
+        if let idx = activeWorkspaceDraftIndex {
+            let ws = settingsDraft.workspaces[idx]
+            for e in ws.protectedEnvBranchList where !list.contains(e) {
+                list.append(e)
+            }
+            for m in ws.mainlineBranchList where !list.contains(m) {
+                list.append(m)
+            }
+        } else {
+            for e in parseList(settingsDraft.envBranchesText) where !list.contains(e) {
+                list.append(e)
+            }
         }
         for p in protectedTargets where !list.contains(p) {
             list.append(p)
@@ -3176,29 +4156,60 @@ final class AppModel {
     }
 
     func regenerateBranchMappingsFromEnvironment() {
+        let globalProtected = parseList(settingsDraft.protectedTargetsText)
+
+        if let idx = activeWorkspaceDraftIndex {
+            let ws = settingsDraft.workspaces[idx]
+            let envs = ws.protectedEnvBranchList
+            let mainlines = ws.mainlineBranchList.isEmpty ? globalProtected : ws.mainlineBranchList
+            let middle = ws.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "sync"
+                : ws.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !envs.isEmpty else {
+                settingsOperation = OperationState(
+                    isRunning: false,
+                    title: "无法生成分支映射",
+                    detail: "请先在「当前标签「\(ws.name)」→ 分支架构与流转规则」中添加保护分支（非生产环境）",
+                    errorMessage: "保护分支列表为空"
+                )
+                return
+            }
+
+            let newMappings = ws.buildRecommendedBranchMappings(extraProtectedTargets: globalProtected)
+            settingsDraft.workspaces[idx].branchMappings = newMappings
+            settingsDraft.branchMappings = newMappings
+
+            let mainlineDisplay = mainlines.first ?? "未设置"
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "映射已同步",
+                detail: "已读取标签「\(ws.name)」分支架构（保护分支: \(envs.joined(separator: ", ")) · 后缀: \(middle) · 主干: \(mainlineDisplay)）生成 \(newMappings.count) 条映射",
+                successMessage: "已同步 \(newMappings.count) 条映射"
+            )
+            return
+        }
+
         let middle = settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "henry"
+            ? "sync"
             : settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
         let envs = parseList(settingsDraft.envBranchesText)
-        let protectedTargets = parseList(settingsDraft.protectedTargetsText)
 
-        guard !envs.isEmpty else { return }
-
-        var newMappings: [BranchMappingDraft] = []
-
-        // 如果配置了保护目标(如 master)，且最后一个高阶环境(如 pre_prod)存在，生成 pre_prod -> master
-        if let lastEnv = envs.last, let target = protectedTargets.first, lastEnv != target {
-            newMappings.append(BranchMappingDraft(source: lastEnv, target: target))
+        guard !envs.isEmpty else {
+            settingsOperation = OperationState(
+                isRunning: false,
+                title: "无法生成分支映射",
+                detail: "尚未配置非生产保护分支列表",
+                errorMessage: "保护分支列表为空"
+            )
+            return
         }
 
-        // 各环境分支的标准合并分支: ${env}_${middle}_meger -> ${env}
-        for env in envs.reversed() {
-            newMappings.append(BranchMappingDraft(
-                source: "\(env)_\(middle)_meger",
-                target: env
-            ))
-        }
-
+        let newMappings = WorkspaceProfileDraft.buildBranchMappings(
+            envs: envs,
+            mainlines: globalProtected,
+            middle: middle
+        )
         settingsDraft.branchMappings = newMappings
         settingsOperation = OperationState(
             isRunning: false,
@@ -3209,15 +4220,30 @@ final class AppModel {
     }
 
     func addBranchMapping(target: String? = nil) {
-        let defaultTarget = target ?? currentDraftTargetBranchOptions.first ?? "uat"
+        let defaultTarget = target ?? currentDraftTargetBranchOptions.first ?? "dev"
+        if let idx = activeWorkspaceDraftIndex {
+            let middle = settingsDraft.workspaces[idx].mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "sync"
+                : settingsDraft.workspaces[idx].mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let defaultSource = "\(defaultTarget)_\(middle)"
+            settingsDraft.workspaces[idx].branchMappings.append(BranchMappingDraft(source: defaultSource, target: defaultTarget))
+            settingsDraft.branchMappings = settingsDraft.workspaces[idx].branchMappings
+            return
+        }
+
         let middle = settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "henry"
+            ? "sync"
             : settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let defaultSource = "\(defaultTarget)_\(middle)_meger"
+        let defaultSource = "\(defaultTarget)_\(middle)"
         settingsDraft.branchMappings.append(BranchMappingDraft(source: defaultSource, target: defaultTarget))
     }
 
     func removeBranchMapping(id: UUID) {
+        if let idx = activeWorkspaceDraftIndex {
+            settingsDraft.workspaces[idx].branchMappings.removeAll { $0.id == id }
+            settingsDraft.branchMappings = settingsDraft.workspaces[idx].branchMappings
+            return
+        }
         settingsDraft.branchMappings.removeAll { $0.id == id }
     }
 }

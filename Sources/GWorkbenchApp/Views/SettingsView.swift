@@ -2,25 +2,63 @@ import SwiftUI
 import AppKit
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case worktrees = "本地与工作树"
-    case accounts = "平台凭据连接池"
-    case presets = "发布策略模板"
+    case workspaces
+    case currentWorkspace
+    case general
+    case ide
+    case ai
+    case policy
 
     var id: String { rawValue }
 
-    var systemImage: String {
+    func title(for workspaceName: String?) -> String {
         switch self {
-        case .worktrees: return "folder.fill"
-        case .accounts: return "globe.americas.fill"
-        case .presets: return "arrow.triangle.branch"
+        case .workspaces:
+            return "工作区标签管理"
+        case .currentWorkspace:
+            let name = workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name?.isEmpty == false ? "当前标签「\(name!)」" : "当前标签配置"
+        case .general:
+            return "全局默认目录与模板"
+        case .ide:
+            return "IDE 与终端偏好"
+        case .ai:
+            return "AI 分支命名"
+        case .policy:
+            return "合并策略与安全"
+        }
+    }
+
+    func systemImage(for platform: RepositoryPlatform) -> String {
+        switch self {
+        case .workspaces:
+            return "tag.fill"
+        case .currentWorkspace:
+            return platform.icon
+        case .general:
+            return "folder.fill"
+        case .ide:
+            return "wrench.and.screwdriver.fill"
+        case .ai:
+            return "sparkles"
+        case .policy:
+            return "shield.checkered"
         }
     }
 }
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var appModel
-    @State private var selectedTab: SettingsTab = .worktrees
-    @State private var selectedPresetTab: String = "env_flow"
+    var onClose: (() -> Void)? = nil
+    @State private var selectedTab: SettingsTab = .workspaces
+    @State private var ghCLIDetected: Bool = false
+
+    private var visibleTabs: [SettingsTab] {
+        if appModel.settingsDraft.workspaces.isEmpty {
+            return [.workspaces, .general, .ide, .ai, .policy]
+        }
+        return SettingsTab.allCases
+    }
 
     var body: some View {
         @Bindable var appModel = appModel
@@ -29,30 +67,21 @@ struct SettingsView: View {
             toolbarHeader
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if appModel.settingsOperation.isRunning || appModel.settingsOperation.errorMessage != nil || appModel.settingsOperation.successMessage != nil {
-                        InlineOperationView(state: appModel.settingsOperation)
-                            .padding(12)
-                            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
-                            )
-                    }
-
-                    switch selectedTab {
-                    case .worktrees:
-                        worktreesSection
-                    case .accounts:
-                        accountsSection
-                    case .presets:
-                        presetsSection
-                    }
+            HStack(spacing: 0) {
+                settingsNavColumn
+                Divider()
+                settingsContentColumn
+            }
+        }
+        .onAppear {
+            if !visibleTabs.contains(selectedTab) {
+                selectedTab = visibleTabs.first ?? .workspaces
+            }
+            Task.detached(priority: .utility) {
+                let detected = !GitHubProvider.resolveToken(configuredToken: "").isEmpty
+                await MainActor.run {
+                    ghCLIDetected = detected
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -60,89 +89,518 @@ struct SettingsView: View {
     // MARK: - Toolbar Header
 
     private var toolbarHeader: some View {
-        HStack(spacing: 12) {
-            Picker("设置分组", selection: $selectedTab) {
-                ForEach(SettingsTab.allCases) { tab in
-                    Label(tab.rawValue, systemImage: tab.systemImage).tag(tab)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(width: 380)
+        HStack(spacing: 10) {
+            Text("系统设置 · 工作区标签与全局偏好")
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
 
             Spacer()
 
             Button {
+                appModel.showingOnboardingSheet = true
+            } label: {
+                Label("配置向导", systemImage: "wand.and.stars")
+            }
+            .help("重新打开首次启动引导向导")
+
+            Button {
                 Task { await appModel.reloadSettingsOnly() }
             } label: {
-                Label("重新加载", systemImage: "arrow.clockwise")
+                Text("还原更改")
             }
             .help("丢弃未保存的草稿，重新从本地 config.toml 读取")
 
             Button {
                 Task { await appModel.saveSettings() }
             } label: {
-                Label("保存设置", systemImage: "checkmark")
+                Label("保存设置", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(.borderedProminent)
             .disabled(appModel.settingsOperation.isRunning)
+
+            if let onClose {
+                Divider()
+                    .frame(height: 18)
+                Button("关闭") {
+                    onClose()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
         .background(.bar)
     }
 
-    // MARK: - Tab 1: 本地与工作树 (涵盖 点 4 终端钩子、点 5 路径模板)
+    // MARK: - Left Vertical Settings Nav
 
-    private var worktreesSection: some View {
-        @Bindable var appModel = appModel
-
-        return VStack(alignment: .leading, spacing: 18) {
-            // 卡片 1: 本地代码扫描根目录
-            SectionCard(title: "代码仓库扫描根目录 (Projects Root Dirs)") {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("决定「工作树」和「分支同步」页面能扫描到哪些本地 Git 仓库（支持多个目录，如公司目录与 GitHub 目录）。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+    private var settingsNavColumn: some View {
+        let wsName = appModel.activeWorkspace?.name
+        return VStack(alignment: .leading, spacing: 3) {
+            ForEach(visibleTabs) { tab in
+                let isSelected = selectedTab == tab
+                Button {
+                    selectedTab = tab
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: tab.systemImage(for: appModel.activePlatform))
+                            .font(.system(size: 11.5, weight: .medium))
+                            .frame(width: 15)
+                            .foregroundStyle(isSelected ? Color.white : navIconColor(for: tab))
+                        Text(tab.title(for: wsName))
+                            .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                            .lineLimit(1)
                         Spacer()
-                        Button("添加目录") {
-                            if let path = chooseDirectory() {
-                                appModel.addWorktreeProjectsRoot(path)
-                            }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7)
+                            .fill(isSelected ? Color.accentColor : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .frame(width: 195)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.22))
+    }
+
+    private func navIconColor(for tab: SettingsTab) -> Color {
+        switch tab {
+        case .workspaces:
+            return .accentColor
+        case .currentWorkspace:
+            return appModel.activePlatform.tintColor
+        case .general:
+            return .blue
+        case .ide:
+            return .orange
+        case .ai:
+            return .purple
+        case .policy:
+            return .green
+        }
+    }
+
+    // MARK: - Right Settings Content Column
+
+    private var settingsContentColumn: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if appModel.settingsOperation.isRunning
+                    || appModel.settingsOperation.errorMessage != nil
+                    || (appModel.settingsOperation.successMessage != nil && appModel.settingsOperation.successMessage != "配置读取完成") {
+                    InlineOperationView(state: appModel.settingsOperation)
+                        .padding(12)
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.15), lineWidth: 0.5)
+                        )
+                }
+
+                switch selectedTab {
+                case .workspaces:
+                    workspacesManagerSection
+                case .currentWorkspace:
+                    currentWorkspaceSection
+                case .general:
+                    generalSection
+                case .ide:
+                    ideAndTerminalSection
+                case .ai:
+                    aiSection
+                case .policy:
+                    policySection
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Tab 1: Workspace Profiles Manager
+
+    private var workspacesManagerSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionCard(title: "自定义工作区标签（共 \(appModel.settingsDraft.workspaces.count) 个）") {
+                HStack(spacing: 12) {
+                    Text("每个标签独立绑定一个代码平台（GitHub / GitLab）、一组本地仓库目录和对应凭据与分支规则。")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        appModel.openNewWorkspaceEditor()
+                    } label: {
+                        Label("新建工作区标签", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+
+            if appModel.settingsDraft.workspaces.isEmpty {
+                SectionCard(title: "尚未配置任何工作区标签") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("点击右上角「新建工作区标签」，选择 GitLab 或 GitHub 并绑定对应的本地代码目录。")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Button {
+                            appModel.openNewWorkspaceEditor()
+                        } label: {
+                            Label("立即创建第一个标签", systemImage: "plus.circle.fill")
                         }
-                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            } else {
+                ForEach(appModel.settingsDraft.workspaces) { draft in
+                    let isCurrent = draft.id == (appModel.activeWorkspace?.id ?? appModel.settingsDraft.activeWorkspaceID)
+                    let profile = draft.toWorkspaceProfile()
+                    workspaceProfileCard(profile: profile, isCurrent: isCurrent)
+                }
+            }
+        }
+    }
+
+    private func workspaceProfileCard(profile: WorkspaceProfile, isCurrent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: profile.platform.icon)
+                    .foregroundStyle(profile.platform.tintColor)
+                Text(profile.name)
+                    .font(.system(size: 13.5, weight: .semibold))
+                StatusPill(title: profile.platform.shortName, tint: profile.platform.tintColor)
+                if isCurrent {
+                    StatusPill(title: "当前激活", tint: .blue)
+                }
+                Spacer()
+                if !isCurrent {
+                    Button("切换至此标签") {
+                        appModel.selectWorkspace(profile.id)
+                    }
+                    .controlSize(.small)
+                }
+                Button("编辑配置") {
+                    appModel.openEditWorkspaceEditor(profile)
+                }
+                .controlSize(.small)
+
+                if appModel.settingsDraft.workspaces.count > 1 {
+                    Button("删除", role: .destructive) {
+                        Task { await appModel.deleteWorkspaceProfile(id: profile.id) }
+                    }
+                    .controlSize(.small)
+                }
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("绑定的仓库目录 (\(profile.projectsRootDirs.count))")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                    if profile.projectsRootDirs.isEmpty {
+                        Text("未绑定目录")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        ForEach(profile.projectsRootDirs, id: \.self) { dir in
+                            Text(dir)
+                                .font(.system(size: 11, design: .monospaced))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("平台连接与分支角色")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                    Text("Host: \(profile.effectiveHostDisplay)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Text("生产主干: \(profile.configuredMainlineBranches.isEmpty ? "未配置" : profile.configuredMainlineBranches.joined(separator: ", ")) · 保护: \(profile.effectiveProtectedBranches.isEmpty ? "无" : profile.effectiveProtectedBranches.joined(separator: ", "))")
+                        .font(.system(size: 11, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Text("看板基线: \(profile.effectiveDashboardBaselines.joined(separator: ", "))")
+                        .font(.system(size: 11, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(14)
+        .background(isCurrent ? Color.accentColor.opacity(0.06) : Color(NSColor.controlBackgroundColor).opacity(0.38))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(isCurrent ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.16), lineWidth: isCurrent ? 1.1 : 0.7)
+        )
+    }
+
+    // MARK: - Tab 2: Active Workspace Configuration
+
+    @ViewBuilder
+    private var currentWorkspaceSection: some View {
+        @Bindable var appModel = appModel
+        let targetID = appModel.activeWorkspace?.id ?? appModel.settingsDraft.activeWorkspaceID
+        if let index = appModel.settingsDraft.workspaces.firstIndex(where: { $0.id == targetID }) {
+            let binding = $appModel.settingsDraft.workspaces[index]
+            workspaceInlineEditor(draft: binding)
+        } else {
+            workspacesManagerSection
+        }
+    }
+
+    private func workspaceInlineEditor(draft: Binding<WorkspaceProfileDraft>) -> some View {
+        @Bindable var appModel = appModel
+        let current = draft.wrappedValue
+
+        return VStack(alignment: .leading, spacing: 16) {
+            SectionCard(title: "标签基础信息 · \(current.name)") {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("标签显示名称")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            TextField("标签名称", text: draft.name)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("托管平台类型")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Picker("托管平台", selection: draft.platform) {
+                                Text("GitHub").tag(RepositoryPlatform.github)
+                                Text("GitLab").tag(RepositoryPlatform.gitlab)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.segmented)
+                            .frame(width: 180)
+                        }
                     }
 
-                    ForEach($appModel.settingsDraft.worktreeProjectsRootDirs) { $entry in
-                        HStack(spacing: 8) {
-                            TextField("项目根目录路径", text: $entry.path)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 11.5, design: .monospaced))
-
-                            Button(role: .destructive) {
-                                appModel.removeWorktreeProjectsRoot(id: entry.id)
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 11))
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("绑定的代码仓库目录（仅该标签扫描）")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("添加目录") {
+                                if let path = chooseDirectory() {
+                                    let expanded = ProcessRunner.expandPath(path)
+                                    if !draft.wrappedValue.projectsRootDirs.contains(where: { $0.path == expanded }) {
+                                        draft.wrappedValue.projectsRootDirs.append(PathEntryDraft(path: expanded))
+                                    }
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(Color.red)
+                            .controlSize(.small)
+                        }
+
+                        ForEach(draft.projectsRootDirs) { $entry in
+                            HStack(spacing: 8) {
+                                TextField("项目根目录路径", text: $entry.path)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                Button(role: .destructive) {
+                                    let entryID = entry.id
+                                    draft.wrappedValue.projectsRootDirs.removeAll { $0.id == entryID }
+                                } label: {
+                                    Image(systemName: "trash").font(.system(size: 11))
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Color.red)
+                            }
                         }
                     }
                 }
             }
 
-            // 卡片 2: 工作树存储路径与通配符命名模板 (解决局限性 5)
-            SectionCard(title: "工作树存储路径与命名模板 (Worktrees Storage & Template)") {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("工作树默认存储根目录 (Worktrees Root Dir)")
-                            .font(.system(size: 12, weight: .medium))
-                        Text("新建 worktree 时在磁盘上统一落盘的基础目录。")
-                            .font(.system(size: 11))
+            if current.platform == .github {
+                SectionCard(title: "GitHub 实例与认证凭据") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "globe.americas")
+                                .foregroundStyle(Color.purple)
+                            Text("GitHub 连接")
+                                .font(.system(size: 12.5, weight: .semibold))
+                            Spacer()
+                            StatusPill(
+                                title: (!current.token.isEmpty ? "已配置 PAT" : (ghCLIDetected ? "已继承 gh CLI" : "未检测到凭据")),
+                                tint: (!current.token.isEmpty || ghCLIDetected) ? .green : .orange
+                            )
+                        }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("GitHub Host 地址（支持 Enterprise）")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            TextField("https://github.com", text: draft.host)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+                        }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Personal Access Token（留空继承 gh CLI）")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                if appModel.settingsTokenVisible {
+                                    TextField("可选填入 ghp_... / github_pat_...", text: draft.token)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                } else {
+                                    SecureField("可选填入 ghp_... / github_pat_...", text: draft.token)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                }
+                                Button {
+                                    appModel.settingsTokenVisible.toggle()
+                                } label: {
+                                    Image(systemName: appModel.settingsTokenVisible ? "eye.slash" : "eye")
+                                        .font(.system(size: 11))
+                                }
+                                .controlSize(.small)
+                            }
+                        }
+
+                        Text("说明：填写企业版域名（如 https://github.company.com）时将自动请求 /api/v3 与 gh auth token --hostname。")
+                            .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
 
+                        Button("测试 GitHub API 连通性") {
+                            Task {
+                                await appModel.testGitHubConnection(host: current.host, token: current.token)
+                            }
+                        }
+                        .disabled(appModel.settingsOperation.isRunning)
+                    }
+                }
+            } else {
+                SectionCard(title: "GitLab 实例与认证") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "network")
+                                .foregroundStyle(Color.orange)
+                            Text("GitLab 实例连接")
+                                .font(.system(size: 12.5, weight: .semibold))
+                            Spacer()
+                            StatusPill(title: "私有 / SaaS 通用", tint: .orange)
+                        }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("GitLab Host 地址（支持内网 IP 或域名）")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            TextField("https://gitlab.example.com", text: draft.host)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+                        }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Access Token")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                if appModel.settingsTokenVisible {
+                                    TextField("glpat-...", text: draft.token)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                } else {
+                                    SecureField("glpat-...", text: draft.token)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                }
+                                Button {
+                                    appModel.settingsTokenVisible.toggle()
+                                } label: {
+                                    Image(systemName: appModel.settingsTokenVisible ? "eye.slash" : "eye")
+                                        .font(.system(size: 11))
+                                }
+                                .controlSize(.small)
+                            }
+                        }
+
+                        Button("测试 GitLab API 连通性") {
+                            Task {
+                                await appModel.testGitLabConnection(host: current.host, token: current.token)
+                            }
+                        }
+                        .disabled(appModel.settingsOperation.isRunning)
+                    }
+                }
+            }
+
+            SectionCard(title: "分支架构与流转规则") {
+                BranchArchitectureEditorView(draft: draft)
+            }
+
+            SectionCard(title: "工作树目录覆盖（可选）") {
+                HStack(spacing: 8) {
+                    TextField("留空继承全局默认 Worktrees 根目录", text: draft.worktreesRootDir)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11.5, design: .monospaced))
+                    Button("选择目录") {
+                        if let path = chooseDirectory() {
+                            draft.wrappedValue.worktreesRootDir = path
+                        }
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    // MARK: - Tab 2: Directories & Worktree Path Template
+
+    private var generalSection: some View {
+        @Bindable var appModel = appModel
+
+        return VStack(alignment: .leading, spacing: 16) {
+            SectionCard(title: "代码仓库根目录说明") {
+                HStack(spacing: 12) {
+                    Text("代码仓库扫描目录已按「工作区标签」独立绑定，不再混在一起扫描。")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("前往工作区标签管理") {
+                        selectedTab = .workspaces
+                    }
+                    .controlSize(.small)
+                }
+            }
+
+            SectionCard(title: "工作树存储路径与命名模板") {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("工作树默认存储根目录 (Worktrees Root Dir)")
+                            .font(.system(size: 11.5, weight: .medium))
                         HStack(spacing: 8) {
                             TextField("工作树默认存储目录", text: $appModel.settingsDraft.worktreesRootDir)
                                 .textFieldStyle(.roundedBorder)
@@ -159,798 +617,558 @@ struct SettingsView: View {
 
                     Divider().opacity(0.4)
 
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("路径生成模式与通配符模板")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 11.5, weight: .medium))
                             Spacer()
                             Text("支持变量: ${rootDir}, ${project}, ${branch}, ${date}")
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
 
-                        HStack(spacing: 12) {
-                            Picker("路径预设", selection: pathPresetBinding) {
-                                Text("分层目录: ${project}/${branch}").tag("${rootDir}/${project}/${branch}")
-                                Text("前缀扁平: ${project}_${branch}").tag("${rootDir}/${project}_${branch}")
-                                Text("纯分支扁平: ${branch}").tag("${rootDir}/${branch}")
-                                Text("自定义格式...").tag("custom")
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                Text("路径预设")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 68, alignment: .leading)
+                                Picker("路径预设", selection: pathPresetBinding) {
+                                    Text("分层目录: ${project}/${branch}").tag("${rootDir}/${project}/${branch}")
+                                    Text("前缀扁平: ${project}_${branch}").tag("${rootDir}/${project}_${branch}")
+                                    Text("纯分支扁平: ${branch}").tag("${rootDir}/${branch}")
+                                    Text("自定义格式...").tag("custom")
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: 280, alignment: .leading)
+                                Spacer(minLength: 0)
                             }
-                            .pickerStyle(.menu)
-                            .frame(width: 220)
 
-                            TextField("通配符格式表达式", text: $appModel.settingsDraft.worktreePathTemplate)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 11.5, design: .monospaced))
+                            HStack(spacing: 10) {
+                                Text("格式模板")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 68, alignment: .leading)
+                                TextField("通配符格式表达式", text: $appModel.settingsDraft.worktreePathTemplate)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 11.5, design: .monospaced))
+                            }
                         }
 
-                        // 实时效果预览气泡
                         HStack(spacing: 8) {
                             Image(systemName: "sparkles")
                                 .font(.system(size: 11))
                                 .foregroundStyle(Color.accentColor)
-                            Text("落盘预览示例:")
+                            Text("落盘预览:")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                             Text(currentPathTemplatePreview)
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundStyle(Color.accentColor)
+                                .textSelection(.enabled)
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.accentColor.opacity(0.08))
                         .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.accentColor.opacity(0.25), lineWidth: 0.5)
-                        )
                     }
                 }
             }
+        }
+    }
 
-            // 卡片 3: 默认终端集成与启动动作钩子 (解决局限性 4)
-            SectionCard(title: "默认终端与启动动作钩子 (Terminal & Launch Actions)") {
-                VStack(alignment: .leading, spacing: 14) {
+    // MARK: - Tab 3: IDE & Terminal Preferences
+
+    private var ideAndTerminalSection: some View {
+        @Bindable var appModel = appModel
+
+        return VStack(alignment: .leading, spacing: 16) {
+            SectionCard(title: "IDE 编辑器外部集成（支持多选）") {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        Text("决定所有「在终端打开」与「在终端执行脚本」功能唤起的终端模拟器。自动扫描本地已安装终端。")
+                        Text("可同时配置多个常用 IDE / 编辑器；设为「默认」的主编辑器用于快捷点击，右键菜单与详情页打开菜单均可随时切换全部已配置编辑器。")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                        Spacer()
-                        Button {
-                            appModel.refreshScannedTerminals()
-                        } label: {
-                            Label("重新扫描", systemImage: "arrow.clockwise")
-                        }
-                        .controlSize(.small)
-
-                        Button {
-                            appModel.testOpenTerminal()
-                        } label: {
-                            Label("测试打开终端", systemImage: "terminal")
-                        }
-                        .controlSize(.small)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 10)
+                        Button("重新扫描") { appModel.refreshScannedIDEs() }.controlSize(.small)
+                        Button("添加自定义") { appModel.addCustomIDEProfile() }.controlSize(.small)
                     }
 
-                    HStack(spacing: 12) {
-                        Picker("预设终端", selection: terminalSelectionBinding) {
-                            Section("已安装终端 (\(appModel.scannedTerminals.filter(\.isInstalled).count))") {
-                                ForEach(appModel.scannedTerminals.filter(\.isInstalled)) { term in
-                                    Text("● \(term.displayName)").tag(term.name)
-                                }
-                            }
-
-                            let uninstalled = appModel.scannedTerminals.filter { !$0.isInstalled }
-                            if !uninstalled.isEmpty {
-                                Section("其他常见终端") {
-                                    ForEach(uninstalled) { term in
-                                        Text("○ \(term.displayName) (未安装)").tag(term.name)
-                                    }
-                                }
-                            }
-
-                            Section("自定义") {
-                                Text("自定义终端...").tag("Custom")
-                            }
+                    let installedIDEs = appModel.scannedIDEs.filter(\.isInstalled)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text("本机已检测编辑器（点击勾选/取消多选）")
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Text("· \(installedIDEs.count) 个可用")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.tertiary)
                         }
-                        .pickerStyle(.menu)
-                        .frame(width: 200)
 
-                        TextField("终端 App 名称 / 命令", text: $appModel.settingsDraft.terminalApp)
-                            .textFieldStyle(.roundedBorder)
-
-                        TextField("Bundle Identifier (可选)", text: $appModel.settingsDraft.terminalBundleID)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(size: 11.5, design: .monospaced))
-                    }
-
-                    // 快速点选已安装胶囊
-                    let installed = appModel.scannedTerminals.filter(\.isInstalled)
-                    if !installed.isEmpty {
-                        HStack(spacing: 8) {
-                            Text("已检测到可用终端:")
+                        if installedIDEs.isEmpty {
+                            Text("暂未自动检测到主流 IDE，可点击右上角「添加自定义」手动填入 App 名称或 CLI 命令。")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
-
-                            ForEach(installed) { term in
-                                let isSelected = appModel.settingsDraft.terminalApp.caseInsensitiveCompare(term.name) == .orderedSame
-
-                                Button {
-                                    appModel.selectTerminal(term)
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Circle()
-                                            .fill(Color.green)
-                                            .frame(width: 6, height: 6)
-                                        Text(term.displayName)
-                                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                        } else {
+                            BranchFlowLayout(horizontalSpacing: 6, verticalSpacing: 6) {
+                                ForEach(installedIDEs) { ide in
+                                    let isConfigured = appModel.isInstalledIDEConfigured(ide)
+                                    Button {
+                                        appModel.toggleInstalledIDEInDraft(ide)
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: isConfigured ? "checkmark.circle.fill" : "plus.circle")
+                                                .font(.system(size: 11))
+                                            Text(ide.displayName)
+                                                .font(.system(size: 11.5, weight: isConfigured ? .semibold : .regular))
+                                        }
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 5)
+                                        .foregroundStyle(isConfigured ? Color.accentColor : Color.secondary)
+                                        .background(isConfigured ? Color.accentColor.opacity(0.14) : Color(NSColor.controlBackgroundColor).opacity(0.65))
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .stroke(isConfigured ? Color.accentColor.opacity(0.45) : Color.secondary.opacity(0.18), lineWidth: 0.7)
+                                        )
                                     }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(isSelected ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor))
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 5)
-                                            .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: isSelected ? 1 : 0.5)
-                                    )
+                                    .buttonStyle(.plain)
+                                    .help(ide.locationDescription)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
 
                     Divider().opacity(0.4)
 
-                    // 终端启动动作与自动化钩子命令 (点 4)
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("唤起终端时的初始动作 (Startup Hook)")
-                            .font(.system(size: 12, weight: .medium))
-                        Text("点击“在终端打开”时，可以在新窗口进入目录后自动执行特定命令。")
+                        HStack {
+                            Text("已配置的编辑器菜单列表（共 \(appModel.settingsDraft.ideProfiles.count) 个）")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("测试默认 IDE") { appModel.testOpenIDE() }.controlSize(.small)
+                        }
+
+                        ForEach($appModel.settingsDraft.ideProfiles) { $profile in
+                            let isDefault = profile.id == appModel.settingsDraft.defaultIDEProfileID
+                                || (appModel.settingsDraft.defaultIDEProfileID.isEmpty && profile.id == appModel.settingsDraft.ideProfiles.first?.id)
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Button {
+                                        appModel.setDefaultIDEProfile(id: profile.id)
+                                    } label: {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: isDefault ? "star.fill" : "star")
+                                                .font(.system(size: 10.5))
+                                            Text(isDefault ? "默认" : "设默认")
+                                                .font(.system(size: 10.5, weight: isDefault ? .semibold : .regular))
+                                                .lineLimit(1)
+                                        }
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 4)
+                                        .foregroundStyle(isDefault ? Color.orange : Color.secondary)
+                                        .background(isDefault ? Color.orange.opacity(0.14) : Color(NSColor.controlBackgroundColor).opacity(0.55))
+                                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 5)
+                                                .stroke(isDefault ? Color.orange.opacity(0.45) : Color.secondary.opacity(0.18), lineWidth: 0.6)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("设为主默认编辑器（用于直接点击与双击打开）")
+
+                                    TextField("显示名称", text: $profile.label)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(minWidth: 120)
+
+                                    Picker("模式", selection: $profile.mode) {
+                                        Text("app").tag("app")
+                                        Text("custom").tag("custom")
+                                        Text("system").tag("system")
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                    .frame(width: 88)
+
+                                    Button("测试") {
+                                        appModel.testOpenIDE(profile)
+                                    }
+                                    .controlSize(.small)
+                                    .fixedSize()
+
+                                    Button(role: .destructive) {
+                                        appModel.removeIDEProfile(id: profile.id)
+                                    } label: {
+                                        Image(systemName: "trash").font(.system(size: 11))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(Color.red)
+                                }
+
+                                HStack(spacing: 8) {
+                                    Text(profile.mode == "custom" ? "CLI 命令" : (profile.mode == "system" ? "系统默认" : "应用名称"))
+                                        .font(.system(size: 10.5, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 56, alignment: .leading)
+                                    TextField(
+                                        profile.mode == "custom" ? "CLI 命令或模板，如 cursor / code / zed {path}" : "macOS App 名称，如 Cursor / IntelliJ IDEA",
+                                        text: $profile.command
+                                    )
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(size: 11.5, design: .monospaced))
+                                }
+                            }
+                            .padding(10)
+                            .background(Color(NSColor.windowBackgroundColor).opacity(0.45))
+                            .clipShape(RoundedRectangle(cornerRadius: 7))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7)
+                                    .stroke(isDefault ? Color.orange.opacity(0.32) : Color.secondary.opacity(0.14), lineWidth: 0.6)
+                            )
+                            .onChange(of: profile) {
+                                if isDefault {
+                                    appModel.setDefaultIDEProfile(id: profile.id)
+                                }
+                            }
+                        }
+                    }
+
+                    Divider().opacity(0.4)
+
+                    HStack {
+                        Toggle(isOn: $appModel.settingsDraft.syncIDEConfigs) {
+                            Text("新建工作树时自动同步 .vscode / .idea / .env.local 白名单配置")
+                                .font(.system(size: 11.5))
+                        }
+                        Spacer()
+                        if appModel.settingsDraft.syncIDEConfigs {
+                            Button("恢复默认") {
+                                appModel.settingsDraft.ideConfigSyncItemsText = ConfigService.defaultIDEConfigSyncItems.joined(separator: ", ")
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+
+                    if appModel.settingsDraft.syncIDEConfigs {
+                        TextField(".vscode/settings.json, .env.local, ...", text: $appModel.settingsDraft.ideConfigSyncItemsText, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(2...4)
+                            .font(.system(size: 11, design: .monospaced))
+                    }
+                }
+            }
+
+            SectionCard(title: "默认终端与启动动作钩子") {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("配置「终端打开」唤起的终端模拟器及初始化命令。")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("重新扫描") { appModel.refreshScannedTerminals() }.controlSize(.small)
+                        Button("测试打开终端") { appModel.testOpenTerminal() }.controlSize(.small)
+                    }
 
-                        HStack(spacing: 12) {
-                            Picker("动作模式", selection: $appModel.settingsDraft.terminalLaunchHookMode) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("预设终端")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Picker("预设终端", selection: terminalSelectionBinding) {
+                                Section("已安装终端 (\(appModel.scannedTerminals.filter(\.isInstalled).count))") {
+                                    ForEach(appModel.scannedTerminals.filter(\.isInstalled)) { term in
+                                        Text("● \(term.displayName)").tag(term.name)
+                                    }
+                                }
+                                let uninstalled = appModel.scannedTerminals.filter { !$0.isInstalled }
+                                if !uninstalled.isEmpty {
+                                    Section("其他常见终端") {
+                                        ForEach(uninstalled) { term in
+                                            Text("○ \(term.displayName) (未安装)").tag(term.name)
+                                        }
+                                    }
+                                }
+                                Section("自定义") { Text("自定义终端...").tag("Custom") }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("终端名称 / 命令")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            TextField("终端名称 / 命令", text: $appModel.settingsDraft.terminalApp)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    }
+
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Bundle ID (可选)")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            TextField("com.apple.Terminal", text: $appModel.settingsDraft.terminalBundleID)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+                        }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("启动动作")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Picker("启动动作", selection: $appModel.settingsDraft.terminalLaunchHookMode) {
                                 Text("仅进入目录 (cd)").tag("none")
                                 Text("进入目录后执行命令").tag("command")
                             }
+                            .labelsHidden()
                             .pickerStyle(.menu)
-                            .frame(width: 170)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
 
-                            if appModel.settingsDraft.terminalLaunchHookMode == "command" {
-                                TextField("启动执行命令，例如: git status 或 pnpm dev", text: $appModel.settingsDraft.terminalLaunchCommand)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 11.5, design: .monospaced))
-                            }
+                    if appModel.settingsDraft.terminalLaunchHookMode == "command" {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("启动后执行命令")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            TextField("启动命令，例如: git status", text: $appModel.settingsDraft.terminalLaunchCommand)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
                         }
                     }
                 }
             }
+        }
+    }
 
-            // 卡片 4: IDE 编辑器外部集成
-            SectionCard(title: "IDE 编辑器外部集成 (IDE Integration)") {
-                VStack(alignment: .leading, spacing: 14) {
+    // MARK: - Tab 4: AI Branch Naming
+
+    private var aiSection: some View {
+        @Bindable var appModel = appModel
+
+        return SectionCard(title: "AI 智能分支命名端点") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    StatusPill(title: appModel.settingsDraft.aiProvider.uppercased(), tint: .blue)
+                    StatusPill(
+                        title: appModel.settingsDraft.aiAPIKey.isEmpty ? "未配置 Key" : "已配置 Key",
+                        tint: appModel.settingsDraft.aiAPIKey.isEmpty ? .orange : .green
+                    )
+                    Spacer()
+                    Button {
+                        Task { await appModel.testAIConnection() }
+                    } label: {
+                        Label("测试 AI 握手", systemImage: "bolt.fill")
+                    }
+                    .controlSize(.small)
+                    .disabled(appModel.settingsDraft.aiBaseURL.isEmpty)
+                }
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("服务商预设")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Picker("服务商预设", selection: aiProviderSelectionBinding) {
+                            ForEach(AIProviderPreset.allPresets) { preset in
+                                Text(preset.displayName).tag(preset.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("模型名称 (Model)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        TextField("模型名称", text: $appModel.settingsDraft.aiModel)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11.5, design: .monospaced))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("API Base URL")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    TextField("https://api.deepseek.com", text: $appModel.settingsDraft.aiBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11.5, design: .monospaced))
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("API Key")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if appModel.settingsTokenVisible {
+                            TextField("输入 API Key (如 sk-...)", text: $appModel.settingsDraft.aiAPIKey)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+                        } else {
+                            SecureField("输入 API Key (如 sk-...)", text: $appModel.settingsDraft.aiAPIKey)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11.5, design: .monospaced))
+                        }
+
+                        Button {
+                            appModel.settingsTokenVisible.toggle()
+                        } label: {
+                            Image(systemName: appModel.settingsTokenVisible ? "eye.slash" : "eye")
+                                .font(.system(size: 11))
+                        }
+                        .controlSize(.small)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
                     HStack {
-                        Text("配置点击在 IDE 中打开时的外部编辑器联动模式。自动检测本地安装的 Zed、IntelliJ IDEA、VS Code、Xcode 等。")
-                            .font(.system(size: 11))
+                        Text("自定义提示词规则 (可选)")
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Button {
-                            appModel.refreshScannedIDEs()
-                        } label: {
-                            Label("重新扫描", systemImage: "arrow.clockwise")
+                        if !appModel.settingsDraft.aiCustomPrompt.isEmpty {
+                            Button("恢复通用默认") {
+                                appModel.settingsDraft.aiCustomPrompt = ""
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
                         }
-                        .controlSize(.small)
+                    }
 
-                        Button {
-                            appModel.testOpenIDE()
-                        } label: {
-                            Label("测试打开 IDE", systemImage: "arrow.up.forward.app")
-                        }
-                        .controlSize(.small)
+                    TextField("留空使用通用规范 (feat/..., fix/...)...", text: $appModel.settingsDraft.aiCustomPrompt, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(3, reservesSpace: true)
+                        .font(.system(size: 11.5, design: .monospaced))
+                }
+            }
+        }
+    }
+
+    // MARK: - Tab 5: Merge Policy & Security
+
+    private var policySection: some View {
+        @Bindable var appModel = appModel
+
+        return VStack(alignment: .leading, spacing: 16) {
+            SectionCard(title: "保护分支与合并重试策略") {
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("全局额外保护目标分支（逗号分隔）")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        TextField("main, master", text: $appModel.settingsDraft.protectedTargetsText)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11.5, design: .monospaced))
+                        Text("注：各工作区配置中的「生产主干分支」会自动纳入高危合并保护（禁止一键批量自动合入），「非生产保护分支」用于集成同步与批量流转，此处可追加跨工作区通用保护分支。")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
                     }
 
                     HStack(spacing: 12) {
-                        Picker("预设编辑器", selection: ideSelectionBinding) {
-                            Section("已安装编辑器 (\(appModel.scannedIDEs.filter(\.isInstalled).count))") {
-                                ForEach(appModel.scannedIDEs.filter(\.isInstalled)) { ide in
-                                    Text("● \(ide.displayName)").tag(ide.name)
-                                }
-                            }
-
-                            let uninstalled = appModel.scannedIDEs.filter { !$0.isInstalled }
-                            if !uninstalled.isEmpty {
-                                Section("其他常见编辑器") {
-                                    ForEach(uninstalled) { ide in
-                                        Text("○ \(ide.displayName) (未安装)").tag(ide.name)
-                                    }
-                                }
-                            }
-
-                            Section("自定义") {
-                                Text("自定义编辑器...").tag("Custom")
-                            }
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("自动合并等待延迟 (秒)")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            TextField("2", text: $appModel.settingsDraft.autoMergeDelaySecondsText)
+                                .textFieldStyle(.roundedBorder)
                         }
-                        .pickerStyle(.menu)
-                        .frame(width: 200)
 
-                        Picker("IDE 模式", selection: $appModel.settingsDraft.ideMode) {
-                            Text("app (应用)").tag("app")
-                            Text("system (系统默认)").tag("system")
-                            Text("custom (自定义命令)").tag("custom")
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("自动合并重试次数")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            TextField("3", text: $appModel.settingsDraft.autoMergeRetryCountText)
+                                .textFieldStyle(.roundedBorder)
                         }
-                        .pickerStyle(.menu)
-                        .frame(width: 140)
-
-                        TextField("App 名称 / 命令", text: $appModel.settingsDraft.ideCommand)
-                            .textFieldStyle(.roundedBorder)
-
-                        TextField("显示标签", text: $appModel.settingsDraft.ideLabel)
-                            .textFieldStyle(.roundedBorder)
                     }
+                }
+            }
 
-                    // 快速点选已安装 IDE 胶囊
-                    let installed = appModel.scannedIDEs.filter(\.isInstalled)
-                    if !installed.isEmpty {
-                        HStack(spacing: 8) {
-                            Text("已检测到可用编辑器:")
+            let activeWSIndex = appModel.activeWorkspaceDraftIndex
+            let activeWS = activeWSIndex.map { appModel.settingsDraft.workspaces[$0] }
+            let shouldShowBranchMappings = activeWS?.platform == .gitlab
+                || !(activeWS?.protectedEnvBranchList.isEmpty ?? true)
+                || !(activeWS?.branchMappings.isEmpty ?? true)
+                || (activeWS == nil && (appModel.activePlatform == .gitlab || !appModel.settingsDraft.gitlabHost.isEmpty))
+
+            if shouldShowBranchMappings {
+                let mappingsBinding: Binding<[BranchMappingDraft]> = activeWSIndex.map {
+                    $appModel.settingsDraft.workspaces[$0].branchMappings
+                } ?? $appModel.settingsDraft.branchMappings
+
+                SectionCard(title: activeWS.map { "环境分支合并映射表 · 当前标签「\($0.name)」" } ?? "环境分支合并映射表 (Branch Mappings)") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("批量创建 MR 与多环境分支同步以此映射为准。")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
-
-                            ForEach(installed) { ide in
-                                let isSelected = appModel.settingsDraft.ideCommand.caseInsensitiveCompare(ide.name) == .orderedSame
-
-                                Button {
-                                    appModel.selectIDE(ide)
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Circle()
-                                            .fill(Color.green)
-                                            .frame(width: 6, height: 6)
-                                        Text(ide.displayName)
-                                            .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                                    }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(isSelected ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor))
-                                    .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                                    .clipShape(RoundedRectangle(cornerRadius: 5))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 5)
-                                            .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: isSelected ? 1 : 0.5)
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    if let matched = appModel.scannedIDEs.first(where: { $0.name.caseInsensitiveCompare(appModel.settingsDraft.ideCommand) == .orderedSame }), matched.isInstalled {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(Color.green)
-                                .frame(width: 6, height: 6)
-                            Text("安装路径:")
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.secondary)
-                            Text(matched.locationDescription)
-                                .font(.system(size: 10.5, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 1)
-                    }
-
-                    Divider().opacity(0.4)
-
-                    // IDE 项目配置同步
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle(isOn: $appModel.settingsDraft.syncIDEConfigs) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "doc.on.doc")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Color.accentColor)
-                                Text("新建工作树时复制主仓库的 IDE 项目配置")
-                                    .font(.system(size: 11.5))
-                            }
-                        }
-
-                        Text("将主仓库 `.idea` 下指定的配置文件复制到新工作树，避免 JDK 版本、编译堆大小等设置在新工作树中丢失。仅在「在 IDE 中打开」之前生效。")
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.secondary)
-
-                        if appModel.settingsDraft.syncIDEConfigs {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text("同步项白名单")
-                                        .font(.system(size: 10.5, weight: .medium))
-                                        .foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button("恢复默认") {
-                                        appModel.settingsDraft.ideConfigSyncItemsText = ConfigService.defaultIDEConfigSyncItems.joined(separator: ", ")
-                                    }
-                                    .controlSize(.mini)
-                                }
-
-                                TextField("misc.xml, compiler.xml, ...", text: $appModel.settingsDraft.ideConfigSyncItemsText)
-                                    .textFieldStyle(.roundedBorder)
-                                    .font(.system(size: 11, design: .monospaced))
-
-                                Text("逗号分隔，相对 `.idea` 目录的文件名。默认不包含 workspace.xml（个人会话）、shelf/（本地暂存）、.cache/ 以及含凭据的插件配置。")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Tab 2: 平台凭据连接池 (解决局限性 1)
-
-    private var accountsSection: some View {
-        @Bindable var appModel = appModel
-
-        return VStack(alignment: .leading, spacing: 18) {
-            SectionCard(title: "托管平台凭据连接池 (Accounts & Connections Pool)") {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("统一管理公司的私有 GitLab 与 GitHub 凭据，根据仓库 Remote URL 自动路由，无需为每个项目繁琐指定。")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-
-                    // 实例 1: 私有 GitLab
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            HStack(spacing: 6) {
-                                Image(systemName: "shippingbox.fill")
-                                    .foregroundStyle(Color.orange)
-                                Text("公司私有 GitLab 实例")
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                StatusPill(title: "私有 GitLab", tint: .orange)
-                                StatusPill(title: appModel.settingsDraft.gitlabHost.isEmpty ? "未配置" : "已配置", tint: .green)
-                            }
                             Spacer()
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("GitLab 服务器地址 (Host)")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                            TextField("例如: http://172.16.12.246:8099", text: $appModel.settingsDraft.gitlabHost)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 11.5, design: .monospaced))
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("GitLab 个人访问令牌 (Personal Access Token)")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-
-                            HStack(spacing: 8) {
-                                if appModel.settingsTokenVisible {
-                                    TextField("GitLab Access Token", text: $appModel.settingsDraft.gitlabToken)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 11.5, design: .monospaced))
-                                } else {
-                                    SecureField("GitLab Access Token", text: $appModel.settingsDraft.gitlabToken)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 11.5, design: .monospaced))
-                                }
-
-                                Button {
-                                    appModel.settingsTokenVisible.toggle()
-                                } label: {
-                                    Image(systemName: appModel.settingsTokenVisible ? "eye.slash" : "eye")
-                                        .font(.system(size: 11))
-                                }
-                                .controlSize(.small)
-                            }
-                        }
-                    }
-                    .padding(12)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-                    )
-
-                    // 实例 2: GitHub 官方
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            HStack(spacing: 6) {
-                                Image(systemName: "globe.americas.fill")
-                                    .foregroundStyle(Color.purple)
-                                Text("GitHub 个人与开源工作区")
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                StatusPill(title: "GitHub", tint: .purple)
-                                StatusPill(title: "自动匹配 github.com", tint: .green)
-                            }
-                            Spacer()
-                        }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("GitHub 个人访问令牌 (Personal Access Token - 可选)")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                            TextField("可选填入 GitHub PAT，默认优先继承系统 gh 认证凭据", text: $appModel.settingsDraft.githubToken)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 11.5, design: .monospaced))
-                        }
-                    }
-                    .padding(12)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-                    )
-
-                    // 实例 3: AI 智能助手凭据与模型端点 (基于 OpenAI 规范)
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            HStack(spacing: 6) {
-                                Image(systemName: "sparkles")
-                                    .foregroundStyle(Color.blue)
-                                Text("AI 智能助手模型端点 (AI Branch Assistant)")
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                StatusPill(title: appModel.settingsDraft.aiProvider.uppercased(), tint: .blue)
-                                StatusPill(title: appModel.settingsDraft.aiAPIKey.isEmpty ? "未配置 Key" : "已配置 Key", tint: appModel.settingsDraft.aiAPIKey.isEmpty ? .orange : .green)
-                            }
-                            Spacer()
-
-                            Button {
-                                Task {
-                                    await appModel.testAIConnection()
-                                }
-                            } label: {
-                                Label("测试 AI 握手", systemImage: "bolt.fill")
+                            Button("基于环境一键生成") {
+                                appModel.regenerateBranchMappingsFromEnvironment()
                             }
                             .controlSize(.small)
-                            .disabled(appModel.settingsDraft.aiBaseURL.isEmpty)
-                        }
-
-                        Text("为新建工作树提供根据功能描述自动生成 Git 英文规范分支名（支持 DeepSeek、OpenAI、Kimi、通义千问或本地私有 Ollama）。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-
-                        HStack(spacing: 12) {
-                            Picker("服务商预设", selection: aiProviderSelectionBinding) {
-                                ForEach(AIProviderPreset.allPresets) { preset in
-                                    Text(preset.displayName).tag(preset.id)
-                                }
+                            Button("新增映射") {
+                                appModel.addBranchMapping()
                             }
-                            .pickerStyle(.menu)
-                            .frame(width: 220)
-
-                            TextField("API Base URL (如: https://api.deepseek.com)", text: $appModel.settingsDraft.aiBaseURL)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 11.5, design: .monospaced))
-
-                            TextField("模型名称 (如: deepseek-chat)", text: $appModel.settingsDraft.aiModel)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 11.5, design: .monospaced))
-                                .frame(width: 170)
+                            .controlSize(.small)
                         }
 
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("API 密钥 (API Key / Bearer Token)")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-
-                            HStack(spacing: 8) {
-                                if appModel.settingsTokenVisible {
-                                    TextField("输入 API Key (如 sk-...)", text: $appModel.settingsDraft.aiAPIKey)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 11.5, design: .monospaced))
-                                } else {
-                                    SecureField("输入 API Key (如 sk-...)", text: $appModel.settingsDraft.aiAPIKey)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 11.5, design: .monospaced))
-                                }
-
-                                Button {
-                                    appModel.settingsTokenVisible.toggle()
-                                } label: {
-                                    Image(systemName: appModel.settingsTokenVisible ? "eye.slash" : "eye")
-                                        .font(.system(size: 11))
-                                }
-                                .controlSize(.small)
-                            }
-                        }
-
-                        Divider().opacity(0.4)
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("自定义提示词规则 / 偏好约定 (Custom System Prompt)")
-                                    .font(.system(size: 11, weight: .medium))
+                        if let ws = activeWS {
+                            let envsText = ws.protectedEnvBranchList.isEmpty ? "未配置" : ws.protectedEnvBranchList.joined(separator: ", ")
+                            let middleText = ws.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "sync" : ws.mergeBranchMiddle
+                            let mainText = ws.mainlineBranchList.first ?? "未配置"
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(Color.teal)
+                                Text("读取「\(ws.name)」分支架构与流转规则：保护分支 [\(envsText)] · 后缀 [\(middleText)] · 主干 [\(mainText)]")
+                                    .font(.system(size: 10.5))
                                     .foregroundStyle(.secondary)
-                                Spacer()
-                                if !appModel.settingsDraft.aiCustomPrompt.isEmpty {
-                                    Button("恢复通用默认") {
-                                        appModel.settingsDraft.aiCustomPrompt = ""
-                                    }
-                                    .controlSize(.small)
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(Color.accentColor)
-                                }
+                                    .lineLimit(2)
                             }
-
-                            TextField(
-                                "留空使用通用标准软件开发规范。可在此处填入您团队的特殊偏好（如：词汇映射、缩写口令、JIRA/TAPD 编号格式或特定技术栈约定）...",
-                                text: $appModel.settingsDraft.aiCustomPrompt,
-                                axis: .vertical
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(3, reservesSpace: true)
-                            .font(.system(size: 11.5, design: .monospaced))
-
-                            Text("留空时使用通用软件工程标准（核心动词 + 业务主体，全小写 kebab-case，不包含任何特定业务硬编码）。若填入内容则完全优先按您的自定义规则驱动。")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .padding(12)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-                    )
-
-                    // 智能路由机制提示卡片
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.accentColor)
-                        Text("智能自动路由：当您操作仓库时，系统自动提取其 remote origin URL 的域名。若匹配 github.com 自动调度 GitHub 凭据；若匹配 172.16.12.246 自动调度私有 GitLab 凭据，完全零手动切换负担。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineSpacing(2)
-                    }
-                    .padding(10)
-                    .background(Color.accentColor.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-            }
-        }
-    }
-
-    // MARK: - Tab 3: 发布策略模板 (解决局限性 2，且内聚分支合并映射)
-
-    private var presetsSection: some View {
-        @Bindable var appModel = appModel
-
-        return VStack(alignment: .leading, spacing: 18) {
-            SectionCard(title: "发布与合流策略模板 (Workflow & Merge Presets)") {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack {
-                        Text("按托管平台或业务类型定制分支合流策略，私有 GitLab 采用公司环境流，GitHub 采用标准主干流。")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-
-                    // 模板切换分段控件
-                    Picker("策略模板", selection: $selectedPresetTab) {
-                        Text("🦊 模板 A：公司环境合流流 (企业模式)").tag("env_flow")
-                        Text("🐙 模板 B：GitHub 标准主干/PR 流").tag("github")
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 440)
-
-                    if selectedPresetTab == "env_flow" {
-                        // 模板 A 表单
-                        VStack(alignment: .leading, spacing: 14) {
-                            HStack(alignment: .top, spacing: 14) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("中间段 (merge_middle)")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("默认合并分支中间段，如 uat 生成 uat_henry_meger")
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(.secondary)
-                                    TextField("merge_branch_middle", text: $appModel.settingsDraft.mergeBranchMiddle)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 11.5, design: .monospaced))
-                                }
-
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("环境分支列表")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("发布链路中的环境名列表，逗号分隔")
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(.secondary)
-                                    TextField("如: uat, test, stage, pre_prod", text: $appModel.settingsDraft.envBranchesText)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("保护目标分支")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("命中时自动合并策略将更谨慎")
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(.secondary)
-                                    TextField("如: master", text: $appModel.settingsDraft.protectedTargetsText)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-                            }
-
-                            Divider().opacity(0.4)
-
-                            HStack(alignment: .top, spacing: 14) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("自动合并等待延迟 (秒)")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("调用 merge 前等待秒数，为 pipeline 留时间")
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(.secondary)
-                                    TextField("等待秒数", text: $appModel.settingsDraft.autoMergeDelaySecondsText)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("自动合并重试次数")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("merge 遭遇临时错误时重试次数")
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(.secondary)
-                                    TextField("重试次数", text: $appModel.settingsDraft.autoMergeRetryCountText)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-                            }
-
-                            Divider().opacity(0.4)
-
-                            // 内聚在公司环境流下的分支合并映射表！
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("环境分支合并映射表 (Branch Mappings)")
-                                            .font(.system(size: 12, weight: .medium))
-                                        Text("基于上述中间段与环境分支生成，批量创建 MR 和分支同步直接以此表为准。")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-
-                                    Button {
-                                        appModel.regenerateBranchMappingsFromEnvironment()
-                                    } label: {
-                                        Label("基于上方环境一键生成", systemImage: "arrow.triangle.2.circlepath")
-                                    }
-                                    .controlSize(.small)
-                                    .help("根据上方填写的中间段和环境分支自动重建整套映射")
-
-                                    Button {
-                                        appModel.addBranchMapping()
-                                    } label: {
-                                        Label("新增映射", systemImage: "plus")
-                                    }
-                                    .controlSize(.small)
-                                }
-
-                                // 快捷复用环境分支胶囊栏
-                                HStack(spacing: 6) {
-                                    Text("快速添加环境目标:")
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(.secondary)
-
-                                    ForEach(appModel.currentDraftTargetBranchOptions, id: \.self) { env in
-                                        Button {
-                                            appModel.addBranchMapping(target: env)
-                                        } label: {
-                                            HStack(spacing: 3) {
-                                                Image(systemName: "plus")
-                                                    .font(.system(size: 8))
-                                                Text(env)
-                                                    .font(.system(size: 10.5, design: .monospaced))
-                                            }
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.secondary.opacity(0.12))
-                                            .clipShape(RoundedRectangle(cornerRadius: 4))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .help("点击快速为 \(env) 创建映射")
-                                    }
-                                }
-                                .padding(.vertical, 2)
-
-                                if appModel.settingsDraft.branchMappings.isEmpty {
-                                    Text("当前尚未配置任何分支映射，可点击上方「基于环境一键生成」。")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    VStack(spacing: 8) {
-                                        ForEach($appModel.settingsDraft.branchMappings) { $mapping in
-                                            HStack(spacing: 10) {
-                                                TextField("来源分支 (Source)", text: $mapping.source)
-                                                    .textFieldStyle(.roundedBorder)
-                                                    .font(.system(size: 11.5, design: .monospaced))
-
-                                                Image(systemName: "arrow.right")
-                                                    .font(.system(size: 10))
-                                                    .foregroundStyle(.secondary)
-
-                                                HStack(spacing: 4) {
-                                                    TextField("目标分支 (Target)", text: $mapping.target)
-                                                        .textFieldStyle(.roundedBorder)
-                                                        .font(.system(size: 11.5, design: .monospaced))
-
-                                                    Menu {
-                                                        ForEach(appModel.currentDraftTargetBranchOptions, id: \.self) { option in
-                                                            Button(option) {
-                                                                mapping.target = option
-                                                                let middle = appModel.settingsDraft.mergeBranchMiddle.trimmingCharacters(in: .whitespacesAndNewlines)
-                                                                let actualMid = middle.isEmpty ? "henry" : middle
-                                                                if mapping.source.isEmpty || mapping.source.hasSuffix("_meger") {
-                                                                    mapping.source = "\(option)_\(actualMid)_meger"
-                                                                }
-                                                            }
-                                                        }
-                                                    } label: {
-                                                        Image(systemName: "chevron.up.chevron.down")
-                                                            .font(.system(size: 9))
-                                                            .foregroundStyle(.secondary)
-                                                    }
-                                                    .menuStyle(.borderlessButton)
-                                                    .frame(width: 18)
-                                                    .help("从上方环境分支列表中快速挑选")
-                                                }
-
-                                                Button(role: .destructive) {
-                                                    appModel.removeBranchMapping(id: mapping.id)
-                                                } label: {
-                                                    Image(systemName: "trash")
-                                                        .font(.system(size: 11))
-                                                }
-                                                .buttonStyle(.plain)
-                                                .foregroundStyle(Color.red)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // 模板 B: GitHub 标准主干流
-                        VStack(alignment: .leading, spacing: 12) {
-                            HStack(alignment: .top, spacing: 14) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("默认集成目标分支 (Target Branch)")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("日常 PR 或合流的目标主干分支，通常为 main 或 master")
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(.secondary)
-                                    TextField("默认目标分支", text: $appModel.settingsDraft.githubDefaultTargetBranch)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 11.5, design: .monospaced))
-                                }
-
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("保护分支列表")
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text("禁止直接强制 push 的主干保护分支")
-                                        .font(.system(size: 10.5))
-                                        .foregroundStyle(.secondary)
-                                    TextField("如: main, release/*", text: $appModel.settingsDraft.protectedTargetsText)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-                            }
-
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(Color.purple)
-                                Text("所有识别为 GitHub 的开源与日常仓库默认应用此标准流程，无需任何多级环境中间段，保持纯粹简洁的 feature ➔ main 合流。")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(10)
-                            .background(Color.purple.opacity(0.06))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.teal.opacity(0.08))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+
+                        if mappingsBinding.wrappedValue.isEmpty {
+                            Text("当前尚未配置任何分支映射，可点击右上角「基于环境一键生成」从分支架构与流转规则自动生成。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(mappingsBinding) { $mapping in
+                                HStack(spacing: 8) {
+                                    TextField("来源分支", text: $mapping.source)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                    Image(systemName: "arrow.right")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                    TextField("目标分支", text: $mapping.target)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                    Button(role: .destructive) {
+                                        appModel.removeBranchMapping(id: mapping.id)
+                                    } label: {
+                                        Image(systemName: "trash").font(.system(size: 11))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(Color.red)
+                                }
+                            }
                         }
                     }
                 }
@@ -977,7 +1195,7 @@ struct SettingsView: View {
         appModel.resolveWorktreePathTemplate(
             template: appModel.settingsDraft.worktreePathTemplate,
             rootDir: appModel.settingsDraft.worktreesRootDir.isEmpty ? "/Users/dev/worktrees" : appModel.settingsDraft.worktreesRootDir,
-            projectName: "bizark_fin",
+            projectName: "my-repo",
             branchName: "feat-pay-retry"
         )
     }
@@ -999,31 +1217,6 @@ struct SettingsView: View {
         )
     }
 
-    private var ideSelectionBinding: Binding<String> {
-        Binding(
-            get: {
-                let current = appModel.settingsDraft.ideCommand
-                if let matched = appModel.scannedIDEs.first(where: {
-                    $0.name.caseInsensitiveCompare(current) == .orderedSame ||
-                    $0.displayName.caseInsensitiveCompare(current) == .orderedSame
-                }) {
-                    return matched.name
-                }
-                return "Custom"
-            },
-            set: { newValue in
-                if let matched = appModel.scannedIDEs.first(where: { $0.name.caseInsensitiveCompare(newValue) == .orderedSame }) {
-                    appModel.selectIDE(matched)
-                } else if newValue == "Custom" {
-                    // 保留当前值
-                } else {
-                    appModel.settingsDraft.ideCommand = newValue
-                    appModel.settingsDraft.ideLabel = newValue
-                }
-            }
-        )
-    }
-
     private var terminalSelectionBinding: Binding<String> {
         Binding(
             get: {
@@ -1039,9 +1232,7 @@ struct SettingsView: View {
             set: { newValue in
                 if let matched = appModel.scannedTerminals.first(where: { $0.name.caseInsensitiveCompare(newValue) == .orderedSame }) {
                     appModel.selectTerminal(matched)
-                } else if newValue == "Custom" {
-                    // 保留当前值
-                } else {
+                } else if newValue != "Custom" {
                     appModel.settingsDraft.terminalApp = newValue
                 }
             }

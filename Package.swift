@@ -23,5 +23,10 @@ let package = Package(
             ],
             path: "Sources/GWorkbenchApp"
         ),
+        .testTarget(
+            name: "GWorkbenchAppTests",
+            dependencies: ["GWorkbenchApp"],
+            path: "Tests/GWorkbenchAppTests"
+        ),
     ]
 )

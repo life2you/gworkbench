@@ -32,12 +32,13 @@ enum WorktreeSweeperAnalyzer {
     static func analyze(
         projectWorktrees: [WorktreeItem],
         projectPath: String,
+        targets mergeTargets: [String],
         candidateBasesByTarget: [String: [String]] = [:],
         existingBranches: Set<String>,
         gitCli: GitCliService
     ) async -> [WorktreeSweeperItem] {
-        let mergeTargets = SweeperMergeTarget.ordered
-        let targetNames = mergeTargets.map(\.rawValue)
+        let normalizedTargets = mergeTargets.isEmpty ? DefaultDashboardBaselines.local : mergeTargets
+        let targetNames = normalizedTargets
 
         // 使用 concurrentPerform：每个分析都会执行阻塞式 git 子进程，
         // 放在 withTaskGroup 会占满 Swift 协作线程池，可能导致任务组永不完成。
@@ -66,7 +67,7 @@ enum WorktreeSweeperAnalyzer {
                 projectPath: projectPath,
                 candidateBasesByTarget: candidateBasesByTarget,
                 existingBranches: existingBranches,
-                mergeTargets: mergeTargets,
+                mergeTargets: normalizedTargets,
                 targetNames: targetNames,
                 gitCli: gitCli
             )
@@ -91,7 +92,7 @@ enum WorktreeSweeperAnalyzer {
         projectPath: String,
         candidateBasesByTarget: [String: [String]],
         existingBranches: Set<String>,
-        mergeTargets: [SweeperMergeTarget],
+        mergeTargets: [String],
         targetNames: [String],
         gitCli: GitCliService
     ) -> WorktreeSweeperItem {
@@ -99,9 +100,9 @@ enum WorktreeSweeperAnalyzer {
         let isDirty = item.isDirty || item.dirtySummary.hasPrefix("有未提交") || item.dirtySummary.contains("未提交")
         let sizeMB = parseDiskUsageToMB(item.diskUsage)
 
-        // 1. 主仓库优先判定（四条基线视为基准自身）
+        // 1. 主仓库优先判定（全部基线视为基准自身）
         if isMain {
-            let statuses: [SweeperMergeTarget: Bool] = Dictionary(
+            let statuses: [String: Bool] = Dictionary(
                 uniqueKeysWithValues: mergeTargets.map { ($0, true) }
             )
             return WorktreeSweeperItem(
@@ -127,8 +128,8 @@ enum WorktreeSweeperAnalyzer {
             candidateBasesByTarget: candidateBasesByTarget,
             existingBranches: existingBranches
         )
-        let statuses: [SweeperMergeTarget: Bool] = Dictionary(
-            uniqueKeysWithValues: mergeTargets.map { ($0, rawStatus[$0.rawValue] ?? false) }
+        let statuses: [String: Bool] = Dictionary(
+            uniqueKeysWithValues: mergeTargets.map { ($0, rawStatus[$0] ?? false) }
         )
         let mergedTargets = mergeTargets.filter { statuses[$0] == true }
         let mergedCount = mergedTargets.count
@@ -143,13 +144,13 @@ enum WorktreeSweeperAnalyzer {
 
         if isFullyMerged {
             statusType = .fullyMerged
-            statusTitle = "全部合入 (4/4)"
-            statusDescription = "已完整合入 master / stage / test / uat 全部四条基线"
+            statusTitle = "全部合入 (\(mergedCount)/\(mergeTargets.count))"
+            statusDescription = "已完整合入 \(mergeTargets.joined(separator: " / ")) 全部基线"
             isRecommended = true
         } else if mergedCount > 0 {
             statusType = .partiallyMerged(mergedCount: mergedCount)
             statusTitle = "已合入 \(mergedCount)/\(mergeTargets.count)"
-            statusDescription = "已并入 " + mergedTargets.map(\.rawValue).joined(separator: " / ")
+            statusDescription = "已并入 " + mergedTargets.joined(separator: " / ")
             isRecommended = !isDirty
         } else {
             let hasRemote = (try? gitCli.remoteBranchExists(projectPath: projectPath, branch: item.branch)) ?? true

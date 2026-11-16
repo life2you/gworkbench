@@ -15,7 +15,7 @@ struct MergeRequestsListView: View {
                 ContentUnavailableView("未检测到合并项目", systemImage: "arrow.triangle.merge")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if appModel.sortedMergeRequests.isEmpty {
-                ContentUnavailableView("暂无匹配合并请求", systemImage: "tray", description: Text("可尝试清空搜索过滤词或在侧边栏切换状态筛选"))
+                ContentUnavailableView("暂无匹配\(appModel.requestSectionTitle)", systemImage: "tray", description: Text("可尝试清空搜索过滤词或在上方切换状态筛选"))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 if !appModel.visibleOpenMergeRequests.isEmpty {
@@ -52,19 +52,24 @@ struct MergeRequestsListView: View {
 
     private var toolbarHeader: some View {
         HStack(spacing: 10) {
-            Picker("项目", selection: mergeProjectBinding) {
-                ForEach(appModel.mergeProjects) { project in
-                    Text(project.displayName).tag(Optional(project.id))
+            Picker("状态筛选", selection: mergeFilterBinding) {
+                ForEach(MergeRequestFilter.allCases) { filter in
+                    let count = appModel.mergeCountByFilter[filter, default: 0]
+                    Text(count > 0 && filter == .open ? "\(filter.title) (\(count))" : filter.title)
+                        .tag(filter)
                 }
             }
-            .pickerStyle(.menu)
-            .frame(width: 180)
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 320)
+
+            Spacer()
 
             HStack(spacing: 5) {
                 Image(systemName: "magnifyingglass")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                TextField("筛选 IID、标题、分支或作者...", text: mergeSearchBinding)
+                TextField("搜索 \(appModel.requestShortLabel) 编号、标题、分支...", text: mergeSearchBinding)
                     .textFieldStyle(.plain)
                     .font(.callout)
                 if !appModel.mergeRequestSearchText.isEmpty {
@@ -86,44 +91,20 @@ struct MergeRequestsListView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
             )
-            .frame(minWidth: 200, maxWidth: 300)
+            .frame(minWidth: 170, maxWidth: 250)
 
-            Spacer()
-
-            Button {
-                Task {
-                    await appModel.refreshMergeRequests()
+            if appModel.activePlatform != .github {
+                Button {
+                    appModel.prepareBatchMergeRequests()
+                } label: {
+                    Label("批量创建", systemImage: "square.grid.3x1.folder.badge.plus")
                 }
-            } label: {
-                Label("刷新", systemImage: "arrow.clockwise")
+                .help("按配置环境分支映射批量创建 MR")
             }
-            .help("从 GitLab 重新拉取当前项目的最新 MR 状态")
-
-            Button {
-                appModel.copySelectedMRWebURL()
-            } label: {
-                Label("复制链接", systemImage: "link")
-            }
-            .disabled(appModel.selectedMergeRequest == nil)
-            .help(appModel.selectedMergeRequest != nil ? "复制当前选中的 MR 链接 (\(appModel.selectedMergeRequest!.iidLabel))" : "请先选择一条合并请求")
-
-            Button {
-                appModel.prepareBatchMergeRequests()
-            } label: {
-                Label("批量创建", systemImage: "square.grid.3x1.folder.badge.plus")
-            }
-            .help("按配置环境分支映射批量创建 MR")
-
-            Button {
-                appModel.prepareCreateMergeRequest()
-            } label: {
-                Label("新建 MR", systemImage: "plus")
-            }
-            .buttonStyle(.borderedProminent)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.vertical, 7)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.25))
     }
 
     // MARK: - Batch Selection Bar
@@ -211,70 +192,62 @@ struct MergeRequestsListView: View {
             }
             .width(28)
 
-            TableColumn("标题", value: \.title) { item in
-                HStack(spacing: 6) {
-                    Text(item.iidLabel)
-                        .font(.system(.body, design: .monospaced).weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
+            TableColumn("单号", value: \.iid) { item in
+                Text(item.iidLabel)
+                    .font(.system(.body, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .width(56)
+
+            TableColumn("标题与分支流向", value: \.title) { item in
+                VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.system(.body))
+                        .font(.system(size: 12.5, weight: .semibold))
                         .lineLimit(1)
-                }
-            }
-            .width(min: 220, ideal: 300)
-
-            TableColumn("分支流向", value: \.sourceBranch) { item in
-                HStack(spacing: 5) {
-                    Text(item.sourceBranch)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                    Text(item.targetBranch)
-                        .font(.system(.caption, design: .monospaced).weight(.medium))
-                        .foregroundStyle(item.protectedTarget ? Color.orange : Color.primary)
-                        .lineLimit(1)
-                    if item.protectedTarget {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 8))
-                            .foregroundStyle(Color.orange)
+                    HStack(spacing: 4) {
+                        Text(item.sourceBranch)
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 8.5))
+                        Text(item.targetBranch)
+                        if item.protectedTarget {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 8))
+                                .foregroundStyle(Color.orange)
+                        }
                     }
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 }
+                .padding(.vertical, 2)
             }
-            .width(min: 170, ideal: 220)
+            .width(min: 250, ideal: 340)
 
-            TableColumn("审批进度", value: \.approvalProgress) { item in
-                approvalPill(item)
-            }
-            .width(min: 90, ideal: 105, max: 120)
-
-            TableColumn("流水线", value: \.pipeline.rawValue) { item in
-                pipelinePill(item.pipeline)
-            }
-            .width(min: 80, ideal: 95, max: 110)
-
-            TableColumn("作者", value: \.author) { item in
-                HStack(spacing: 5) {
-                    Text(item.author)
-                        .font(.caption)
-                        .lineLimit(1)
-                    Text("@\(item.authorUsername)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .width(min: 100, ideal: 125)
-
-            TableColumn("更新时间", value: \.updatedAt) { item in
-                Text(item.updatedAt)
-                    .font(.caption)
+            TableColumn("作者", value: \.authorUsername) { item in
+                Text("@\(item.authorUsername)")
+                    .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            .width(min: 75, ideal: 90, max: 110)
+            .width(min: 80, ideal: 105)
+
+            TableColumn("CI 状态", value: \.pipeline.rawValue) { item in
+                pipelinePill(item.pipeline)
+            }
+            .width(min: 75, ideal: 88, max: 100)
+
+            TableColumn("审批进度", value: \.approvalProgress) { item in
+                Text(item.approvalProgress)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .width(min: 85, ideal: 100, max: 120)
+
+            TableColumn("状态", value: \.status.rawValue) { item in
+                statusPill(item)
+            }
+            .width(min: 75, ideal: 88, max: 105)
 
             TableColumn("操作") { item in
                 HStack(spacing: 8) {
@@ -286,7 +259,7 @@ struct MergeRequestsListView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
-                    .help("复制此 MR 链接 (\(item.iidLabel))")
+                    .help("复制此 \(appModel.requestShortLabel) 链接 (\(item.iidLabel))")
 
                     Button {
                         appModel.openMRInBrowser(item)
@@ -296,7 +269,7 @@ struct MergeRequestsListView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .help("在 GitLab 中打开 (\(item.iidLabel))")
+                    .help("在 \(item.platform == .github ? "GitHub" : "GitLab") 中打开 (\(item.iidLabel))")
                 }
             }
             .width(55)
@@ -319,13 +292,13 @@ struct MergeRequestsListView: View {
         Button {
             appModel.openMRInBrowser(item)
         } label: {
-            Label("在 GitLab 中打开", systemImage: "arrow.up.forward.app")
+            Label("在 \(item.platform == .github ? "GitHub" : "GitLab") 中打开", systemImage: "arrow.up.forward.app")
         }
 
         Button {
             appModel.copyMRWebURL(item)
         } label: {
-            Label("复制 MR 链接", systemImage: "link")
+            Label("复制 \(item.platform == .github ? "PR" : "MR") 链接", systemImage: "link")
         }
 
         Divider()
@@ -351,7 +324,7 @@ struct MergeRequestsListView: View {
                     await appModel.approveAndMergeSelectedMR()
                 }
             } label: {
-                Label("审批并合并此 MR", systemImage: "checkmark.circle")
+                Label("审批并合并此 \(item.platform == .github ? "PR" : "MR")", systemImage: "checkmark.circle")
             }
             .disabled(appModel.mrOperation.isRunning)
         }
@@ -362,7 +335,7 @@ struct MergeRequestsListView: View {
                 await appModel.closeSelectedMR()
             }
         } label: {
-            Label("关闭此 MR", systemImage: "xmark.circle")
+            Label("关闭此 \(item.platform == .github ? "PR" : "MR")", systemImage: "xmark.circle")
         }
         .disabled(appModel.mrOperation.isRunning)
     }
@@ -375,7 +348,9 @@ struct MergeRequestsListView: View {
                 Circle()
                     .fill(Color.green)
                     .frame(width: 6, height: 6)
-                Text(appModel.appConfig?.gitlabHost ?? "GitLab 已连接")
+                Text(appModel.activePlatform == .github
+                     ? "GitHub (\(GitHubProvider.cliHostname(from: appModel.activeWorkspace?.host ?? appModel.appConfig?.githubHost ?? "") ?? "api.github.com"))"
+                     : ((appModel.activeWorkspace?.host.trimmedNonEmpty ?? appModel.appConfig?.gitlabHost.trimmedNonEmpty) ?? "GitLab 未配置"))
                     .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -414,7 +389,7 @@ struct MergeRequestsListView: View {
 
             Spacer()
 
-            Text("GWorkbench • MR Queue")
+            Text("GWorkbench • \(appModel.requestShortLabel) Queue")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
         }
@@ -424,6 +399,33 @@ struct MergeRequestsListView: View {
     }
 
     // MARK: - Helper Views & Bindings
+
+    private var mergeFilterBinding: Binding<MergeRequestFilter> {
+        Binding(
+            get: { appModel.selectedMergeFilter },
+            set: { appModel.selectMergeFilter($0) }
+        )
+    }
+
+    private func statusPill(_ item: MergeRequestItem) -> some View {
+        let tint: Color = switch item.status {
+        case .ready: .green
+        case .blocked: .red
+        case .draft: .gray
+        case .merged: .purple
+        case .closed: .gray
+        case .open: item.approvedByMe ? .green : .orange
+        }
+        let label: String = switch item.status {
+        case .ready: "可合并"
+        case .blocked: "有冲突"
+        case .draft: "Draft"
+        case .merged: "已合并"
+        case .closed: "已关闭"
+        case .open: item.approvedByMe ? "已批准" : "待审批"
+        }
+        return StatusPill(title: label, tint: tint)
+    }
 
     private func approvalPill(_ item: MergeRequestItem) -> some View {
         let tint: Color = switch item.status {

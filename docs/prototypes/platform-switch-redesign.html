@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>GWorkbench · 开源通用化（方案一：平台切换）全界面 UI 原型</title>
+<style>
+  :root {
+    --bg-desktop: #0b0c0f;
+    --bg-window: #1c1c1f;
+    --bg-sidebar: #161619;
+    --bg-content: #1e1e22;
+    --bg-detail: #19191d;
+    --bg-card: rgba(255, 255, 255, 0.04);
+    --bg-card-hover: rgba(255, 255, 255, 0.07);
+    --bg-input: rgba(0, 0, 0, 0.35);
+    --border: rgba(255, 255, 255, 0.09);
+    --border-subtle: rgba(255, 255, 255, 0.05);
+    --text-1: #f4f4f6;
+    --text-2: #a0a2ad;
+    --text-3: #6c6e79;
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, 0.16);
+    --green: #30d158;
+    --green-soft: rgba(48, 209, 88, 0.15);
+    --orange: #ff9f0a;
+    --orange-soft: rgba(255, 159, 10, 0.16);
+    --purple: #bf5af2;
+    --purple-soft: rgba(191, 90, 242, 0.16);
+    --red: #ff453a;
+    --red-soft: rgba(255, 69, 58, 0.16);
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: radial-gradient(circle at 20% 0%, #1d2230 0%, #0b0c0f 55%);
+    color: var(--text-1);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    line-height: 1.45;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 顶部原型导览条（仅用于原型预览切换弹窗，导出截图可隐藏） */
+  .proto-bar {
+    height: 38px;
+    background: rgba(12, 13, 17, 0.92);
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--text-2);
+    flex-shrink: 0;
+  }
+  .proto-bar.hidden { display: none; }
+  .proto-left { display: flex; align-items: center; gap: 10px; }
+  .proto-badge {
+    background: var(--accent-soft);
+    color: #64b5ff;
+    border: 1px solid rgba(10, 132, 255, 0.35);
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .proto-actions { display: flex; align-items: center; gap: 6px; }
+  .proto-btn {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-1);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  .proto-btn:hover { background: rgba(255, 255, 255, 0.12); }
+
+  /* macOS 窗口主体 */
+  .app-stage {
+    flex: 1;
+    padding: 14px;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    min-height: 0;
+  }
+  body.chromeless .app-stage { padding: 0; }
+
+  .mac-window {
+    width: 100%;
+    max-width: 1440px;
+    background: var(--bg-window);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    box-shadow: 0 28px 80px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    display: flex;
+    overflow: hidden;
+    position: relative;
+  }
+  body.chromeless .mac-window {
+    max-width: none;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+
+  /* 1. 左侧 Sidebar */
+  .sidebar {
+    width: 236px;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .window-controls {
+    height: 44px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .traffic-lights { display: flex; gap: 7px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.red { background: #ff5f57; }
+  .dot.yellow { background: #febc2e; }
+  .dot.green { background: #28c840; }
+  .app-title { font-size: 12px; font-weight: 600; color: var(--text-2); letter-spacing: 0.2px; }
+
+  /* 全局平台切换器 (方案一核心) */
+  .platform-switcher-wrap {
+    padding: 4px 12px 10px;
+  }
+  .platform-switcher {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: rgba(0, 0, 0, 0.42);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 3px;
+  }
+  .platform-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-2);
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: 0.15s;
+  }
+  .platform-btn:hover { color: var(--text-1); }
+  .platform-btn.active-github {
+    background: linear-gradient(180deg, rgba(191, 90, 242, 0.28), rgba(191, 90, 242, 0.16));
+    color: #f3d9ff;
+    box-shadow: inset 0 0 0 1px rgba(191, 90, 242, 0.45);
+  }
+  .platform-btn.active-gitlab {
+    background: linear-gradient(180deg, rgba(255, 159, 10, 0.28), rgba(255, 159, 10, 0.16));
+    color: #ffe3b3;
+    box-shadow: inset 0 0 0 1px rgba(255, 159, 10, 0.45);
+  }
+
+  .sidebar-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 10px 12px;
+  }
+  .sidebar-group-title {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 8px 5px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 9px;
+    border-radius: 7px;
+    color: var(--text-2);
+    cursor: pointer;
+    margin-bottom: 2px;
+    transition: 0.12s;
+  }
+  .nav-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-1); }
+  .nav-item.active {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 500;
+  }
+  .nav-item-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .nav-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-badge {
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-2);
+  }
+  .nav-item.active .nav-badge {
+    background: rgba(255, 255, 255, 0.24);
+    color: #fff;
+  }
+
+  .repo-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5.5px 9px;
+    border-radius: 6px;
+    color: var(--text-2);
+    cursor: pointer;
+    margin-bottom: 1px;
+    font-size: 12px;
+  }
+  .repo-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-1); }
+  .repo-item.active { background: rgba(255, 255, 255, 0.11); color: var(--text-1); font-weight: 500; }
+
+  .sidebar-footer {
+    border-top: 1px solid var(--border-subtle);
+    padding: 9px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+  .sidebar-footer span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sidebar-footer span:last-child {
+    flex-shrink: 0;
+  }
+
+  /* 2. 中间 Content Column */
+  .content-col {
+    flex: 1;
+    background: var(--bg-content);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .toolbar {
+    height: 46px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .toolbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .toolbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  .repo-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-1);
+  }
+  .segmented {
+    display: inline-flex;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .seg-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-2);
+    padding: 3.5px 10px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .seg-btn.active { background: rgba(255, 255, 255, 0.14); color: var(--text-1); font-weight: 500; }
+
+  .search-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 9px;
+    color: var(--text-2);
+    font-size: 11.5px;
+    min-width: 185px;
+  }
+  .btn {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-1);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: 0.12s;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.11); }
+  .btn-primary {
+    background: var(--accent);
+    border-color: rgba(255, 255, 255, 0.16);
+    color: #fff;
+  }
+  .btn-primary:hover { background: #1d8fff; }
+  .btn-orange {
+    background: rgba(255, 159, 10, 0.2);
+    border-color: rgba(255, 159, 10, 0.45);
+    color: #ffd085;
+  }
+  .btn-green {
+    background: rgba(48, 209, 88, 0.2);
+    border-color: rgba(48, 209, 88, 0.45);
+    color: #82f09e;
+  }
+  .btn-danger {
+    background: rgba(255, 69, 58, 0.14);
+    border-color: rgba(255, 69, 58, 0.35);
+    color: #ff827b;
+  }
+
+  .main-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* 汇总指标卡片 */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .kpi-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 10px 12px;
+  }
+  .kpi-label { font-size: 11px; color: var(--text-2); margin-bottom: 4px; }
+  .kpi-val { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+  .kpi-sub { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+
+  /* 通用表格 */
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  table.data-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-3);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.015);
+    position: sticky;
+    top: 0;
+  }
+  table.data-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border-subtle);
+    vertical-align: middle;
+  }
+  table.data-table tr.row-selectable { cursor: pointer; }
+  table.data-table tr.row-selectable:hover { background: rgba(255, 255, 255, 0.035); }
+  table.data-table tr.row-selected { background: rgba(10, 132, 255, 0.14); }
+
+  .mono { font-family: var(--font-mono); font-size: 11.5px; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .pill-green { background: var(--green-soft); color: #6ae68a; }
+  .pill-orange { background: var(--orange-soft); color: #ffc15e; }
+  .pill-purple { background: var(--purple-soft); color: #df9dff; }
+  .pill-red { background: var(--red-soft); color: #ff857e; }
+  .pill-gray { background: rgba(255, 255, 255, 0.08); color: var(--text-2); }
+  .pill-blue { background: var(--accent-soft); color: #7ac0ff; }
+
+  /* 底部工作树控制台 */
+  .console-drawer {
+    height: 175px;
+    border-top: 1px solid var(--border);
+    background: #141417;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .console-tabs {
+    height: 34px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .console-tab-list { display: flex; gap: 4px; }
+  .console-tab {
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .console-tab.active { background: rgba(255, 255, 255, 0.1); color: var(--text-1); font-weight: 500; }
+  .console-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 14px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+  .file-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  }
+
+  /* 底部状态栏 */
+  .status-bar {
+    height: 28px;
+    padding: 0 14px;
+    border-top: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+
+  /* 分支同步专用卡片 */
+  .sync-wrap { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  .conflict-banner {
+    background: linear-gradient(135deg, rgba(255, 159, 10, 0.14), rgba(255, 69, 58, 0.09));
+    border: 1px solid rgba(255, 159, 10, 0.45);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+
+  /* 设置页两栏布局 */
+  .settings-layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 205px 1fr;
+    min-height: 0;
+  }
+  .settings-nav {
+    border-right: 1px solid var(--border);
+    padding: 12px 10px;
+    background: rgba(0, 0, 0, 0.14);
+  }
+  .settings-content {
+    padding: 18px 22px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .form-row { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; }
+  .form-label { font-size: 11.5px; font-weight: 500; color: var(--text-2); }
+  .form-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--text-1);
+    font-size: 12px;
+    font-family: var(--font-sans);
+  }
+  .form-input.mono { font-family: var(--font-mono); }
+
+  /* 3. 右侧 Detail Column */
+  .detail-col {
+    width: 340px;
+    background: var(--bg-detail);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .detail-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-title { font-size: 14px; font-weight: 600; margin-bottom: 3px; word-break: break-all; }
+  .detail-sub { font-size: 11.5px; color: var(--text-2); }
+  .detail-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .kv-list { display: flex; flex-direction: column; gap: 7px; font-size: 11.5px; }
+  .kv-item { display: flex; justify-content: space-between; gap: 10px; }
+  .kv-k { color: var(--text-3); flex-shrink: 0; }
+  .kv-v { color: var(--text-1); text-align: right; word-break: break-all; }
+  .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .step-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-subtle);
+    font-size: 11.5px;
+  }
+
+  /* 弹窗层 */
+  .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.58);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 24px;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-sheet {
+    width: 660px;
+    max-width: 100%;
+    background: #232328;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.72);
+    overflow: hidden;
+  }
+  .modal-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-body { padding: 18px; max-height: 70vh; overflow-y: auto; }
+  .modal-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.16);
+  }
+</style>
+</head>
+<body>
+
+<div class="proto-bar" id="protoBar">
+  <div class="proto-left">
+    <span class="proto-badge">UI 重新设计 · 方案一</span>
+    <span>左侧顶部全局平台切换（GitHub ↔ GitLab），全模块、术语、基线与设置自适应联动</span>
+  </div>
+  <div class="proto-actions">
+    <button class="proto-btn" onclick="openModal('createWt')">弹窗: 新建工作树</button>
+    <button class="proto-btn" onclick="openModal('sweeper')">弹窗: 空间清理</button>
+    <button class="proto-btn" onclick="openModal('onboarding')">弹窗: 首次启动引导</button>
+  </div>
+</div>
+
+<div class="app-stage">
+  <div class="mac-window">
+
+    <!-- 1. Sidebar -->
+    <aside class="sidebar">
+      <div class="window-controls">
+        <div class="traffic-lights">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+        </div>
+        <span class="app-title">GWorkbench</span>
+      </div>
+
+      <!-- 核心设计点：全局单平台切换 -->
+      <div class="platform-switcher-wrap">
+        <div class="platform-switcher">
+          <button class="platform-btn" id="btn-github" onclick="setPlatform('github')">🐙 GitHub</button>
+          <button class="platform-btn" id="btn-gitlab" onclick="setPlatform('gitlab')">🦊 GitLab</button>
+        </div>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="sidebar-group-title">工作区</div>
+        <div id="nav-list"></div>
+
+        <div class="sidebar-group-title">
+          <span id="repo-group-title">仓库列表</span>
+          <span id="repo-group-count">0</span>
+        </div>
+        <div id="repo-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span id="footer-platform-hint">GitHub 模式 · gh CLI</span>
+        <span>v0.3.0-ui</span>
+      </div>
+    </aside>
+
+    <!-- 2. Content Column -->
+    <main class="content-col" id="content-col"></main>
+
+    <!-- 3. Detail Column -->
+    <aside class="detail-col" id="detail-col"></aside>
+
+    <!-- 弹窗遮罩 -->
+    <div class="modal-backdrop" id="modalBackdrop" onclick="if(event.target===this) closeModal()">
+      <div class="modal-sheet" id="modalSheet"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const state = {
+  platform: 'github', // 'github' | 'gitlab'
+  section: 'dashboard', // 'dashboard' | 'worktrees' | 'sync' | 'requests' | 'settings'
+  settingsTab: 'platform', // 'general' | 'ide' | 'ai' | 'platform' | 'policy'
+  selectedRepoIndex: 0,
+  selectedWorktreeIndex: 1,
+  selectedRequestIndex: 0,
+  consoleTab: 'changes',
+  modal: null
+};
+
+const DATA = {
+  github: {
+    label: 'GitHub',
+    icon: '🐙',
+    requestSectionTitle: 'Pull Requests',
+    requestShort: 'PR',
+    baselines: ['main'],
+    footerHint: 'GitHub 模式 · gh 凭据已认证',
+    repos: [
+      { name: 'gworkbench', branch: 'main', wtCount: 3, remote: 'github.com/acme/gworkbench' },
+      { name: 'swift-toml-kit', branch: 'main', wtCount: 2, remote: 'github.com/acme/swift-toml-kit' },
+      { name: 'raycast-scripts', branch: 'main', wtCount: 1, remote: 'github.com/acme/raycast-scripts' }
+    ],
+    worktrees: [
+      { branch: 'main', kind: '主仓库', desc: '主干基准分支', dirty: false, dirtyText: '干净', disk: '310 MB', updated: '2小时前', merged: { main: true }, path: '~/Code/oss/gworkbench' },
+      { branch: 'feat/github-provider', kind: '工作树', desc: '接入 GitHub PR 列表与合并流', dirty: true, dirtyText: '2 改动', disk: '295 MB', updated: '12分钟前', merged: { main: false }, path: '~/worktrees/gworkbench/feat-github-provider' },
+      { branch: 'fix/i18n-strings', kind: '工作树', desc: '补充英文与简体中文词条', dirty: false, dirtyText: '干净', disk: '288 MB', updated: '6天前', merged: { main: true }, path: '~/worktrees/gworkbench/fix-i18n-strings' }
+    ],
+    requests: [
+      { number: '#128', title: 'feat: implement GitHubProvider & PR merge actions', flow: 'feat/github-provider → main', author: 'alex', updated: '10分钟前', ci: '通过', approval: '1/1 已批准', status: '可合并', canApprove: false, mine: true },
+      { number: '#126', title: 'docs: add English README and screenshots', flow: 'docs/readme-en → main', author: 'mia', updated: '3小时前', ci: '通过', approval: '待你 Review', status: '待审批', canApprove: true, mine: false },
+      { number: '#121', title: 'refactor: decouple merge baselines from fixed enums', flow: 'refactor/baselines → main', author: 'liam', updated: '2天前', ci: '运行中', approval: '0/1 待审批', status: 'Draft', canApprove: true, mine: false }
+    ]
+  },
+  gitlab: {
+    label: 'GitLab',
+    icon: '🦊',
+    requestSectionTitle: 'Merge Requests',
+    requestShort: 'MR',
+    baselines: ['master', 'stage', 'test', 'uat'],
+    footerHint: 'GitLab 模式 · gitlab.example.com',
+    repos: [
+      { name: 'payment-gateway', branch: 'master', wtCount: 4, remote: 'gitlab.example.com/core/payment-gateway' },
+      { name: 'order-service', branch: 'master', wtCount: 3, remote: 'gitlab.example.com/core/order-service' },
+      { name: 'settlement-worker', branch: 'master', wtCount: 2, remote: 'gitlab.example.com/core/settlement-worker' }
+    ],
+    worktrees: [
+      { branch: 'master', kind: '主仓库', desc: '生产基准仓库', dirty: false, dirtyText: '干净', disk: '640 MB', updated: '1小时前', merged: { master: true, stage: true, test: true, uat: true }, path: '~/Code/work/payment-gateway' },
+      { branch: 'feat/refund-retry', kind: '工作树', desc: '退款超时幂等重试链路', dirty: false, dirtyText: '干净', disk: '615 MB', updated: '25分钟前', merged: { master: false, stage: true, test: true, uat: true }, path: '~/worktrees/payment-gateway/feat-refund-retry' },
+      { branch: 'fix/webhook-sign', kind: '工作树', desc: '验签时钟漂移兼容修复', dirty: true, dirtyText: '1 改动', disk: '610 MB', updated: '3小时前', merged: { master: false, stage: false, test: true, uat: true }, path: '~/worktrees/payment-gateway/fix-webhook-sign' },
+      { branch: 'chore/clean-legacy-log', kind: '工作树', desc: '清理冗余调试日志', dirty: false, dirtyText: '干净', disk: '598 MB', updated: '18天前', merged: { master: true, stage: true, test: true, uat: true }, path: '~/worktrees/payment-gateway/chore-clean-legacy-log' }
+    ],
+    requests: [
+      { number: '!412', title: 'Merge stage_sync -> stage (退款超时幂等重试)', flow: 'stage_sync → stage', author: 'chen', updated: '15分钟前', ci: '通过', approval: '待审批', status: '可合并', canApprove: true, mine: false },
+      { number: '!411', title: 'Merge test_sync -> test (验签时钟漂移修复)', flow: 'test_sync → test', author: 'chen', updated: '40分钟前', ci: '通过', approval: '已审批', status: '可合并', canApprove: false, mine: true },
+      { number: '!408', title: 'Release: stage -> master (v2.14.0 生产发布)', flow: 'stage → master', author: 'ops-bot', updated: '2小时前', ci: '通过', approval: '保护分支待审', status: '受保护', canApprove: true, mine: false }
+    ]
+  }
+};
+
+function currentData() { return DATA[state.platform]; }
+
+function setPlatform(p) {
+  state.platform = p;
+  state.selectedRepoIndex = 0;
+  state.selectedWorktreeIndex = 1;
+  state.selectedRequestIndex = 0;
+  render();
+}
+
+function setSection(s) {
+  state.section = s;
+  render();
+}
+
+function setSettingsTab(t) {
+  state.settingsTab = t;
+  render();
+}
+
+function render() {
+  const d = currentData();
+
+  // Platform switcher active styles
+  document.getElementById('btn-github').className = 'platform-btn' + (state.platform === 'github' ? ' active-github' : '');
+  document.getElementById('btn-gitlab').className = 'platform-btn' + (state.platform === 'gitlab' ? ' active-gitlab' : '');
+  document.getElementById('footer-platform-hint').textContent = d.footerHint;
+
+  // Sidebar nav items
+  const navDefs = [
+    { id: 'dashboard', icon: '📊', title: '看板', badge: d.worktrees.filter(w => w.kind !== '主仓库' && d.baselines.every(b => w.merged[b])).length || null },
+    { id: 'worktrees', icon: '🌿', title: '工作树', badge: d.worktrees.length },
+    { id: 'sync', icon: '🔀', title: '分支同步', badge: state.platform === 'gitlab' ? '!' : null },
+    { id: 'requests', icon: '🔁', title: d.requestSectionTitle, badge: d.requests.length },
+    { id: 'settings', icon: '⚙️', title: '设置', badge: null }
+  ];
+  document.getElementById('nav-list').innerHTML = navDefs.map(n => `
+    <div class="nav-item ${state.section === n.id ? 'active' : ''}" onclick="setSection('${n.id}')">
+      <div class="nav-item-left">
+        <span>${n.icon}</span>
+        <span class="nav-item-label">${n.title}</span>
+      </div>
+      ${n.badge !== null ? `<span class="nav-badge">${n.badge}</span>` : ''}
+    </div>
+  `).join('');
+
+  // Sidebar repo list (仅展示当前切换平台下的项目，无混排！)
+  document.getElementById('repo-group-title').textContent = `${d.label} 仓库`;
+  document.getElementById('repo-group-count').textContent = d.repos.length;
+  document.getElementById('repo-list').innerHTML = d.repos.map((r, i) => `
+    <div class="repo-item ${state.selectedRepoIndex === i ? 'active' : ''}" onclick="state.selectedRepoIndex=${i}; render()">
+      <div class="nav-item-left">
+        <span>📁</span>
+        <span class="nav-item-label">${r.name}</span>
+      </div>
+      <span class="nav-badge">${r.wtCount}</span>
+    </div>
+  `).join('');
+
+  renderContent();
+  renderDetail();
+}
+
+function renderContent() {
+  const d = currentData();
+  const repo = d.repos[state.selectedRepoIndex] || d.repos[0];
+  const el = document.getElementById('content-col');
+
+  if (state.section === 'dashboard') {
+    const nonMain = d.worktrees.filter(w => w.kind !== '主仓库');
+    const mergedAll = nonMain.filter(w => d.baselines.every(b => w.merged[b])).length;
+    const dirtyCount = nonMain.filter(w => w.dirty).length;
+    const unmerged = nonMain.length - mergedAll;
+
+    el.innerHTML = `
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span class="repo-pill">${d.icon} ${repo.name}</span>
+          <div class="segmented">
+            <button class="seg-btn active">全部</button>
+            <button class="seg-btn">已合入基线</button>
+            <button class="seg-btn">未合入</button>
+            <button class="seg-btn">有改动</button>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn">↻ 刷新分析</button>
+          <button class="btn btn-primary" onclick="openModal('sweeper')">🧹 空间清理 (${mergedAll})</button>
+        </div>
+      </div>
+
+      <div class="main-body">
+        <div class="kpi-row">
+          <div class="kpi-card">
+            <div class="kpi-label">工作树总数</div>
+            <div class="kpi-val">${d.worktrees.length}</div>
+            <div class="kpi-sub">含 1 个主仓库</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">已全部合入 (可清理)</div>
+            <div class="kpi-val" style="color:var(--green)">${mergedAll}</div>
+            <div class="kpi-sub">基线: ${d.baselines.join(' / ')}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">未完成合入</div>
+            <div class="kpi-val" style="color:var(--orange)">${unmerged}</div>
+            <div class="kpi-sub">仍在开发中</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">未提交改动</div>
+            <div class="kpi-val" style="color:var(--purple)">${dirtyCount}</div>
+            <div class="kpi-sub">清理前需先处理</div>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>分支</th>
+              <th>状态</th>
+              ${d.baselines.map(b => `<th>${b}</th>`).join('')}
+              <th>合入汇总</th>
+              <th>最后更新</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${d.worktrees.map((w, idx) => {
+              const allOk = d.baselines.every(b => w.merged[b]);
+              const hitCount = d.baselines.filter(b => w.merged[b]).length;
+              return `
+                <tr class="row-selectable ${state.selectedWorktreeIndex === idx ? 'row-selected' : ''}" onclick="state.selectedWorktreeIndex=${idx}; render()">
+                  <td>
+                    <div class="mono" style="font-weight:600">${w.branch}</div>
+                    <div style="font-size:11px; color:var(--text-3)">${w.desc}</div>
+                  </td>
+                  <td>
+                    <span class="pill ${w.kind==='主仓库' ? 'pill-gray' : (w.dirty ? 'pill-orange' : 'pill-green')}">
+                      ${w.kind==='主仓库' ? '基准' : w.dirtyText}
+                    </span>
+                  </td>
+                  ${d.baselines.map(b => `
+                    <td>
+                      ${w.kind==='主仓库'
+                        ? '<span style="color:var(--text-3)">—</span>'
+                        : (w.merged[b]
+                            ? '<span class="pill pill-green">✓</span>'
+                            : '<span style="color:var(--text-3)">○</span>')}
+                    </td>
+                  `).join('')}
+                  <td>
+                    ${w.kind==='主仓库'
+                      ? '<span class="pill pill-gray">主仓库</span>'
+                      : (allOk
+                          ? '<span class="pill pill-green">全部合入 · 可清理</span>'
+                          : `<span class="pill pill-blue">合入 ${hitCount}/${d.baselines.length}</span>`)}
+                  </td>
+                  <td style="color:var(--text-2)">${w.updated}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="status-bar">
+        <span>检测基线（可配置）：${d.baselines.join(' / ')} · 已自动同步远端 origin</span>
+        <span>${repo.remote}</span>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.section === 'worktrees') {
+    const wt = d.worktrees[state.selectedWorktreeIndex] || d.worktrees[0];
+    el.innerHTML = `
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span class="repo-pill">${d.icon} ${repo.name}</span>
+          <div class="segmented">
+            <button class="seg-btn active">全部 (${d.worktrees.length})</button>
+            <button class="seg-btn">有改动</button>
+            <button class="seg-btn">干净</button>
+          </div>
+          <div class="search-box">🔍 筛选分支或备注...</div>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn">↻ 刷新</button>
+          <button class="btn btn-primary" onclick="openModal('createWt')">+ 新建工作树</button>
+        </div>
+      </div>
+
+      <div class="main-body">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>分支</th>
+              <th>类型</th>
+              <th>工作区状态</th>
+              <th>占用</th>
+              <th>更新时间</th>
+              <th>备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${d.worktrees.map((w, idx) => `
+              <tr class="row-selectable ${state.selectedWorktreeIndex === idx ? 'row-selected' : ''}" onclick="state.selectedWorktreeIndex=${idx}; render()">
+                <td class="mono" style="font-weight:600">${w.branch}</td>
+                <td><span class="pill ${w.kind==='主仓库'?'pill-blue':'pill-gray'}">${w.kind}</span></td>
+                <td><span class="pill ${w.dirty?'pill-orange':'pill-green'}">${w.dirtyText}</span></td>
+                <td style="color:var(--text-2)">${w.disk}</td>
+                <td style="color:var(--text-2)">${w.updated}</td>
+                <td style="color:var(--text-2)">${w.desc}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="console-drawer">
+        <div class="console-tabs">
+          <div class="console-tab-list">
+            <div class="console-tab ${state.consoleTab==='changes'?'active':''}" onclick="state.consoleTab='changes'; render()">📄 改动文件 (${wt.dirty ? 2 : 0})</div>
+            <div class="console-tab ${state.consoleTab==='radar'?'active':''}" onclick="state.consoleTab='radar'; render()">📡 同步雷达</div>
+            <div class="console-tab ${state.consoleTab==='logs'?'active':''}" onclick="state.consoleTab='logs'; render()">💻 运行日志</div>
+          </div>
+          <span style="font-size:11px; color:var(--text-3)">${wt.path}</span>
+        </div>
+        <div class="console-body">
+          ${state.consoleTab === 'changes' ? (
+            wt.dirty
+              ? `<div class="file-row"><span><span class="pill pill-orange">M</span> Sources/Services/${state.platform==='github'?'GitHubProvider.swift':'WebhookVerifier.swift'}</span><span style="color:var(--text-3)">工作区修改</span></div>
+                 <div class="file-row"><span><span class="pill pill-green">??</span> Tests/ProviderTests.swift</span><span style="color:var(--text-3)">未跟踪</span></div>`
+              : `<div style="color:var(--text-3); padding-top:18px; text-align:center">工作区干净，没有未提交的文件改动</div>`
+          ) : state.consoleTab === 'radar' ? `
+            <div style="color:var(--text-2); line-height:1.8">
+              <div>• 上游跟踪：<span style="color:var(--text-1)">origin/${wt.branch}</span></div>
+              <div>• 领先提交：2 commits ahead · 落后提交：0 commits behind</div>
+            </div>
+          ` : `
+            <div style="color:var(--text-2); line-height:1.8">
+              <div>[11:02:14] git -C ${wt.path} status --porcelain</div>
+              <div>[11:02:14] 扫描完成，耗时 18ms</div>
+            </div>
+          `}
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <span>共 ${d.worktrees.length} 个工作树</span>
+        <span>${repo.remote}</span>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.section === 'sync') {
+    el.innerHTML = `
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span class="repo-pill">${d.icon} ${repo.name}</span>
+          <div class="segmented">
+            ${state.platform === 'gitlab' ? '<button class="seg-btn">环境链同步</button>' : ''}
+            <button class="seg-btn active">合并到目标分支</button>
+            <button class="seg-btn">自定义目标</button>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn">↻ 拉取远端</button>
+          <button class="btn btn-primary">▶ 开始交互式同步</button>
+        </div>
+      </div>
+
+      <div class="main-body">
+        <div class="sync-wrap">
+          ${state.platform === 'gitlab' ? `
+            <div class="conflict-banner">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <strong style="font-size:13px; color:#ffd085">⚠️ 合并至 <span class="mono">stage</span> 发生冲突（已保留 MERGE_HEAD 现场）</strong>
+                <span class="pill pill-orange">2 个冲突文件</span>
+              </div>
+              <div style="font-size:11.5px; color:var(--text-2); margin-bottom:10px;">
+                1. 打开 Rebased 或 IDE 解决冲突并完成暂存 → 2. 点击「已解决，提交并继续」自动完成后续目标推送。
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-orange">⚡ 打开 Rebased 解决</button>
+                <button class="btn">📝 在 IDE 中打开</button>
+                <button class="btn btn-green">✓ 已解决，提交并继续</button>
+                <button class="btn">跳过 stage</button>
+                <button class="btn btn-danger">中止全部</button>
+              </div>
+            </div>
+          ` : `
+            <div class="card" style="border-color:rgba(191,90,242,0.35); background:rgba(191,90,242,0.06);">
+              <div class="card-title"><span>🐙 GitHub 主干同步模式</span><span class="pill pill-purple">轻量合流</span></div>
+              <div style="font-size:11.5px; color:var(--text-2)">
+                选择本地源分支后，可快捷合入 <span class="mono">main</span> 或自定义 release 分支；遇到冲突时同样支持一键拉起 Rebased 解决。
+              </div>
+            </div>
+          `}
+
+          <div class="card">
+            <div class="card-title"><span>1. 源分支（Source）</span><span class="mono" style="color:var(--text-3)">当前分支</span></div>
+            <div class="form-input mono" style="display:flex; justify-content:space-between;">
+              <span>${d.worktrees[1].branch}</span>
+              <span style="color:var(--text-3)">▾</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><span>2. 目标分支队列（Targets）</span><span style="font-size:11px; color:var(--text-2)">依次 checkout → pull → merge → push</span></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              ${d.baselines.map((b, i) => `
+                <span class="pill ${i===1 && state.platform==='gitlab' ? 'pill-orange' : 'pill-blue'}" style="padding:5px 10px;">
+                  ☑ <span class="mono">${b}</span>
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <span>本地同步复用系统 Git 凭据 · 冲突不丢现场</span>
+        <span>Rebased 已就绪</span>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.section === 'requests') {
+    el.innerHTML = `
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span class="repo-pill">${d.icon} ${repo.name}</span>
+          <div class="segmented">
+            <button class="seg-btn active">待处理 (${d.requests.length})</button>
+            <button class="seg-btn">我创建的</button>
+            <button class="seg-btn">待我审批</button>
+            <button class="seg-btn">已合并</button>
+          </div>
+          <div class="search-box">🔍 搜索 ${d.requestShort} 编号、标题、分支...</div>
+        </div>
+        <div class="toolbar-right">
+          ${state.platform === 'gitlab' ? '<button class="btn">⚡ 批量合并 (2)</button>' : ''}
+          <button class="btn btn-primary">+ 创建 ${d.requestShort}</button>
+        </div>
+      </div>
+
+      <div class="main-body">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:32px">☑</th>
+              <th style="width:76px">单号</th>
+              <th>标题与分支流向</th>
+              <th>作者</th>
+              <th>CI 状态</th>
+              <th>审批进度</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${d.requests.map((r, idx) => `
+              <tr class="row-selectable ${state.selectedRequestIndex === idx ? 'row-selected' : ''}" onclick="state.selectedRequestIndex=${idx}; render()">
+                <td><input type="checkbox" ${idx===0?'checked':''} /></td>
+                <td class="mono" style="font-weight:600">${r.number}</td>
+                <td>
+                  <div style="font-weight:500">${r.title}</div>
+                  <div class="mono" style="font-size:11px; color:var(--text-3)">${r.flow}</div>
+                </td>
+                <td style="color:var(--text-2)">@${r.author}</td>
+                <td><span class="pill ${r.ci==='通过'?'pill-green':'pill-orange'}">${r.ci}</span></td>
+                <td style="color:var(--text-2)">${r.approval}</td>
+                <td><span class="pill ${r.status==='可合并'?'pill-green':(r.status==='受保护'?'pill-red':'pill-gray')}">${r.status}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="status-bar">
+        <span>当前使用 ${state.platform==='github'?'GitHub REST API (gh CLI 令牌)':'GitLab REST API v4'}</span>
+        <span>${d.requests.length} 条记录</span>
+      </div>
+    `;
+    return;
+  }
+
+  // settings
+  const tabs = [
+    { id: 'platform', title: `${d.icon} ${d.label} 平台配置` },
+    { id: 'general', title: '📁 目录与工作树模板' },
+    { id: 'ide', title: '🧰 IDE 与终端偏好' },
+    { id: 'ai', title: '✨ AI 分支命名' },
+    { id: 'policy', title: '🛡️ 合并策略与安全' }
+  ];
+  el.innerHTML = `
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <span style="font-weight:600; font-size:13px;">系统设置（仅展示通用项与当前平台「${d.label}」配置）</span>
+      </div>
+      <div class="toolbar-right">
+        <button class="btn">还原更改</button>
+        <button class="btn btn-primary">💾 保存设置</button>
+      </div>
+    </div>
+
+    <div class="settings-layout">
+      <div class="settings-nav">
+        ${tabs.map(t => `
+          <div class="nav-item ${state.settingsTab===t.id?'active':''}" onclick="setSettingsTab('${t.id}')">
+            <span class="nav-item-label">${t.title}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="settings-content">
+        ${state.settingsTab === 'platform' ? (
+          state.platform === 'github' ? `
+            <div class="card">
+              <div class="card-title"><span>🐙 GitHub 认证与凭据</span><span class="pill pill-green">已继承 gh CLI</span></div>
+              <div class="form-row">
+                <label class="form-label">认证来源</label>
+                <div class="form-input">优先自动读取系统 gh CLI（Keychain 托管），可选填 PAT 覆盖</div>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Personal Access Token (可选)</label>
+                <div class="form-input mono">ghp_••••••••••••••••••••••••••••</div>
+              </div>
+              <button class="btn">测试 GitHub API 连通性</button>
+            </div>
+            <div class="card">
+              <div class="card-title"><span>🐙 GitHub 工作流基线</span></div>
+              <div class="form-row">
+                <label class="form-label">默认 PR 目标分支</label>
+                <div class="form-input mono">main</div>
+              </div>
+              <div class="form-row">
+                <label class="form-label">看板 & 空间清理检查基线（逗号分隔）</label>
+                <div class="form-input mono">main</div>
+              </div>
+              <div class="form-row" style="margin-bottom:0">
+                <label class="form-label">默认合并方式</label>
+                <div class="form-input">Squash and merge</div>
+              </div>
+            </div>
+          ` : `
+            <div class="card">
+              <div class="card-title"><span>🦊 GitLab 实例与认证</span><span class="pill pill-orange">私有 / SaaS 通用</span></div>
+              <div class="form-row">
+                <label class="form-label">GitLab Host 地址</label>
+                <div class="form-input mono">https://gitlab.example.com</div>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Access Token（存储于 macOS Keychain）</label>
+                <div class="form-input mono">glpat-••••••••••••••••••••••••</div>
+              </div>
+              <button class="btn">测试 GitLab API 连通性</button>
+            </div>
+            <div class="card">
+              <div class="card-title"><span>🦊 GitLab 分支流与看板基线</span></div>
+              <div class="form-row">
+                <label class="form-label">看板检查基线分支（逗号分隔，可自由定制）</label>
+                <div class="form-input mono">master, stage, test, uat</div>
+              </div>
+              <div class="form-row" style="margin-bottom:0">
+                <label class="form-label">集成分支命名模板（替代硬编码）</label>
+                <div class="form-input mono">\${env}_sync</div>
+              </div>
+            </div>
+          `
+        ) : `
+          <div class="card">
+            <div class="card-title"><span>通用配置预览（${tabs.find(t=>t.id===state.settingsTab).title}）</span></div>
+            <div style="color:var(--text-2); font-size:12px; line-height:1.7">
+              • 项目扫描根目录：<span class="mono">~/Code/oss, ~/Code/work</span><br/>
+              • Worktree 存放模板：<span class="mono">\${rootDir}/\${project}/\${branch}</span><br/>
+              • IDE 与环境文件同步：支持 <span class="mono">.idea</span>、<span class="mono">.vscode</span>、<span class="mono">.env.local</span> 白名单自动复制到新工作树
+            </div>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function renderDetail() {
+  const d = currentData();
+  const repo = d.repos[state.selectedRepoIndex] || d.repos[0];
+  const wt = d.worktrees[state.selectedWorktreeIndex] || d.worktrees[0];
+  const req = d.requests[state.selectedRequestIndex] || d.requests[0];
+  const el = document.getElementById('detail-col');
+
+  if (state.section === 'dashboard' || state.section === 'worktrees') {
+    el.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-title mono">${wt.branch}</div>
+        <div class="detail-sub">${repo.name} · ${wt.kind}</div>
+      </div>
+      <div class="detail-scroll">
+        <div class="card">
+          <div class="card-title"><span>基本信息</span><span class="pill ${wt.dirty?'pill-orange':'pill-green'}">${wt.dirtyText}</span></div>
+          <div class="kv-list">
+            <div class="kv-item"><span class="kv-k">路径</span><span class="kv-v mono">${wt.path}</span></div>
+            <div class="kv-item"><span class="kv-k">占用空间</span><span class="kv-v">${wt.disk}</span></div>
+            <div class="kv-item"><span class="kv-k">最近提交</span><span class="kv-v">${wt.updated}</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>工作树备注</span></div>
+          <div class="form-input">${wt.desc}</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>基线合入检查</span></div>
+          <div class="kv-list">
+            ${d.baselines.map(b => `
+              <div class="kv-item">
+                <span class="kv-k mono">${b}</span>
+                <span class="kv-v">${wt.merged[b] ? '<span style="color:var(--green)">✓ 已合入</span>' : '<span style="color:var(--text-3)">○ 未合入</span>'}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="action-grid">
+          <button class="btn btn-primary">🖥️ IDE 中打开</button>
+          <button class="btn">⌨️ 终端打开</button>
+          <button class="btn">⬇ Pull</button>
+          <button class="btn">⬆ Push</button>
+          <button class="btn" style="grid-column:span 2" onclick="setSection('requests')">🔁 为此分支创建 ${d.requestShort}</button>
+          ${wt.kind !== '主仓库' ? '<button class="btn btn-danger" style="grid-column:span 2">🗑️ 移除此工作树</button>' : ''}
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.section === 'sync') {
+    el.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-title">同步流水线队列</div>
+        <div class="detail-sub">${repo.name} · ${d.label}</div>
+      </div>
+      <div class="detail-scroll">
+        ${d.baselines.map((b, i) => `
+          <div class="step-item">
+            <span>${state.platform==='gitlab' && i===1 ? '⚠️' : (i===0 ? '✅' : '⏳')}</span>
+            <span class="mono" style="flex:1">${b}</span>
+            <span class="pill ${state.platform==='gitlab' && i===1 ? 'pill-orange' : (i===0 ? 'pill-green' : 'pill-gray')}">
+              ${state.platform==='gitlab' && i===1 ? '冲突挂起' : (i===0 ? '已完成' : '等待中')}
+            </span>
+          </div>
+        `).join('')}
+
+        <div class="card">
+          <div class="card-title"><span>执行日志</span></div>
+          <div class="mono" style="font-size:11px; color:var(--text-2); line-height:1.7">
+            > checkout ${d.baselines[0]}<br/>
+            > pull origin ${d.baselines[0]} (ok)<br/>
+            > merge ${d.worktrees[1].branch} (ok)<br/>
+            ${state.platform==='gitlab' ? '> checkout stage<br/>> <span style="color:var(--orange)">CONFLICT in OrderService.swift</span>' : '> 等待确认开始...'}
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.section === 'requests') {
+    el.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-title">${req.number} · ${req.title}</div>
+        <div class="detail-sub mono">${req.flow}</div>
+      </div>
+      <div class="detail-scroll">
+        <div class="card">
+          <div class="card-title"><span>评审详情</span><span class="pill ${req.ci==='通过'?'pill-green':'pill-orange'}">CI ${req.ci}</span></div>
+          <div class="kv-list">
+            <div class="kv-item"><span class="kv-k">作者</span><span class="kv-v">@${req.author}</span></div>
+            <div class="kv-item"><span class="kv-k">更新时间</span><span class="kv-v">${req.updated}</span></div>
+            <div class="kv-item"><span class="kv-k">审批状态</span><span class="kv-v">${req.approval}</span></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span>操作</span></div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            ${state.platform === 'github' && req.mine
+              ? '<button class="btn btn-primary" style="justify-content:center">✓ Squash & Merge PR</button><div style="font-size:11px; color:var(--text-3)">注：GitHub 不允许 Approve 自己发起的 PR，已自动跳过审批步。</div>'
+              : `<button class="btn btn-primary" style="justify-content:center">✓ 审批并合并 ${d.requestShort}</button>`}
+            <button class="btn" style="justify-content:center">🌐 在浏览器中查看</button>
+            <button class="btn btn-danger" style="justify-content:center">关闭 ${d.requestShort}</button>
+          </div>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  // settings detail
+  el.innerHTML = `
+    <div class="detail-header">
+      <div class="detail-title">配置诊断与环境状态</div>
+      <div class="detail-sub">~/.config/gworkbench/config.toml</div>
+    </div>
+    <div class="detail-scroll">
+      <div class="card">
+        <div class="card-title"><span>本机依赖自检</span></div>
+        <div class="kv-list">
+          <div class="kv-item"><span class="kv-k">Git CLI</span><span class="kv-v" style="color:var(--green)">✓ 2.45.2</span></div>
+          <div class="kv-item"><span class="kv-k">Rebased (冲突解决)</span><span class="kv-v" style="color:var(--green)">✓ 已安装</span></div>
+          <div class="kv-item"><span class="kv-k">GitHub gh CLI</span><span class="kv-v" style="color:var(--green)">✓ 已登录</span></div>
+          <div class="kv-item"><span class="kv-k">GitLab Token</span><span class="kv-v" style="color:var(--green)">✓ Keychain 就绪</span></div>
+        </div>
+      </div>
+      <button class="btn">📂 在 Finder 打开配置目录</button>
+    </div>
+  `;
+}
+
+function openModal(type) {
+  state.modal = type;
+  const backdrop = document.getElementById('modalBackdrop');
+  const sheet = document.getElementById('modalSheet');
+  const d = currentData();
+
+  if (type === 'createWt') {
+    sheet.innerHTML = `
+      <div class="modal-header">
+        <strong>新建工作树 · ${d.repos[0].name}</strong>
+        <button class="btn" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label">✨ AI 智能生成分支名（描述要做什么）</label>
+          <div style="display:flex; gap:8px;">
+            <input class="form-input" style="flex:1" value="修复支付回调偶发超时未重试问题" />
+            <button class="btn btn-primary">AI 生成</button>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="form-label">新分支名 / 基准分支</label>
+          <div style="display:grid; grid-template-columns:1fr 180px; gap:8px;">
+            <input class="form-input mono" value="fix/payment-callback-retry" />
+            <input class="form-input mono" value="origin/main" />
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="form-label">目标路径</label>
+          <input class="form-input mono" value="~/worktrees/${d.repos[0].name}/fix-payment-callback-retry" />
+        </div>
+        <div class="card">
+          <div style="display:flex; flex-direction:column; gap:7px; font-size:12px;">
+            <label><input type="checkbox" checked /> 同步工程/环境配置文件（<span class="mono">.idea</span> / <span class="mono">.vscode</span> / <span class="mono">.env.local</span>）</label>
+            <label><input type="checkbox" checked /> 创建完成后自动在 IDE 中打开</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeModal()">取消</button>
+        <button class="btn btn-primary" onclick="closeModal()">创建工作树</button>
+      </div>
+    `;
+  } else if (type === 'sweeper') {
+    sheet.innerHTML = `
+      <div class="modal-header">
+        <strong>🧹 空间清理 · ${d.repos[0].name}（基线：${d.baselines.join(' / ')}）</strong>
+        <button class="btn" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <table class="data-table">
+          <thead><tr><th></th><th>分支</th><th>基线合入</th><th>磁盘</th><th>建议</th></tr></thead>
+          <tbody>
+            <tr><td><input type="checkbox" checked /></td><td class="mono">fix/i18n-strings</td><td><span class="pill pill-green">已全部合入</span></td><td>288 MB</td><td><span class="pill pill-green">推荐清理</span></td></tr>
+            <tr><td><input type="checkbox" /></td><td class="mono">feat/github-provider</td><td><span class="pill pill-orange">未合入</span></td><td>295 MB</td><td><span class="pill pill-gray">保留</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <span style="margin-right:auto; color:var(--text-2); font-size:11.5px;">已选 1 项 · 预计释放 288 MB</span>
+        <button class="btn" onclick="closeModal()">取消</button>
+        <button class="btn btn-danger" onclick="closeModal()">确认清理所选</button>
+      </div>
+    `;
+  } else if (type === 'onboarding') {
+    sheet.innerHTML = `
+      <div class="modal-header">
+        <strong>👋 欢迎使用 GWorkbench · 30 秒初始化向导</strong>
+        <button class="btn" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label">1. 你主要使用哪个代码托管平台？</label>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+            <div class="card" style="border-color:var(--purple); background:var(--purple-soft); text-align:center">🐙 仅 GitHub<div style="font-size:10.5px; color:var(--text-2)">极简单平台模式</div></div>
+            <div class="card" style="text-align:center">🦊 仅 GitLab<div style="font-size:10.5px; color:var(--text-2)">SaaS 或自建实例</div></div>
+            <div class="card" style="text-align:center">🔁 两者都用<div style="font-size:10.5px; color:var(--text-2)">左上角一键切换</div></div>
+          </div>
+        </div>
+        <div class="form-row">
+          <label class="form-label">2. 本地项目扫描根目录 & Worktree 存放目录</label>
+          <input class="form-input mono" value="~/Code" style="margin-bottom:6px" />
+          <input class="form-input mono" value="~/worktrees" />
+        </div>
+        <div class="card">
+          <div class="card-title"><span>3. 自动环境探测</span><span class="pill pill-green">全部就绪</span></div>
+          <div style="font-size:11.5px; color:var(--text-2)">
+            ✓ 检测到 Git 2.45 · ✓ 检测到 gh CLI 已登录 · ✓ 检测到 Cursor / Rebased
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeModal()">开始扫描并进入工作区</button>
+      </div>
+    `;
+  }
+
+  backdrop.classList.add('open');
+}
+
+function closeModal() {
+  state.modal = null;
+  document.getElementById('modalBackdrop').classList.remove('open');
+}
+
+// 支持 URL 参数直达特定视图（便于自动化截图）
+const params = new URLSearchParams(location.search);
+if (params.get('chromeless') === '1') document.body.classList.add('chromeless');
+if (params.get('hideProtoBar') === '1') document.getElementById('protoBar').classList.add('hidden');
+if (params.get('platform')) state.platform = params.get('platform');
+if (params.get('section')) state.section = params.get('section');
+if (params.get('settingsTab')) state.settingsTab = params.get('settingsTab');
+render();
+if (params.get('modal')) openModal(params.get('modal'));
+</script>
+</body>
+</html>

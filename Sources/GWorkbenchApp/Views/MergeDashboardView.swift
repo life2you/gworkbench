@@ -19,10 +19,10 @@ struct MergeDashboardView: View {
                 VStack(spacing: 12) {
                     ProgressView()
                         .controlSize(.regular)
-                    Text("正在分析各分支对主干的合入状态...")
+                    Text("正在分析各分支对基线的合入状态...")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                    Text("正在比对 master / stage / test / uat 的合入情况")
+                    Text("正在比对 \(appModel.currentDashboardBaselines.joined(separator: " / ")) 的合入情况")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }
@@ -56,134 +56,105 @@ struct MergeDashboardView: View {
 
     private var toolbarHeader: some View {
         HStack(spacing: 10) {
-            Picker("项目", selection: projectBinding) {
-                ForEach(appModel.worktreeProjects) { project in
-                    Text("\(project.platform == .github ? "🐙 " : (project.platform == .gitlab ? "🦊 " : ""))\(project.displayName)").tag(Optional(project.id))
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(minWidth: 150, maxWidth: 200)
-
-            Divider()
-                .frame(height: 18)
-                .padding(.horizontal, 2)
-
             // 合入状态筛选
             Picker("筛选", selection: dashboardFilterBinding) {
                 Text("全部").tag(DashboardFilter.all)
-                Text("全部合入").tag(DashboardFilter.fullyMerged)
-                Text("未提交改动").tag(DashboardFilter.dirty)
-                Text("部分合入").tag(DashboardFilter.partiallyMerged)
+                Text("已合入基线").tag(DashboardFilter.fullyMerged)
                 Text("未合入").tag(DashboardFilter.notMerged)
+                Text("有改动").tag(DashboardFilter.dirty)
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 380)
+            .frame(width: 310)
 
             Spacer()
 
-            Button {
-                Task {
-                    await appModel.forceRefreshMergeDashboard()
-                }
-            } label: {
-                if appModel.isMergeDashboardAnalyzing {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("分析中")
-                    }
-                } else {
-                    Label("刷新", systemImage: "arrow.clockwise")
-                }
+            HStack(spacing: 5) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                Text("检查基线：\(appModel.currentDashboardBaselines.joined(separator: " / "))")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
-            .help("重新分析所有工作树的合入状态")
-            .disabled(appModel.isMergeDashboardAnalyzing)
-
-            Button {
-                appModel.openWorktreeSweeper()
-            } label: {
-                Label("空间清理", systemImage: "trash.circle")
-            }
-            .help("分析并一键回收已合入或休眠的陈旧工作树，释放磁盘空间")
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.vertical, 7)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.25))
     }
 
     // MARK: - Summary Cards
 
     private var summaryCards: some View {
-        let worktreeItems = appModel.mergeDashboardItems.filter { $0.kind != .mainRepo }
-        let total = worktreeItems.count
+        let total = appModel.mergeDashboardItems.count
+        let mainRepoCount = appModel.mergeDashboardItems.filter { $0.kind == .mainRepo }.count
+        let unmerged = appModel.mergeDashboardPartiallyMergedCount + appModel.mergeDashboardNotMergedCount
 
         return HStack(spacing: 12) {
             summaryCard(
                 title: "工作树总数",
                 count: total,
-                icon: "point.3.connected.trianglepath.dotted",
-                color: .blue
+                subtitle: mainRepoCount > 0 ? "含 \(mainRepoCount) 个主仓库" : "当前仓库",
+                color: .primary
             )
             summaryCard(
-                title: "全部合入",
+                title: "已全部合入 (可清理)",
                 count: appModel.mergeDashboardFullyMergedCount,
-                icon: "checkmark.circle.fill",
+                subtitle: "基线: \(appModel.currentDashboardBaselines.joined(separator: " / "))",
                 color: .green
+            )
+            summaryCard(
+                title: "未完成合入",
+                count: unmerged,
+                subtitle: "仍在开发中",
+                color: .orange
             )
             summaryCard(
                 title: "未提交改动",
                 count: appModel.mergeDashboardDirtyCount,
-                icon: "pencil.circle.fill",
-                color: .orange
-            )
-            summaryCard(
-                title: "部分合入",
-                count: appModel.mergeDashboardPartiallyMergedCount,
-                icon: "exclamationmark.triangle.fill",
-                color: .blue
-            )
-            summaryCard(
-                title: "未合入",
-                count: appModel.mergeDashboardNotMergedCount,
-                icon: "xmark.circle.fill",
-                color: .red
+                subtitle: "清理前需先处理",
+                color: .purple
             )
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.25))
     }
 
-    private func summaryCard(title: String, count: Int, icon: String, color: Color) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 11))
-                    .foregroundStyle(color)
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
+    private func summaryCard(title: String, count: Int, subtitle: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             Text("\(count)")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(color)
                 .contentTransition(.numericText())
+            Text(subtitle)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .background(color.opacity(0.06))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(color.opacity(0.15), lineWidth: 1)
+                .stroke(Color.secondary.opacity(0.14), lineWidth: 0.75)
         )
     }
 
     // MARK: - Merge Matrix Table
 
     private var mergeMatrixTable: some View {
-        let targets = SweeperMergeTarget.ordered
+        let targets = appModel.mergeDashboardItems.first?.mergeTargets ?? appModel.currentDashboardBaselines
         let items = filteredDashboardItems
 
         return VStack(spacing: 0) {
@@ -196,8 +167,8 @@ struct MergeDashboardView: View {
                 Text("功能描述")
                     .frame(minWidth: 100, maxWidth: .infinity, alignment: .leading)
 
-                ForEach(targets) { target in
-                    Text(target.rawValue)
+                ForEach(targets, id: \.self) { target in
+                    Text(target)
                         .frame(width: 64)
                 }
 
@@ -234,7 +205,7 @@ struct MergeDashboardView: View {
         }
     }
 
-    private func matrixRow(item: MergeDashboardItem, targets: [SweeperMergeTarget]) -> some View {
+    private func matrixRow(item: MergeDashboardItem, targets: [String]) -> some View {
         let isMain = item.kind == .mainRepo
         let isSelected = appModel.selectedDashboardItemID == item.id
         let worktree = appModel.worktrees.first(where: { $0.id == item.id })
@@ -285,7 +256,7 @@ struct MergeDashboardView: View {
                 .frame(minWidth: 100, maxWidth: .infinity, alignment: .leading)
 
             // 每个主干分支的合入指示器
-            ForEach(targets) { target in
+            ForEach(targets, id: \.self) { target in
                 mergeIndicator(
                     target: target,
                     merged: item.mergeStatus[target] ?? false,
@@ -316,7 +287,7 @@ struct MergeDashboardView: View {
     }
 
     private func mergeIndicator(
-        target: SweeperMergeTarget,
+        target: String,
         merged: Bool,
         matchedBranch: String?,
         isMain: Bool
@@ -326,17 +297,17 @@ struct MergeDashboardView: View {
                 Image(systemName: "minus")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.tertiary)
-                    .help("\(target.rawValue): 主仓库基准")
+                    .help("\(target): 主仓库基准")
             } else if merged {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.green)
-                    .help("\(target.rawValue): 已合入 \(matchedBranch ?? target.rawValue)")
+                    .help("\(target): 已合入 \(matchedBranch ?? target)")
             } else {
                 Image(systemName: "xmark.circle")
                     .font(.system(size: 14))
                     .foregroundStyle(.red.opacity(0.6))
-                    .help("\(target.rawValue): 尚未合入")
+                    .help("\(target): 尚未合入")
             }
         }
     }
@@ -381,7 +352,7 @@ struct MergeDashboardView: View {
                 Image(systemName: "chart.bar.xaxis")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                Text("共 \(total) 个工作树 · \(fullyMerged) 个已全部合入主干 · 检测基线: master / stage / test / uat")
+                Text("共 \(total) 个工作树 · \(fullyMerged) 个已全部合入基线 · 检测基线: \(appModel.currentDashboardBaselines.joined(separator: " / "))")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             } else {
@@ -428,22 +399,19 @@ struct MergeDashboardView: View {
             return appModel.mergeDashboardItems
         case .fullyMerged:
             return appModel.mergeDashboardItems.filter { $0.isFullyMerged && !$0.isDirty && $0.kind != .mainRepo }
+        case .notMerged:
+            return appModel.mergeDashboardItems.filter { !$0.isFullyMerged && !$0.isDirty && $0.kind != .mainRepo }
         case .dirty:
             return appModel.mergeDashboardItems.filter { $0.isDirty && $0.kind != .mainRepo }
-        case .partiallyMerged:
-            return appModel.mergeDashboardItems.filter { !$0.isFullyMerged && !$0.isNotMerged && !$0.isDirty && $0.kind != .mainRepo }
-        case .notMerged:
-            return appModel.mergeDashboardItems.filter { $0.isNotMerged && !$0.isDirty && $0.kind != .mainRepo }
         }
     }
 }
 
 enum DashboardFilter: String, CaseIterable, Identifiable {
     case all = "全部"
-    case fullyMerged = "全部合入"
-    case dirty = "未提交改动"
-    case partiallyMerged = "部分合入"
+    case fullyMerged = "已合入基线"
     case notMerged = "未合入"
+    case dirty = "有改动"
 
     var id: String { rawValue }
 }

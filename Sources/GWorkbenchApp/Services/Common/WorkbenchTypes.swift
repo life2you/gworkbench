@@ -78,7 +78,7 @@ enum RepositoryPlatform: String, CaseIterable, Identifiable, Hashable, Sendable 
                 return .gitlab
             }
         }
-        if lower.contains("gitlab") || lower.contains("172.16.") {
+        if lower.contains("gitlab") {
             return .gitlab
         }
         return .local
@@ -149,6 +149,181 @@ struct BranchMapping: Identifiable, Hashable, Sendable {
     var id: String { "\(source)->\(target)" }
 }
 
+struct WorkspaceProfile: Identifiable, Hashable, Sendable, Codable {
+    var id: String
+    var name: String
+    var platform: RepositoryPlatform
+    var projectsRootDirs: [String]
+    var worktreesRootDir: String
+    var host: String
+    var token: String
+    var defaultTargetBranch: String
+    var mainlineBranches: [String]
+    var dashboardBaselines: [String]
+    var envBranches: [String]
+    var mergeBranchMiddle: String
+    var branchMap: [String: String]
+
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        platform: RepositoryPlatform,
+        projectsRootDirs: [String] = [],
+        worktreesRootDir: String = "",
+        host: String = "",
+        token: String = "",
+        defaultTargetBranch: String = "",
+        mainlineBranches: [String] = [],
+        dashboardBaselines: [String] = [],
+        envBranches: [String] = [],
+        mergeBranchMiddle: String = "",
+        branchMap: [String: String] = [:]
+    ) {
+        let cleanedMainlines = mainlineBranches.filterNonEmpty()
+        let fallbackMainline = defaultTargetBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedMainlines = !cleanedMainlines.isEmpty
+            ? cleanedMainlines
+            : (fallbackMainline.isEmpty ? [] : [fallbackMainline])
+
+        self.id = id
+        self.name = name
+        self.platform = platform == .gitlab ? .gitlab : .github
+        self.projectsRootDirs = projectsRootDirs
+        self.worktreesRootDir = worktreesRootDir
+        self.host = host
+        self.token = token
+        self.defaultTargetBranch = fallbackMainline.isEmpty ? (resolvedMainlines.first ?? "") : fallbackMainline
+        self.mainlineBranches = resolvedMainlines
+        self.dashboardBaselines = dashboardBaselines
+        self.envBranches = envBranches
+        self.mergeBranchMiddle = mergeBranchMiddle
+        self.branchMap = branchMap
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, platform, projectsRootDirs, worktreesRootDir, host, token
+        case defaultTargetBranch, mainlineBranches, dashboardBaselines, envBranches, mergeBranchMiddle, branchMap
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? "工作区"
+        let rawPlatform = (try c.decodeIfPresent(String.self, forKey: .platform) ?? "github").lowercased()
+        platform = rawPlatform == "gitlab" ? .gitlab : .github
+        projectsRootDirs = try c.decodeIfPresent([String].self, forKey: .projectsRootDirs) ?? []
+        worktreesRootDir = try c.decodeIfPresent(String.self, forKey: .worktreesRootDir) ?? ""
+        host = try c.decodeIfPresent(String.self, forKey: .host) ?? ""
+        token = try c.decodeIfPresent(String.self, forKey: .token) ?? ""
+        defaultTargetBranch = try c.decodeIfPresent(String.self, forKey: .defaultTargetBranch) ?? ""
+        if let decodedMainlines = try c.decodeIfPresent([String].self, forKey: .mainlineBranches) {
+            mainlineBranches = decodedMainlines.filterNonEmpty()
+        } else {
+            let fallback = defaultTargetBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+            mainlineBranches = fallback.isEmpty ? [platform == .github ? "main" : "master"] : [fallback]
+        }
+        dashboardBaselines = try c.decodeIfPresent([String].self, forKey: .dashboardBaselines) ?? []
+        envBranches = try c.decodeIfPresent([String].self, forKey: .envBranches) ?? []
+        mergeBranchMiddle = try c.decodeIfPresent(String.self, forKey: .mergeBranchMiddle) ?? "sync"
+        branchMap = try c.decodeIfPresent([String: String].self, forKey: .branchMap) ?? [:]
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(platform == .gitlab ? "gitlab" : "github", forKey: .platform)
+        try c.encode(projectsRootDirs, forKey: .projectsRootDirs)
+        try c.encode(worktreesRootDir, forKey: .worktreesRootDir)
+        try c.encode(host, forKey: .host)
+        try c.encode(token, forKey: .token)
+        try c.encode(defaultTargetBranch, forKey: .defaultTargetBranch)
+        try c.encode(mainlineBranches, forKey: .mainlineBranches)
+        try c.encode(dashboardBaselines, forKey: .dashboardBaselines)
+        try c.encode(envBranches, forKey: .envBranches)
+        try c.encode(mergeBranchMiddle, forKey: .mergeBranchMiddle)
+        try c.encode(branchMap, forKey: .branchMap)
+    }
+
+    /// 已显式配置的生产主干分支列表（可为空，表示未配置主干分支）
+    var configuredMainlineBranches: [String] {
+        mainlineBranches.filterNonEmpty()
+    }
+
+    var primaryMainlineBranch: String? {
+        configuredMainlineBranches.first
+    }
+
+    /// 生产环境主干分支列表（至少保证返回主干默认值，用于需要兜底默认目标的场景）
+    var effectiveMainlineBranches: [String] {
+        let cleaned = mainlineBranches.filterNonEmpty()
+        if !cleaned.isEmpty { return cleaned }
+        let single = defaultTargetBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !single.isEmpty { return [single] }
+        return [platform == .github ? "main" : "master"]
+    }
+
+    /// 非生产环境的保护分支列表（用于联调、测试、预发等）
+    var effectiveProtectedBranches: [String] {
+        envBranches.filterNonEmpty()
+    }
+
+    /// 需要受保护合并检查的所有目标分支（生产主干 + 非生产保护分支）
+    var allProtectedMergeTargets: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for branch in effectiveMainlineBranches + effectiveProtectedBranches {
+            if seen.insert(branch).inserted {
+                result.append(branch)
+            }
+        }
+        return result
+    }
+
+    var effectiveDashboardBaselines: [String] {
+        let cleaned = dashboardBaselines.filterNonEmpty()
+        if !cleaned.isEmpty { return cleaned }
+        return platform == .gitlab ? DefaultDashboardBaselines.gitlab : DefaultDashboardBaselines.github
+    }
+
+    var effectiveHostDisplay: String {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return platform == .github ? "https://github.com" : "未配置 Host"
+    }
+}
+
+struct IDEProfile: Identifiable, Codable, Hashable, Sendable {
+    var id: String
+    var label: String
+    var mode: String
+    var command: String
+
+    init(
+        id: String = UUID().uuidString,
+        label: String,
+        mode: String = "app",
+        command: String
+    ) {
+        self.id = id
+        self.label = label
+        self.mode = mode
+        self.command = command
+    }
+
+    var effectiveLabel: String {
+        let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedLabel.isEmpty {
+            return trimmedLabel
+        }
+        let trimmedCmd = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedCmd.isEmpty && trimmedCmd != "open" {
+            return trimmedCmd
+        }
+        return mode == "system" ? "系统默认" : "默认应用"
+    }
+}
+
 struct WorktreeConfig: Sendable, Hashable {
     let configPath: String
     let metadataPath: String
@@ -157,21 +332,117 @@ struct WorktreeConfig: Sendable, Hashable {
     let ideMode: String
     let ideCommand: String
     let ideLabel: String
+    let ideProfiles: [IDEProfile]
+    let defaultIDEProfileID: String
     let syncIDEConfigs: Bool
     let ideConfigSyncItems: [String]
+    let forcedPlatform: RepositoryPlatform?
+
+    init(
+        configPath: String,
+        metadataPath: String,
+        projectsRootDirs: [String],
+        worktreesRootDir: String,
+        ideMode: String,
+        ideCommand: String,
+        ideLabel: String,
+        ideProfiles: [IDEProfile] = [],
+        defaultIDEProfileID: String = "",
+        syncIDEConfigs: Bool,
+        ideConfigSyncItems: [String],
+        forcedPlatform: RepositoryPlatform? = nil
+    ) {
+        self.configPath = configPath
+        self.metadataPath = metadataPath
+        self.projectsRootDirs = projectsRootDirs
+        self.worktreesRootDir = worktreesRootDir
+        self.ideMode = ideMode
+        self.ideCommand = ideCommand
+        self.ideLabel = ideLabel
+        self.ideProfiles = ideProfiles
+        self.defaultIDEProfileID = defaultIDEProfileID
+        self.syncIDEConfigs = syncIDEConfigs
+        self.ideConfigSyncItems = ideConfigSyncItems
+        self.forcedPlatform = forcedPlatform
+    }
+
+    var effectiveIDEProfiles: [IDEProfile] {
+        if !ideProfiles.isEmpty {
+            return ideProfiles
+        }
+        let fallbackLabel = ideLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackCmd = ideCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackMode = ideMode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "app" : ideMode
+        return [
+            IDEProfile(
+                id: defaultIDEProfileID.isEmpty ? "default-ide" : defaultIDEProfileID,
+                label: fallbackLabel.isEmpty ? (fallbackCmd.isEmpty ? "默认应用" : fallbackCmd) : fallbackLabel,
+                mode: fallbackMode,
+                command: fallbackCmd.isEmpty ? "open" : fallbackCmd
+            )
+        ]
+    }
+
+    var defaultIDEProfile: IDEProfile {
+        let profiles = effectiveIDEProfiles
+        if !defaultIDEProfileID.isEmpty,
+           let matched = profiles.first(where: { $0.id == defaultIDEProfileID }) {
+            return matched
+        }
+        return profiles[0]
+    }
 }
 
 struct MergeWorkflowConfig: Sendable, Hashable {
     let configPath: String
     let host: String
     let token: String
+    let githubHost: String
+    let githubToken: String
+    let githubDefaultTargetBranch: String
     let rootDirs: [String]
     let mergeBranchMiddle: String
     let envBranches: [String]
     let branchMap: [String: String]
     let protectedTargets: [String]
+    let mainlineBranches: [String]
     let autoMergeDelaySeconds: Int
     let autoMergeRetryCount: Int
+    let forcedPlatform: RepositoryPlatform?
+
+    init(
+        configPath: String,
+        host: String,
+        token: String,
+        githubHost: String = "",
+        githubToken: String = "",
+        githubDefaultTargetBranch: String = "main",
+        rootDirs: [String],
+        mergeBranchMiddle: String,
+        envBranches: [String],
+        branchMap: [String: String],
+        protectedTargets: [String],
+        mainlineBranches: [String] = [],
+        autoMergeDelaySeconds: Int,
+        autoMergeRetryCount: Int,
+        forcedPlatform: RepositoryPlatform? = nil
+    ) {
+        self.configPath = configPath
+        self.host = host
+        self.token = token
+        self.githubHost = githubHost
+        self.githubToken = githubToken
+        self.githubDefaultTargetBranch = githubDefaultTargetBranch
+        self.rootDirs = rootDirs
+        self.mergeBranchMiddle = mergeBranchMiddle
+        self.envBranches = envBranches
+        self.branchMap = branchMap
+        self.protectedTargets = protectedTargets
+        self.mainlineBranches = mainlineBranches.filterNonEmpty()
+        self.autoMergeDelaySeconds = autoMergeDelaySeconds
+        self.autoMergeRetryCount = autoMergeRetryCount
+        self.forcedPlatform = forcedPlatform
+    }
 }
 
 struct WorktreeSnapshot: Sendable {
@@ -199,6 +470,7 @@ struct MergeProject: Identifiable, Hashable, Sendable {
     let sourceRoot: String
     let currentBranch: String
     let gitLabProjectID: Int?
+    let githubRepoSlug: String?
     let branchMappings: [BranchMapping]
     let remoteBranches: [String]
     let localBranches: [String]
@@ -213,6 +485,7 @@ struct MergeProject: Identifiable, Hashable, Sendable {
         sourceRoot: String,
         currentBranch: String,
         gitLabProjectID: Int?,
+        githubRepoSlug: String? = nil,
         branchMappings: [BranchMapping],
         remoteBranches: [String],
         localBranches: [String],
@@ -226,6 +499,7 @@ struct MergeProject: Identifiable, Hashable, Sendable {
         self.sourceRoot = sourceRoot
         self.currentBranch = currentBranch
         self.gitLabProjectID = gitLabProjectID
+        self.githubRepoSlug = githubRepoSlug
         self.branchMappings = branchMappings
         self.remoteBranches = remoteBranches
         self.localBranches = localBranches
@@ -310,16 +584,16 @@ extension Array where Element == String {
     }
 }
 
-/// 合入看板数据模型：每个 worktree 分支对主干分支的合入状态
+/// 合入看板数据模型：每个 worktree 分支对可配置基线分支的合入状态
 struct MergeDashboardItem: Identifiable, Sendable {
     let id: String
     let branch: String
     let kind: WorktreeKind
     let isDirty: Bool
     let updatedAt: String
-    let mergeTargets: [SweeperMergeTarget]
-    let mergeStatus: [SweeperMergeTarget: Bool]
-    let matchedBranches: [SweeperMergeTarget: String]
+    let mergeTargets: [String]
+    let mergeStatus: [String: Bool]
+    let matchedBranches: [String: String]
 
     init(
         id: String,
@@ -327,9 +601,9 @@ struct MergeDashboardItem: Identifiable, Sendable {
         kind: WorktreeKind,
         isDirty: Bool,
         updatedAt: String,
-        mergeTargets: [SweeperMergeTarget],
-        mergeStatus: [SweeperMergeTarget: Bool],
-        matchedBranches: [SweeperMergeTarget: String] = [:]
+        mergeTargets: [String],
+        mergeStatus: [String: Bool],
+        matchedBranches: [String: String] = [:]
     ) {
         self.id = id
         self.branch = branch
@@ -382,17 +656,11 @@ enum SweeperCategoryFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// 固定的 4 个环境/基线合入热点
-enum SweeperMergeTarget: String, CaseIterable, Identifiable, Sendable {
-    case master = "master"
-    case stage = "stage"
-    case test = "test"
-    case uat = "uat"
-
-    var id: String { rawValue }
-
-    /// 主管线顺序：从高到低
-    static var ordered: [SweeperMergeTarget] { [.master, .stage, .test, .uat] }
+/// 平台默认合入检查基线常量
+enum DefaultDashboardBaselines {
+    static let github: [String] = ["main"]
+    static let gitlab: [String] = ["master", "stage", "test", "uat"]
+    static let local: [String] = ["main", "master"]
 }
 
 enum WorktreeSweeperStatusType: Sendable, Hashable {
@@ -416,9 +684,9 @@ struct WorktreeSweeperItem: Identifiable, Hashable, Sendable {
     let diskUsageFormatted: String
     let approxSizeMB: Double
 
-    /// 命中 master / stage / test / uat 的合入结果（顺序与 SweeperMergeTarget.ordered 一致）
-    let mergeTargets: [SweeperMergeTarget]
-    let mergeStatus: [SweeperMergeTarget: Bool]
+    /// 命中的各条基线合入结果（按配置顺序排列）
+    let mergeTargets: [String]
+    let mergeStatus: [String: Bool]
 
     var mergedCount: Int {
         mergeTargets.filter { mergeStatus[$0] == true }.count

@@ -77,7 +77,7 @@ struct WorktreeSweeperSheetView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("全部合入 (4/4)")
+                Text("全部合入 (\(appModel.currentDashboardBaselines.count)/\(appModel.currentDashboardBaselines.count))")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                 Text("\(appModel.sweeperFullyMergedCount) 个")
@@ -119,7 +119,7 @@ struct WorktreeSweeperSheetView: View {
                     Image(systemName: "checkmark.shield.fill")
                         .foregroundStyle(Color.green)
                         .font(.system(size: 11))
-                    Text("判定基线：master / stage / test / uat；已自动排除主仓库与未提交改动")
+                    Text("判定基线：\(appModel.currentDashboardBaselines.joined(separator: " / "))；已自动排除主仓库与未提交改动")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -217,7 +217,7 @@ struct WorktreeSweeperSheetView: View {
             }
             .width(min: 85, ideal: 95)
 
-            TableColumn("流程合入 (master / stage / test / uat)") { item in
+            TableColumn("基线合入 (\(appModel.currentDashboardBaselines.joined(separator: " / ")))") { item in
                 mergeTargetLights(item)
             }
             .width(min: 235, ideal: 255)
@@ -335,10 +335,10 @@ struct WorktreeSweeperSheetView: View {
         }
     }
 
-    /// 4 个亮点指示灯：master / stage / test / uat
+    /// 动态基线亮点指示灯
     private func mergeTargetLights(_ item: WorktreeSweeperItem) -> some View {
         HStack(spacing: 6) {
-            ForEach(item.mergeTargets) { target in
+            ForEach(item.mergeTargets, id: \.self) { target in
                 let on = item.mergeStatus[target] == true
 
                 HStack(spacing: 4) {
@@ -346,7 +346,7 @@ struct WorktreeSweeperSheetView: View {
                         .fill(on ? Color.green : Color.secondary.opacity(0.22))
                         .frame(width: 7, height: 7)
 
-                    Text(target.rawValue)
+                    Text(target)
                         .font(.system(size: 10.5, weight: on ? .semibold : .regular, design: .monospaced))
                         .foregroundStyle(on ? Color.primary : Color.secondary.opacity(0.7))
                 }
@@ -360,7 +360,7 @@ struct WorktreeSweeperSheetView: View {
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(on ? Color.green.opacity(0.3) : Color.secondary.opacity(0.12), lineWidth: 0.5)
                 )
-                .help("\(target.rawValue): \(on ? "已合入" : "未合入")")
+                .help("\(target): \(on ? "已合入" : "未合入")")
             }
 
             if item.isFullyMerged {

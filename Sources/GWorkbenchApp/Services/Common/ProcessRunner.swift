@@ -52,13 +52,21 @@ enum ProcessRunner {
         _ command: String,
         arguments: [String],
         currentDirectory: String? = nil,
-        allowFailure: Bool = false
+        allowFailure: Bool = false,
+        environment: [String: String]? = nil
     ) throws -> ShellResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [command] + arguments
         if let currentDirectory {
             process.currentDirectoryURL = URL(fileURLWithPath: currentDirectory)
+        }
+        if let environment, !environment.isEmpty {
+            var merged = ProcessInfo.processInfo.environment
+            for (key, value) in environment {
+                merged[key] = value
+            }
+            process.environment = merged
         }
 
         let stdoutPipe = Pipe()
@@ -118,9 +126,10 @@ enum ProcessRunner {
     static func runGit(
         arguments: [String],
         currentDirectory: String? = nil,
-        allowFailure: Bool = false
+        allowFailure: Bool = false,
+        environment: [String: String]? = nil
     ) throws -> ShellResult {
-        try runCommand("git", arguments: arguments, currentDirectory: currentDirectory, allowFailure: allowFailure)
+        try runCommand("git", arguments: arguments, currentDirectory: currentDirectory, allowFailure: allowFailure, environment: environment)
     }
 
     static func expandPath(_ path: String) -> String {
