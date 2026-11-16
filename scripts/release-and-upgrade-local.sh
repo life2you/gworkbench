@@ -73,19 +73,31 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **Fix: strictly compare against canonical baseline branches**
-  - Merge status is now strictly checked against authoritative baseline branches (`master`, `stage`, `test`, `uat`)
-    via `origin/<target>` and local `<target>`, explicitly excluding individual integration/middle branches (e.g., `origin/**_meger`).
-- **Feature: automatic silent git fetch before dashboard analysis**
-  - The dashboard now automatically runs a background `git fetch origin` before analyzing merge statuses.
-  - Ensures local `origin/*` tracking refs are immediately refreshed with GitLab/GitHub's latest commits, eliminating false "not merged" reports when a merge was recently completed remotely.
+- **Feature: GitHub & GitLab Dual-Platform and Multi-Workspace Support**
+  - Added full GitHub and GitHub Enterprise hosting provider support alongside GitLab (`CompositeHostingProvider` & `GitHubProvider`).
+  - Introduced multi-workspace profiles (`WorkspaceProfile`) so users can switch between independent workspaces with separate platform credentials, root scan directories, mainline baselines, and branch mappings.
+- **Feature: Interactive Multi-Branch Conflict Resolution & Rebased Integration**
+  - Added interactive conflict banners and quick actions for multi-target branch sync conflicts, integrated Rebased installation guidance and shortcuts, and pinned the Merge Dashboard to the top navigation.
+- **Feature: First-Run Onboarding & Multi-IDE Profiles**
+  - Added an onboarding setup wizard for first-time configuration.
+  - Added multiple IDE profile support with a dedicated macOS "编辑器" menu bar shortcut (`⌘⇧O`) and quick launcher.
+- **UI & Quality Improvements**
+  - Redesigned workspace tabs, platform switcher, merge dashboard, worktree, branch sync, PR/MR, and settings views.
+  - Added unit test suite (`GWorkbenchAppTests`) covering config TOML round-trip, platform detection, worktree sync, and branch sync workflows.
 
 ## 简体中文
 
-- **修复：严格只比对真正的主干/环境基线分支**
-  - 合入状态检测严格以权威基线分支（`master`、`stage`、`test`、`uat`）的 `origin/<target>` 与本地 `<target>` 为准，排除开发者个人中间集成分支（如 `origin/**_meger`）。
-- **新增：看板分析前自动静默执行 git fetch origin**
-  - 每次分析前在后台自动先同步远端最新分支引用，确保远端 GitLab/GitHub 刚完成的 MR 合并能被看板即刻识别，彻底解决因本地引用过旧导致的误判未合入问题。
+- **新增：支持 GitHub / GitLab 双平台与多工作空间切换**
+  - 新增 GitHub 及 GitHub Enterprise 托管平台完整支持，与 GitLab 统一由 `CompositeHostingProvider` 路由。
+  - 新增多工作空间（`WorkspaceProfile`）管理与顶部快捷切换，支持为不同工作空间独立配置托管平台、Token、扫描根目录、生产主干与保护分支映射。
+- **新增：交互式多分支冲突处理与 Rebased 集成**
+  - 支持多目标分支同步时的交互式冲突横幅与快捷处理，集成 Rebased 工具检测、安装引导及快捷入口，并将合入看板置顶。
+- **新增：首次启动引导配置与多 IDE 编辑器支持**
+  - 新增首次启动引导配置弹窗（Onboarding），快速完成平台与目录初始化。
+  - 支持配置多个 IDE 编辑器配置文件，在应用菜单栏新增"编辑器"菜单及默认编辑器快捷键（`⌘⇧O`）。
+- **界面优化与单元测试**
+  - 全面优化工作空间标签栏、平台切换、合入看板、Worktree、分支同步、PR/MR 与设置界面体验。
+  - 新增核心单元测试套件（`GWorkbenchAppTests`），覆盖配置 TOML 读写、平台识别、Worktree 同步与分支同步等核心逻辑。
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content
