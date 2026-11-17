@@ -73,31 +73,25 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **Feature: GitHub & GitLab Dual-Platform and Multi-Workspace Support**
-  - Added full GitHub and GitHub Enterprise hosting provider support alongside GitLab (`CompositeHostingProvider` & `GitHubProvider`).
-  - Introduced multi-workspace profiles (`WorkspaceProfile`) so users can switch between independent workspaces with separate platform credentials, root scan directories, mainline baselines, and branch mappings.
-- **Feature: Interactive Multi-Branch Conflict Resolution & Rebased Integration**
-  - Added interactive conflict banners and quick actions for multi-target branch sync conflicts, integrated Rebased installation guidance and shortcuts, and pinned the Merge Dashboard to the top navigation.
-- **Feature: First-Run Onboarding & Multi-IDE Profiles**
-  - Added an onboarding setup wizard for first-time configuration.
-  - Added multiple IDE profile support with a dedicated macOS "编辑器" menu bar shortcut (`⌘⇧O`) and quick launcher.
+- **Feature: Seamless Rebased Conflict Resolution & Automated Merge Completion**
+  - Added background activity assertion (`beginActivity`) to keep monitoring git merge state even when GWorkbench is obscured or unfocused while working in Rebased.
+  - Automatically commits and pushes merge changes (`git commit --no-edit` + `git push`) when conflicts are resolved in Rebased (`Accept and Finish`), eliminating lingering unstaged/staged working tree changes.
+  - Excludes untracked IDE artifacts (such as `.idea/`) during auto-commit to prevent unwanted files from polluting merge history.
+  - Accurately detects external merge cancellations (e.g. `Abort Merge` in Rebased) with contextual prompt actions to retry or skip.
 - **UI & Quality Improvements**
-  - Redesigned workspace tabs, platform switcher, merge dashboard, worktree, branch sync, PR/MR, and settings views.
-  - Added unit test suite (`GWorkbenchAppTests`) covering config TOML round-trip, platform detection, worktree sync, and branch sync workflows.
+  - Enhanced `InteractiveSyncConflictBannerView` to stay active and responsive during the entire conflict resolution lifecycle.
+  - Added comprehensive test coverage for staging detection, external commit, external abort, and IDE directory filtering.
 
 ## 简体中文
 
-- **新增：支持 GitHub / GitLab 双平台与多工作空间切换**
-  - 新增 GitHub 及 GitHub Enterprise 托管平台完整支持，与 GitLab 统一由 `CompositeHostingProvider` 路由。
-  - 新增多工作空间（`WorkspaceProfile`）管理与顶部快捷切换，支持为不同工作空间独立配置托管平台、Token、扫描根目录、生产主干与保护分支映射。
-- **新增：交互式多分支冲突处理与 Rebased 集成**
-  - 支持多目标分支同步时的交互式冲突横幅与快捷处理，集成 Rebased 工具检测、安装引导及快捷入口，并将合入看板置顶。
-- **新增：首次启动引导配置与多 IDE 编辑器支持**
-  - 新增首次启动引导配置弹窗（Onboarding），快速完成平台与目录初始化。
-  - 支持配置多个 IDE 编辑器配置文件，在应用菜单栏新增"编辑器"菜单及默认编辑器快捷键（`⌘⇧O`）。
-- **界面优化与单元测试**
-  - 全面优化工作空间标签栏、平台切换、合入看板、Worktree、分支同步、PR/MR 与设置界面体验。
-  - 新增核心单元测试套件（`GWorkbenchAppTests`），覆盖配置 TOML 读写、平台识别、Worktree 同步与分支同步等核心逻辑。
+- **新增：Rebased 冲突解决无缝联动与自动合并收尾**
+  - 新增防 App Nap 后台合并状态监听机制（持有活动凭证），在切换到 Rebased 解决冲突期间保持毫秒级感知。
+  - 在 Rebased 点击 `Accept and Finish` 解决冲突后，后台自动执行 `git commit --no-edit` 和 `git push`，像原生 IDEA merge/rebase 一样干净收尾，不再留下未提交变动。
+  - 自动提交流水线中严格排除未跟踪的 IDE 临时文件（如 `.idea/`），避免污染代码合并历史。
+  - 精准识别 Rebased 外部取消合并（`Abort Merge`），智能展示重新合并或跳过分支快捷按钮。
+- **界面优化与测试保障**
+  - 强化冲突横幅状态管理，解决冲突暂存后横幅不再意外消失，保证全流程交互闭环。
+  - 补充针对暂存检测、外部提交、外部中止及 IDE 文件过滤的完整回归测试套件。
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content

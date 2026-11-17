@@ -441,6 +441,41 @@ final class BranchSyncService: Sendable {
         try gitCli.push(projectPath: projectPath, remote: "origin", branch: mergeBranch)
     }
 
+    /// 幂等地完成已解决冲突的合并提交与推送（兼容 Rebased 仅暂存、仅写工作区、或已在外部 commit 的三种场景）
+    func finalizeResolvedMergeAndPush(
+        projectPath: String,
+        sourceRef: String,
+        mergeBranch: String,
+        stageFilesIfAllMarkerFree: Bool = false
+    ) throws -> String {
+        let state = try gitCli.inspectMergeState(projectPath: projectPath, sourceRef: sourceRef)
+        switch state {
+        case .mergingReadyToCommit:
+            try gitCli.commitMerge(projectPath: projectPath)
+            try gitCli.push(projectPath: projectPath, remote: "origin", branch: mergeBranch)
+            return "已自动完成合并提交并推送"
+
+        case .mergingWithUnresolvedFiles(let conflictFiles, let markerFreeFiles):
+            if stageFilesIfAllMarkerFree,
+               !conflictFiles.isEmpty,
+               Set(conflictFiles).isSubset(of: Set(markerFreeFiles))
+            {
+                try gitCli.stageFiles(projectPath: projectPath, files: conflictFiles)
+                try gitCli.commitMerge(projectPath: projectPath)
+                try gitCli.push(projectPath: projectPath, remote: "origin", branch: mergeBranch)
+                return "已暂存解决文件并完成合并提交与推送"
+            }
+            throw WorkbenchError.message("尚有 \(conflictFiles.count) 个文件未完成冲突解决或未暂存: \(conflictFiles.joined(separator: ", "))")
+
+        case .committedExternally:
+            try gitCli.push(projectPath: projectPath, remote: "origin", branch: mergeBranch)
+            return "检测到合并已在外部提交，已同步推送"
+
+        case .abortedExternally:
+            throw WorkbenchError.message("合并已在外部被中止，请重新执行合并或跳过当前分支")
+        }
+    }
+
     /// 中止当前目标分支的合并现场
     func abortMerge(projectPath: String) throws {
         try gitCli.abortMerge(projectPath: projectPath)

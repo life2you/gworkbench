@@ -465,6 +465,9 @@ final class AppModel {
 
     // MARK: - Interactive Sync Pipeline State
     var activeSyncSession: ActiveSyncSession? = nil
+    var isInspectingConflictFiles: Bool = false
+    private var conflictMonitorTask: Task<Void, Never>? = nil
+    private var conflictMonitorActivity: NSObjectProtocol? = nil
     var showingRebasedInstallSheet: Bool = false
     var showingOnboardingSheet: Bool = false
     var ghCLITokenAvailable: Bool = false
@@ -1616,7 +1619,7 @@ final class AppModel {
 
     var canExecuteLocalOperation: Bool {
         guard currentLocalMergeProject != nil else { return false }
-        if localOperation.isRunning {
+        if localOperation.isRunning || activeSyncSession != nil {
             return false
         }
         switch localOperationMode {
@@ -3317,6 +3320,9 @@ final class AppModel {
         let targetItem = session.targets[index]
         session.targets[index].status = .inProgress
         session.activeConflictFiles = []
+        session.conflictPhase = .none
+        session.conflictMergeHeadSHA = nil
+        session.isAutoCommittingConflict = false
         activeSyncSession = session
 
         let progressFraction = Double(index) / Double(session.targets.count)
@@ -3359,12 +3365,25 @@ final class AppModel {
                 await processNextInteractiveTarget()
 
             case .conflict(let files):
-                // 发生冲突！挂起流水线
+                // 发生冲突！挂起流水线并记录 MERGE_HEAD SHA 供后续识别外部提交/中止状态
+                let mergeHeadSHA = try? GitCliService().activeMergeHeadSHA(projectPath: projectPath)
                 session.activeConflictFiles = files
+                session.conflictPhase = .awaitingResolution(markerFreeFiles: [])
+                session.conflictMergeHeadSHA = mergeHeadSHA
+                session.isAutoCommittingConflict = false
                 activeSyncSession = session
+
+                localOperation = OperationState(
+                    isRunning: false,
+                    title: "合并冲突等待解决 (\(index + 1)/\(session.targets.count))",
+                    detail: "\(targetItem.sourceBranch) -> \(targetItem.targetBranch)",
+                    fractionCompleted: progressFraction,
+                    logs: localOperation.logs
+                )
                 appendLocalOperationLog("⚠️ [\(targetItem.targetBranch)] 检测到合并冲突！冲突文件: \(files.joined(separator: ", "))")
 
-                // 唤起 Rebased 检查与引导
+                // 唤起 Rebased 检查与引导，并启动后台防休眠冲突监视器
+                startConflictResolutionMonitor()
                 handleConflictEncountered(projectPath: projectPath)
             }
         } catch {
@@ -3392,43 +3411,60 @@ final class AppModel {
         }
     }
 
-    /// 用户在 Rebased 解决完冲突后点击「继续提交推送」
-    func resolveAndContinueCurrentTarget() async {
-        guard var session = activeSyncSession, let currentTarget = session.currentTarget else { return }
+    /// 用户或自动轮询完成冲突解决并提交推送
+    func resolveAndContinueCurrentTarget(triggeredAutomatically: Bool = false) async {
+        guard var session = activeSyncSession,
+              !session.isAutoCommittingConflict,
+              let currentTarget = session.currentTarget else { return }
+
         let projectPath = session.projectPath
+        let sourceRef = session.conflictMergeHeadSHA ?? currentTarget.sourceBranch
+        let shouldStageMarkerFree = !triggeredAutomatically && session.allConflictFilesMarkerFree
         let syncService = BranchSyncService()
+
+        session.isAutoCommittingConflict = true
+        activeSyncSession = session
+        stopConflictResolutionMonitor()
 
         localOperation = OperationState(
             isRunning: true,
-            title: "正在提交已解决的冲突",
+            title: triggeredAutomatically ? "正在自动完成合并提交与推送" : "正在提交已解决的冲突",
             detail: currentTarget.targetBranch,
             fractionCompleted: localOperation.fractionCompleted,
             logs: localOperation.logs
         )
 
         do {
-            // 先检查是否还有未解决的冲突标记
-            let remainingConflicts = try GitCliService().conflictFiles(projectPath: projectPath)
-            if !remainingConflicts.isEmpty {
-                throw WorkbenchError.message("尚有 \(remainingConflicts.count) 个文件未完成冲突解决: \(remainingConflicts.joined(separator: ", "))")
-            }
-
-            try await Task.detached(priority: .userInitiated) {
-                try syncService.commitAndPushResolvedMerge(
+            let resultMessage = try await Task.detached(priority: .userInitiated) {
+                try syncService.finalizeResolvedMergeAndPush(
                     projectPath: projectPath,
-                    mergeBranch: currentTarget.targetBranch
+                    sourceRef: sourceRef,
+                    mergeBranch: currentTarget.targetBranch,
+                    stageFilesIfAllMarkerFree: shouldStageMarkerFree
                 )
             }.value
 
-            let index = session.currentTargetIndex
-            session.targets[index].status = .success(message: "已手动解决冲突并推送")
-            session.activeConflictFiles = []
-            session.currentTargetIndex += 1
-            activeSyncSession = session
+            guard var updatedSession = activeSyncSession else { return }
+            let index = updatedSession.currentTargetIndex
+            updatedSession.targets[index].status = .success(message: resultMessage)
+            updatedSession.activeConflictFiles = []
+            updatedSession.conflictPhase = .none
+            updatedSession.conflictMergeHeadSHA = nil
+            updatedSession.isAutoCommittingConflict = false
+            updatedSession.currentTargetIndex += 1
+            activeSyncSession = updatedSession
 
-            appendLocalOperationLog("✅ [\(currentTarget.targetBranch)] 冲突已解决并推送成功")
+            appendLocalOperationLog("✅ [\(currentTarget.targetBranch)] \(resultMessage)")
             await processNextInteractiveTarget()
         } catch {
+            if var updatedSession = activeSyncSession {
+                updatedSession.isAutoCommittingConflict = false
+                if triggeredAutomatically {
+                    // 自动提交/推送失败时关闭本次自动触发，避免定时器高频循环重试
+                    updatedSession.autoCommitWhenResolved = false
+                }
+                activeSyncSession = updatedSession
+            }
             appendLocalOperationLog("提交冲突解决失败: \(error.localizedDescription)")
             localOperation = OperationState(
                 isRunning: false,
@@ -3437,6 +3473,24 @@ final class AppModel {
                 logs: localOperation.logs,
                 errorMessage: error.localizedDescription
             )
+            await pollConflictResolutionState()
+            startConflictResolutionMonitor()
+        }
+    }
+
+    /// 检测到合并已在外部（Rebased）中止后，重新执行当前目标合并
+    func retryCurrentTargetMerge() async {
+        guard activeSyncSession != nil else { return }
+        await processNextInteractiveTarget()
+    }
+
+    /// 切换「冲突解决并暂存后自动完成 Merge Commit 并推送」开关
+    func setAutoCommitWhenResolved(_ enabled: Bool) {
+        guard var session = activeSyncSession else { return }
+        session.autoCommitWhenResolved = enabled
+        activeSyncSession = session
+        if enabled {
+            refreshActiveConflictFiles()
         }
     }
 
@@ -3447,11 +3501,15 @@ final class AppModel {
         let syncService = BranchSyncService()
 
         appendLocalOperationLog("⏩ [\(currentTarget.targetBranch)] 用户选择跳过该目标分支，正在中止本次合并...")
+        stopConflictResolutionMonitor()
         try? syncService.abortMerge(projectPath: projectPath)
 
         let index = session.currentTargetIndex
         session.targets[index].status = .skippedDueToConflict(files: session.activeConflictFiles)
         session.activeConflictFiles = []
+        session.conflictPhase = .none
+        session.conflictMergeHeadSHA = nil
+        session.isAutoCommittingConflict = false
         session.currentTargetIndex += 1
         activeSyncSession = session
 
@@ -3465,6 +3523,7 @@ final class AppModel {
         let syncService = BranchSyncService()
 
         appendLocalOperationLog("🛑 用户选择全部中止流水线，正在回退现场...")
+        stopConflictResolutionMonitor()
         try? syncService.abortMerge(projectPath: projectPath)
         try? GitCliService().checkoutBranch(projectPath: projectPath, branch: session.initialBranch)
 
@@ -3480,6 +3539,7 @@ final class AppModel {
 
     /// 流水线全部处理完成，若配置了主干分支则自动切回主干分支；未配置则保持当前分支
     private func finishInteractiveSyncPipeline() async {
+        stopConflictResolutionMonitor()
         guard let session = activeSyncSession else { return }
         let projectPath = session.projectPath
         let mainlineBranches = activeWorkspace?.configuredMainlineBranches
@@ -3556,14 +3616,110 @@ final class AppModel {
         }
     }
 
-    /// 刷新当前冲突文件状态（可由定时器或用户点击触发）
+    /// 刷新当前冲突文件及合并现场状态（可由后台监视器或用户点击触发）
     func refreshActiveConflictFiles() {
-        guard let session = activeSyncSession, session.hasActiveConflict else { return }
-        do {
-            let files = try GitCliService().conflictFiles(projectPath: session.projectPath)
-            activeSyncSession?.activeConflictFiles = files
-        } catch {
-            // ignore
+        Task { @MainActor in
+            await pollConflictResolutionState()
+        }
+    }
+
+    /// 启动后台冲突解决监视器（持有防 App Nap 活动凭证，不依赖前端视图是否显示，切到 Rebased 期间也能毫秒级响应）
+    func startConflictResolutionMonitor() {
+        stopConflictResolutionMonitor()
+        conflictMonitorActivity = ProcessInfo.processInfo.beginActivity(
+            options: .userInitiatedAllowingIdleSystemSleep,
+            reason: "Waiting for conflict resolution in Rebased to auto-complete merge commit"
+        )
+        conflictMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                guard !Task.isCancelled, let self else { break }
+                guard let session = self.activeSyncSession, session.isPausedForConflict else {
+                    self.stopConflictResolutionMonitor()
+                    break
+                }
+                await self.pollConflictResolutionState()
+            }
+        }
+    }
+
+    func stopConflictResolutionMonitor() {
+        conflictMonitorTask?.cancel()
+        conflictMonitorTask = nil
+        if let activity = conflictMonitorActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            conflictMonitorActivity = nil
+        }
+    }
+
+    /// 异步探测 Git 合并现场，并在冲突全部解决并暂存后自动完成 Merge Commit + Push + 推进下一分支
+    func pollConflictResolutionState() async {
+        guard let session = activeSyncSession,
+              session.isPausedForConflict,
+              !session.isAutoCommittingConflict,
+              !isInspectingConflictFiles,
+              let currentTarget = session.currentTarget else { return }
+
+        isInspectingConflictFiles = true
+        defer { isInspectingConflictFiles = false }
+
+        let projectPath = session.projectPath
+        let targetIndex = session.currentTargetIndex
+        let sourceRef = session.conflictMergeHeadSHA ?? currentTarget.sourceBranch
+
+        let inspection: GitMergeStateInspection? = await Task.detached(priority: .utility) {
+            try? GitCliService().inspectMergeState(projectPath: projectPath, sourceRef: sourceRef)
+        }.value
+
+        guard let inspection,
+              var latestSession = activeSyncSession,
+              latestSession.projectPath == projectPath,
+              latestSession.currentTargetIndex == targetIndex,
+              latestSession.isPausedForConflict,
+              !latestSession.isAutoCommittingConflict else { return }
+
+        switch inspection {
+        case .mergingWithUnresolvedFiles(let files, let markerFree):
+            latestSession.activeConflictFiles = files
+            latestSession.conflictPhase = .awaitingResolution(markerFreeFiles: markerFree)
+            activeSyncSession = latestSession
+
+        case .mergingReadyToCommit:
+            let previousPhase = latestSession.conflictPhase
+            latestSession.activeConflictFiles = []
+            latestSession.conflictPhase = .readyToCommit
+            activeSyncSession = latestSession
+
+            if previousPhase != .readyToCommit {
+                appendLocalOperationLog("🟢 [\(currentTarget.targetBranch)] 检测到冲突已全部解决并暂存")
+            }
+            if latestSession.autoCommitWhenResolved {
+                appendLocalOperationLog("🚀 [\(currentTarget.targetBranch)] 正在自动完成 Merge Commit 并推送...")
+                await resolveAndContinueCurrentTarget(triggeredAutomatically: true)
+            }
+
+        case .committedExternally:
+            let previousPhase = latestSession.conflictPhase
+            latestSession.activeConflictFiles = []
+            latestSession.conflictPhase = .committedExternally
+            activeSyncSession = latestSession
+
+            if previousPhase != .committedExternally {
+                appendLocalOperationLog("🟢 [\(currentTarget.targetBranch)] 检测到合并已在外部提交")
+            }
+            if latestSession.autoCommitWhenResolved {
+                await resolveAndContinueCurrentTarget(triggeredAutomatically: true)
+            }
+
+        case .abortedExternally:
+            let previousPhase = latestSession.conflictPhase
+            latestSession.activeConflictFiles = []
+            latestSession.conflictPhase = .abortedExternally
+            activeSyncSession = latestSession
+
+            if previousPhase != .abortedExternally {
+                appendLocalOperationLog("⚠️ [\(currentTarget.targetBranch)] 检测到合并已在外部（Rebased）中止，请选择重新合并、跳过或全部中止。")
+            }
         }
     }
 

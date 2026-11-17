@@ -18,6 +18,17 @@ enum GitMergeExecutionResult: Sendable {
     case conflict([String])
 }
 
+enum GitMergeStateInspection: Sendable, Equatable {
+    /// MERGE_HEAD 仍在，但仍有未标记解决的冲突文件；markerFreeFiles 为其中已无冲突标记的文件
+    case mergingWithUnresolvedFiles(conflictFiles: [String], markerFreeFiles: [String])
+    /// MERGE_HEAD 仍在，且所有冲突已解决并暂存，可直接执行 git commit --no-edit
+    case mergingReadyToCommit
+    /// MERGE_HEAD 已消失，且合并源提交已合入 HEAD（外部已完成 merge commit）
+    case committedExternally
+    /// MERGE_HEAD 已消失，且合并源提交未合入 HEAD（外部中止了 merge）
+    case abortedExternally
+}
+
 enum GitFileStatus: String, Sendable, CaseIterable {
     case unmodified = " "
     case modified = "M"
@@ -980,7 +991,17 @@ final class GitCliService: Sendable {
         )
     }
 
-    func hasActiveMergeHead(projectPath: String) throws -> Bool {
+    /// 显式暂存指定文件（不使用 -A，避免将外部工具生成的未追踪文件如 .idea 误纳入提交）
+    func stageFiles(projectPath: String, files: [String]) throws {
+        let targets = files.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !targets.isEmpty else { return }
+        _ = try ProcessRunner.runGit(
+            arguments: ["-C", projectPath, "add", "--"] + targets,
+            allowFailure: false
+        )
+    }
+
+    func activeMergeHeadSHA(projectPath: String) throws -> String? {
         let gitDirRaw = try ProcessRunner.runGit(arguments: ["-C", projectPath, "rev-parse", "--git-dir"]).stdout
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let gitDirURL: URL
@@ -989,18 +1010,78 @@ final class GitCliService: Sendable {
         } else {
             gitDirURL = URL(fileURLWithPath: projectPath).appendingPathComponent(gitDirRaw)
         }
-        return FileManager.default.fileExists(atPath: gitDirURL.appendingPathComponent("MERGE_HEAD").path)
+        let mergeHeadURL = gitDirURL.appendingPathComponent("MERGE_HEAD")
+        guard FileManager.default.fileExists(atPath: mergeHeadURL.path) else {
+            return nil
+        }
+        let sha = (try? String(contentsOf: mergeHeadURL, encoding: .utf8))?
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        return sha?.isEmpty == false ? sha : "MERGE_HEAD"
+    }
+
+    func hasActiveMergeHead(projectPath: String) throws -> Bool {
+        try activeMergeHeadSHA(projectPath: projectPath) != nil
     }
 
     func conflictFiles(projectPath: String) throws -> [String] {
         let result = try ProcessRunner.runGit(
-            arguments: ["-C", projectPath, "diff", "--name-only", "--diff-filter=U"],
+            arguments: ["-c", "core.quotepath=false", "-C", projectPath, "diff", "--name-only", "--diff-filter=U"],
             allowFailure: true
         )
         return result.stdout
             .split(whereSeparator: \.isNewline)
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    func isCommitMergedIntoHead(projectPath: String, commitOrBranch: String) -> Bool {
+        let trimmed = commitOrBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let result = try? ProcessRunner.runGit(
+            arguments: ["-C", projectPath, "merge-base", "--is-ancestor", trimmed, "HEAD"],
+            allowFailure: true
+        )
+        return result?.status == 0
+    }
+
+    func fileContainsConflictMarkers(projectPath: String, relativePath: String) -> Bool {
+        let fileURL = URL(fileURLWithPath: projectPath).appendingPathComponent(relativePath)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return false
+        }
+        guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+            return false
+        }
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let normalized = line.hasSuffix("\r") ? String(line.dropLast()) : String(line)
+            if normalized.hasPrefix("<<<<<<<") || normalized == "=======" || normalized.hasPrefix(">>>>>>>") {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// 检查当前合并现场的精确状态，供 Rebased 外部解决冲突后的闭环自动化使用
+    func inspectMergeState(projectPath: String, sourceRef: String) throws -> GitMergeStateInspection {
+        if try hasActiveMergeHead(projectPath: projectPath) {
+            let files = try conflictFiles(projectPath: projectPath)
+            if files.isEmpty {
+                return .mergingReadyToCommit
+            }
+            let markerFree = files.filter { file in
+                let fileURL = URL(fileURLWithPath: projectPath).appendingPathComponent(file)
+                return FileManager.default.fileExists(atPath: fileURL.path)
+                    && !fileContainsConflictMarkers(projectPath: projectPath, relativePath: file)
+            }
+            return .mergingWithUnresolvedFiles(conflictFiles: files, markerFreeFiles: markerFree)
+        }
+
+        if isCommitMergedIntoHead(projectPath: projectPath, commitOrBranch: sourceRef) {
+            return .committedExternally
+        }
+        return .abortedExternally
     }
 
     private func runNetworkGit(path: String, arguments: [String]) throws -> ShellResult {

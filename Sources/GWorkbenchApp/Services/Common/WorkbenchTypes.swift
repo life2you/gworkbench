@@ -745,6 +745,14 @@ struct SyncSessionTargetItem: Identifiable, Sendable, Hashable {
     var status: SyncTargetStatus
 }
 
+enum SyncConflictResolutionPhase: Sendable, Equatable {
+    case none
+    case awaitingResolution(markerFreeFiles: [String])
+    case readyToCommit
+    case committedExternally
+    case abortedExternally
+}
+
 struct ActiveSyncSession: Identifiable, Sendable {
     var id: String { projectID }
     let projectID: String
@@ -754,14 +762,46 @@ struct ActiveSyncSession: Identifiable, Sendable {
     var targets: [SyncSessionTargetItem]
     var currentTargetIndex: Int
     var activeConflictFiles: [String] = []
+    var conflictPhase: SyncConflictResolutionPhase = .none
+    var conflictMergeHeadSHA: String? = nil
+    var autoCommitWhenResolved: Bool = true
+    var isAutoCommittingConflict: Bool = false
 
     var currentTarget: SyncSessionTargetItem? {
         guard currentTargetIndex >= 0 && currentTargetIndex < targets.count else { return nil }
         return targets[currentTargetIndex]
     }
 
+    var isPausedForConflict: Bool {
+        conflictPhase != .none
+    }
+
     var hasActiveConflict: Bool {
-        !activeConflictFiles.isEmpty
+        isPausedForConflict
+    }
+
+    var markerFreeConflictFiles: [String] {
+        if case .awaitingResolution(let markerFree) = conflictPhase {
+            return markerFree
+        }
+        return []
+    }
+
+    var allConflictFilesMarkerFree: Bool {
+        guard !activeConflictFiles.isEmpty else { return false }
+        let markerFree = Set(markerFreeConflictFiles)
+        return Set(activeConflictFiles).isSubset(of: markerFree)
+    }
+
+    var canCommitAndContinue: Bool {
+        switch conflictPhase {
+        case .readyToCommit, .committedExternally:
+            return true
+        case .awaitingResolution:
+            return allConflictFilesMarkerFree
+        case .none, .abortedExternally:
+            return false
+        }
     }
 
     var isCompleted: Bool {

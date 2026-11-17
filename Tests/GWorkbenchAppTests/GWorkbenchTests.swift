@@ -564,4 +564,178 @@ struct GWorkbenchTests {
         ) { _ in }
         #expect(try gitCli.currentLocalBranch(projectPath: localRepo.path) == "test_sync")
     }
+
+    @Test("Interactive conflict resolution detects Rebased staging, external commit, external abort, and avoids committing untracked .idea files")
+    func interactiveConflictResolutionClosure() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let remoteRepo = root.appendingPathComponent("remote.git", isDirectory: true)
+        let localRepo = root.appendingPathComponent("demo", isDirectory: true)
+
+        _ = try ProcessRunner.runGit(arguments: ["init", "--bare", remoteRepo.path])
+        _ = try ProcessRunner.runGit(arguments: ["clone", remoteRepo.path, localRepo.path])
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "config", "user.name", "Test User"])
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "config", "user.email", "test@example.com"])
+
+        // 1. 初始化 main 与共同祖先
+        try "line1\nvalue=base\n".write(to: localRepo.appendingPathComponent("app.txt"), atomically: true, encoding: .utf8)
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "add", "app.txt"])
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "commit", "-m", "init"])
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "branch", "-M", "main"])
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "push", "-u", "origin", "main"])
+
+        // 2. 创建 stage_sync 分支并修改 app.txt
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "checkout", "-b", "stage_sync"])
+        try "line1\nvalue=stage\n".write(to: localRepo.appendingPathComponent("app.txt"), atomically: true, encoding: .utf8)
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "commit", "-am", "stage change"])
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "push", "-u", "origin", "stage_sync"])
+
+        // 3. 创建 feat/a 和 feat/b 两个分支，均与 stage_sync 冲突
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "checkout", "-b", "feat/a", "main"])
+        try "line1\nvalue=feat-a\n".write(to: localRepo.appendingPathComponent("app.txt"), atomically: true, encoding: .utf8)
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "commit", "-am", "feat a change"])
+
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "checkout", "-b", "feat/b", "main"])
+        try "line1\nvalue=feat-b\n".write(to: localRepo.appendingPathComponent("app.txt"), atomically: true, encoding: .utf8)
+        _ = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "commit", "-am", "feat b change"])
+
+        // 模拟 Rebased 生成的未追踪 .idea 目录
+        let ideaDir = localRepo.appendingPathComponent(".idea", isDirectory: true)
+        try fm.createDirectory(at: ideaDir, withIntermediateDirectories: true)
+        try "<project/>\n".write(to: ideaDir.appendingPathComponent("misc.xml"), atomically: true, encoding: .utf8)
+
+        let gitCli = GitCliService()
+        let syncService = BranchSyncService(gitCli: gitCli)
+
+        // --- 场景 A：Rebased 点 Accept and Finish 仅 git add，未自动 commit ---
+        let mergeResultA = try syncService.syncToMergeBranchInteractive(
+            projectPath: localRepo.path,
+            sourceBranch: "feat/a",
+            mergeBranch: "stage_sync"
+        )
+        guard case .conflict(let conflictFilesA) = mergeResultA else {
+            Issue.record("预期发生冲突")
+            return
+        }
+        #expect(conflictFilesA == ["app.txt"])
+        let mergeHeadA = try #require(try gitCli.activeMergeHeadSHA(projectPath: localRepo.path))
+
+        // 刚发生冲突时仍有冲突标记
+        let initialState = try gitCli.inspectMergeState(projectPath: localRepo.path, sourceRef: mergeHeadA)
+        #expect(initialState == .mergingWithUnresolvedFiles(conflictFiles: ["app.txt"], markerFreeFiles: []))
+
+        // 模拟用户在编辑器解决了冲突标记但尚未 git add
+        try "line1\nvalue=resolved-a\n".write(to: localRepo.appendingPathComponent("app.txt"), atomically: true, encoding: .utf8)
+        let markerFreeState = try gitCli.inspectMergeState(projectPath: localRepo.path, sourceRef: mergeHeadA)
+        #expect(markerFreeState == .mergingWithUnresolvedFiles(conflictFiles: ["app.txt"], markerFreeFiles: ["app.txt"]))
+
+        // 模拟 Rebased Accept and Finish 执行 git add app.txt（不执行 commit）
+        try gitCli.stageFiles(projectPath: localRepo.path, files: ["app.txt"])
+        let readyState = try gitCli.inspectMergeState(projectPath: localRepo.path, sourceRef: mergeHeadA)
+        #expect(readyState == .mergingReadyToCommit)
+
+        // 验证 ActiveSyncSession 在 conflictFiles 为空但 readyToCommit 时横幅仍保持显示
+        let session = ActiveSyncSession(
+            projectID: "demo",
+            projectPath: localRepo.path,
+            projectName: "demo",
+            initialBranch: "feat/a",
+            targets: [SyncSessionTargetItem(sourceBranch: "feat/a", targetBranch: "stage_sync", status: .inProgress)],
+            currentTargetIndex: 0,
+            activeConflictFiles: [],
+            conflictPhase: .readyToCommit,
+            conflictMergeHeadSHA: mergeHeadA
+        )
+        #expect(session.hasActiveConflict == true)
+        #expect(session.canCommitAndContinue == true)
+
+        // 自动收尾应生成标准双亲 Merge Commit 并推送，且不能把 .idea/misc.xml 提交进去
+        _ = try syncService.finalizeResolvedMergeAndPush(
+            projectPath: localRepo.path,
+            sourceRef: mergeHeadA,
+            mergeBranch: "stage_sync"
+        )
+        #expect(try gitCli.hasActiveMergeHead(projectPath: localRepo.path) == false)
+        let parentsLine = try ProcessRunner.runGit(
+            arguments: ["-C", localRepo.path, "rev-list", "--parents", "-n", "1", "HEAD"]
+        ).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(parentsLine.split(separator: " ").count == 3) // commit + 2 parents
+
+        let committedFiles = try ProcessRunner.runGit(
+            arguments: ["-C", localRepo.path, "show", "--name-only", "--pretty=format:", "HEAD"]
+        ).stdout
+        #expect(!committedFiles.contains(".idea/misc.xml"))
+        #expect(fm.fileExists(atPath: ideaDir.appendingPathComponent("misc.xml").path))
+
+        // --- 场景 B：用户在外部（Rebased）自己点了 Commit，但未 Push ---
+        let mergeResultB = try syncService.syncToMergeBranchInteractive(
+            projectPath: localRepo.path,
+            sourceBranch: "feat/b",
+            mergeBranch: "stage_sync"
+        )
+        guard case .conflict = mergeResultB else {
+            Issue.record("预期 feat/b 与 stage_sync 发生冲突")
+            return
+        }
+        let mergeHeadB = try #require(try gitCli.activeMergeHeadSHA(projectPath: localRepo.path))
+
+        try "line1\nvalue=resolved-b\n".write(to: localRepo.appendingPathComponent("app.txt"), atomically: true, encoding: .utf8)
+        try gitCli.stageFiles(projectPath: localRepo.path, files: ["app.txt"])
+        try gitCli.commitMerge(projectPath: localRepo.path)
+
+        let externalCommitState = try gitCli.inspectMergeState(projectPath: localRepo.path, sourceRef: mergeHeadB)
+        #expect(externalCommitState == .committedExternally)
+
+        // 幂等收尾不应因工作区干净而报错，应直接推送成功
+        _ = try syncService.finalizeResolvedMergeAndPush(
+            projectPath: localRepo.path,
+            sourceRef: mergeHeadB,
+            mergeBranch: "stage_sync"
+        )
+        let localHead = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "rev-parse", "HEAD"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteHead = try ProcessRunner.runGit(arguments: ["-C", localRepo.path, "rev-parse", "origin/stage_sync"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(localHead == remoteHead)
+    }
+
+    @Test("External merge abort is accurately detected without confusing with committed state")
+    func externalMergeAbortDetection() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let repo = root.appendingPathComponent("demo", isDirectory: true)
+        _ = try ProcessRunner.runGit(arguments: ["init", repo.path])
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "config", "user.name", "Test User"])
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "config", "user.email", "test@example.com"])
+
+        try "v1\n".write(to: repo.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "add", "file.txt"])
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "commit", "-m", "init"])
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "branch", "-M", "main"])
+
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "checkout", "-b", "target"])
+        try "v-target\n".write(to: repo.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "commit", "-am", "target"])
+
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "checkout", "-b", "source", "main"])
+        try "v-source\n".write(to: repo.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "commit", "-am", "source"])
+
+        _ = try ProcessRunner.runGit(arguments: ["-C", repo.path, "checkout", "target"])
+        let gitCli = GitCliService()
+        let result = try gitCli.mergeBranchInteractive(projectPath: repo.path, sourceBranch: "source")
+        guard case .conflict = result else {
+            Issue.record("预期发生冲突")
+            return
+        }
+        let mergeHead = try #require(try gitCli.activeMergeHeadSHA(projectPath: repo.path))
+
+        try gitCli.abortMerge(projectPath: repo.path)
+        let abortedState = try gitCli.inspectMergeState(projectPath: repo.path, sourceRef: mergeHead)
+        #expect(abortedState == .abortedExternally)
+    }
 }
