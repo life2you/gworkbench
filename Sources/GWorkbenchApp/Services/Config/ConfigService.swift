@@ -48,6 +48,7 @@ private struct GWorkbenchTomlConfig: Decodable {
         let terminal_bundle_id: String?
         let terminal_launch_hook_mode: String?
         let terminal_launch_command: String?
+        let terminal_set_tab_title: Bool?
         let sync_ide_configs: Bool?
         let ide_config_sync_items: [String]?
     }
@@ -191,6 +192,7 @@ final class ConfigService: Sendable {
             terminalBundleID: "com.apple.Terminal",
             terminalLaunchHookMode: "none",
             terminalLaunchCommand: "git status",
+            terminalSetTabTitle: true,
             gitlabHost: "",
             gitlabToken: "",
             githubHost: "https://github.com",
@@ -366,6 +368,7 @@ final class ConfigService: Sendable {
             terminalBundleID: config.worktree?.terminal_bundle_id ?? "com.apple.Terminal",
             terminalLaunchHookMode: config.worktree?.terminal_launch_hook_mode ?? "none",
             terminalLaunchCommand: config.worktree?.terminal_launch_command ?? "git status",
+            terminalSetTabTitle: config.worktree?.terminal_set_tab_title ?? true,
             gitlabHost: firstGitLabWS?.host ?? gitlabHost,
             gitlabToken: firstGitLabWS?.token ?? gitlabToken,
             githubHost: firstGitHubWS?.host ?? githubHost,
@@ -480,6 +483,7 @@ final class ConfigService: Sendable {
             terminalBundleID: config.terminalBundleID.trimmedNonEmpty ?? "com.apple.Terminal",
             terminalLaunchHookMode: config.terminalLaunchHookMode.trimmedNonEmpty ?? "none",
             terminalLaunchCommand: config.terminalLaunchCommand.trimmedNonEmpty ?? "git status",
+            terminalSetTabTitle: config.terminalSetTabTitle,
             gitlabHost: normalizedGitLabHost(firstGitLabWS?.host ?? config.gitlabHost),
             gitlabToken: (firstGitLabWS?.token ?? config.gitlabToken).trimmingCharacters(in: .whitespacesAndNewlines),
             githubHost: normalizedGitLabHost(firstGitHubWS?.host ?? config.githubHost).isEmpty ? "https://github.com" : normalizedGitLabHost(firstGitHubWS?.host ?? config.githubHost),
@@ -623,6 +627,7 @@ final class ConfigService: Sendable {
             "terminal_bundle_id = \"\(escapeTomlString(config.terminalBundleID))\"",
             "terminal_launch_hook_mode = \"\(escapeTomlString(config.terminalLaunchHookMode))\"",
             "terminal_launch_command = \"\(escapeTomlString(config.terminalLaunchCommand))\"",
+            "terminal_set_tab_title = \(config.terminalSetTabTitle)",
             "sync_ide_configs = \(config.syncIDEConfigs)",
             "ide_config_sync_items = \(tomlArray(config.ideConfigSyncItems))",
             "",

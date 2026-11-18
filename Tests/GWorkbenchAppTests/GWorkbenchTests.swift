@@ -738,4 +738,129 @@ struct GWorkbenchTests {
         let abortedState = try gitCli.inspectMergeState(projectPath: repo.path, sourceRef: mergeHead)
         #expect(abortedState == .abortedExternally)
     }
+
+    @Test("TerminalService correctly identifies Otty, iTerm, Terminal, and modern terminals")
+    func terminalKindDetection() {
+        let service = TerminalService.shared
+
+        #expect(service.detectTerminalKind(terminalName: "Otty", bundleID: "io.appmakes.otty") == .otty)
+        #expect(service.detectTerminalKind(terminalName: "otty", bundleID: nil) == .otty)
+        #expect(service.detectTerminalKind(terminalName: "Custom", bundleID: "io.appmakes.otty") == .otty)
+
+        #expect(service.detectTerminalKind(terminalName: "iTerm", bundleID: "com.googlecode.iterm2") == .iterm)
+        #expect(service.detectTerminalKind(terminalName: "iTerm2", bundleID: nil) == .iterm)
+
+        #expect(service.detectTerminalKind(terminalName: "Terminal", bundleID: "com.apple.Terminal") == .appleTerminal)
+        #expect(service.detectTerminalKind(terminalName: "Terminal (系统自带)", bundleID: "com.apple.Terminal") == .appleTerminal)
+
+        #expect(service.detectTerminalKind(terminalName: "Ghostty", bundleID: "com.mitchellh.ghostty") == .ghostty)
+        #expect(service.detectTerminalKind(terminalName: "kitty", bundleID: "net.kovidgoyal.kitty") == .kitty)
+        #expect(service.detectTerminalKind(terminalName: "WezTerm", bundleID: "com.github.wez.wezterm") == .wezterm)
+        #expect(service.detectTerminalKind(terminalName: "Alacritty", bundleID: "org.alacritty") == .alacritty)
+        #expect(service.detectTerminalKind(terminalName: "UnknownTerm", bundleID: "com.example.unknown") == .generic)
+    }
+
+    @MainActor
+    @Test("AppModel resolves tab titles for worktrees and projects according to description rules")
+    func terminalTabTitleResolution() {
+        let appModel = AppModel()
+
+        // 1. Worktree 有自定义描述
+        let wtWithDesc = WorktreeItem(
+            id: "/path/wt-1",
+            project: "核心支付服务",
+            projectName: "pay-service",
+            projectPath: "/repos/pay-service",
+            branch: "feature/pay-v2",
+            summary: "支持微信分账业务",
+            updatedAt: "刚刚",
+            kind: .worktree,
+            path: "/path/wt-1",
+            upstream: "origin/feature/pay-v2",
+            head: "abc1234",
+            createdDetail: "",
+            diskUsage: "10M",
+            canRemoveRemoteBranch: true,
+            commits: []
+        )
+        #expect(appModel.resolvedWorktreeTabTitle(wtWithDesc) == "支持微信分账业务")
+
+        // 2. 主仓库（summary 为 "主仓库"）-> 使用项目名称
+        let wtMain = WorktreeItem(
+            id: "/repos/pay-service",
+            project: "核心支付服务",
+            projectName: "pay-service",
+            projectPath: "/repos/pay-service",
+            branch: "main",
+            summary: "主仓库",
+            updatedAt: "刚刚",
+            kind: .mainRepo,
+            path: "/repos/pay-service",
+            upstream: "origin/main",
+            head: "abc1234",
+            createdDetail: "",
+            diskUsage: "10M",
+            canRemoveRemoteBranch: false,
+            commits: []
+        )
+        #expect(appModel.resolvedWorktreeTabTitle(wtMain) == "pay-service")
+
+        // 3. Worktree 未填写描述（summary 为 "未填写功能描述"）-> 使用项目名称
+        let wtNoDesc = WorktreeItem(
+            id: "/path/wt-2",
+            project: "核心支付服务",
+            projectName: "pay-service",
+            projectPath: "/repos/pay-service",
+            branch: "fix/refund-bug",
+            summary: "未填写功能描述",
+            updatedAt: "刚刚",
+            kind: .worktree,
+            path: "/path/wt-2",
+            upstream: "origin/fix/refund-bug",
+            head: "abc1234",
+            createdDetail: "",
+            diskUsage: "10M",
+            canRemoveRemoteBranch: true,
+            commits: []
+        )
+        #expect(appModel.resolvedWorktreeTabTitle(wtNoDesc) == "pay-service")
+
+        // 4. MergeProject -> 使用显示名称或名称
+        let project = MergeProject(
+            id: "proj-1",
+            name: "order-center",
+            displayName: "订单中心服务",
+            path: "/repos/order-center",
+            sourceRoot: "/repos",
+            currentBranch: "master",
+            gitLabProjectID: nil,
+            branchMappings: [],
+            remoteBranches: [],
+            localBranches: []
+        )
+        #expect(appModel.resolvedProjectTabTitle(project) == "订单中心服务")
+
+        // 5. 超长描述与多行描述自动截断与换行清理
+        let wtLongDesc = WorktreeItem(
+            id: "/path/wt-3",
+            project: "核心支付服务",
+            projectName: "pay-service",
+            projectPath: "/repos/pay-service",
+            branch: "feature/super-long",
+            summary: "这是一个非常非常非常非常非常非常非常非常非常长的需求描述内容用于测试截断逻辑\n并且带换行符",
+            updatedAt: "刚刚",
+            kind: .worktree,
+            path: "/path/wt-3",
+            upstream: "origin/main",
+            head: "abc1234",
+            createdDetail: "",
+            diskUsage: "10M",
+            canRemoveRemoteBranch: true,
+            commits: []
+        )
+        let resolved = appModel.resolvedWorktreeTabTitle(wtLongDesc)
+        #expect(!resolved.contains("\n"))
+        #expect(resolved.hasSuffix("..."))
+        #expect(resolved.count <= 45)
+    }
 }

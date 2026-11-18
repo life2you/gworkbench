@@ -232,6 +232,7 @@ struct GWorkbenchConfig: Sendable, Hashable {
     let terminalBundleID: String
     let terminalLaunchHookMode: String
     let terminalLaunchCommand: String
+    let terminalSetTabTitle: Bool
     let gitlabHost: String
     let gitlabToken: String
     let githubHost: String
@@ -273,6 +274,7 @@ struct GWorkbenchConfig: Sendable, Hashable {
         terminalBundleID: String,
         terminalLaunchHookMode: String,
         terminalLaunchCommand: String,
+        terminalSetTabTitle: Bool = true,
         gitlabHost: String,
         gitlabToken: String,
         githubHost: String = "https://github.com",
@@ -313,6 +315,7 @@ struct GWorkbenchConfig: Sendable, Hashable {
         self.terminalBundleID = terminalBundleID
         self.terminalLaunchHookMode = terminalLaunchHookMode
         self.terminalLaunchCommand = terminalLaunchCommand
+        self.terminalSetTabTitle = terminalSetTabTitle
         self.gitlabHost = gitlabHost
         self.gitlabToken = gitlabToken
         self.githubHost = githubHost
@@ -466,6 +469,7 @@ struct SettingsDraft: Sendable {
     var terminalBundleID: String = "com.apple.Terminal"
     var terminalLaunchHookMode: String = "none"
     var terminalLaunchCommand: String = "git status"
+    var terminalSetTabTitle: Bool = true
     var gitlabHost: String = ""
     var gitlabToken: String = ""
     var githubHost: String = "https://github.com"
@@ -510,6 +514,7 @@ struct SettingsDraft: Sendable {
         terminalBundleID = config.terminalBundleID
         terminalLaunchHookMode = config.terminalLaunchHookMode.isEmpty ? "none" : config.terminalLaunchHookMode
         terminalLaunchCommand = config.terminalLaunchCommand.isEmpty ? "git status" : config.terminalLaunchCommand
+        terminalSetTabTitle = config.terminalSetTabTitle
         gitlabHost = config.gitlabHost
         gitlabToken = config.gitlabToken
         githubHost = config.githubHost.isEmpty ? "https://github.com" : config.githubHost

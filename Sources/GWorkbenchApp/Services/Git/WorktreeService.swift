@@ -416,7 +416,7 @@ final class WorktreeService: Sendable {
         )
     }
 
-    func openInTerminal(path: String, terminalName: String = "Terminal", bundleID: String? = nil) throws {
-        try TerminalService.shared.openDirectory(path: path, terminalName: terminalName, bundleID: bundleID)
+    func openInTerminal(path: String, terminalName: String = "Terminal", bundleID: String? = nil, tabTitle: String? = nil) throws {
+        try TerminalService.shared.openDirectory(path: path, terminalName: terminalName, bundleID: bundleID, tabTitle: tabTitle)
     }
 }

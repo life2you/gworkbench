@@ -786,6 +786,7 @@ final class AppModel {
                 terminalBundleID: current.terminalBundleID,
                 terminalLaunchHookMode: current.terminalLaunchHookMode,
                 terminalLaunchCommand: current.terminalLaunchCommand,
+                terminalSetTabTitle: current.terminalSetTabTitle,
                 gitlabHost: current.gitlabHost,
                 gitlabToken: current.gitlabToken,
                 githubHost: current.githubHost,
@@ -2304,15 +2305,19 @@ final class AppModel {
         let bundleID = appConfig?.terminalBundleID ?? settingsDraft.terminalBundleID
         let hookMode = appConfig?.terminalLaunchHookMode ?? settingsDraft.terminalLaunchHookMode
         let hookCmd = appConfig?.terminalLaunchCommand ?? settingsDraft.terminalLaunchCommand
+        let shouldSetTitle = appConfig?.terminalSetTabTitle ?? settingsDraft.terminalSetTabTitle
+        let tabTitle = shouldSetTitle ? resolvedProjectTabTitle(project) : nil
         do {
             try TerminalService.shared.openDirectoryWithHook(
                 path: project.path,
                 terminalName: termName,
                 bundleID: bundleID,
+                tabTitle: tabTitle,
                 hookMode: hookMode,
                 hookCommand: hookCmd
             )
-            appendLocalOperationLog("已在 \(termName) 中打开: \(project.displayName)")
+            let tabInfo = tabTitle.map { " (Tab: \($0))" } ?? ""
+            appendLocalOperationLog("已在 \(termName) 中打开: \(project.displayName)\(tabInfo)")
         } catch {
             appendLocalOperationLog("打开终端失败: \(error.localizedDescription)")
         }
@@ -2482,21 +2487,25 @@ final class AppModel {
         let bundleID = appConfig?.terminalBundleID ?? settingsDraft.terminalBundleID
         let hookMode = appConfig?.terminalLaunchHookMode ?? settingsDraft.terminalLaunchHookMode
         let hookCmd = appConfig?.terminalLaunchCommand ?? settingsDraft.terminalLaunchCommand
+        let shouldSetTitle = appConfig?.terminalSetTabTitle ?? settingsDraft.terminalSetTabTitle
+        let tabTitle = shouldSetTitle ? resolvedWorktreeTabTitle(item) : nil
         do {
             try TerminalService.shared.openDirectoryWithHook(
                 path: item.path,
                 terminalName: termName,
                 bundleID: bundleID,
+                tabTitle: tabTitle,
                 hookMode: hookMode,
                 hookCommand: hookCmd
             )
-            appendWorktreeLog("已在 \(termName) 中打开: \(item.branch) (\(item.path))")
+            let tabInfo = tabTitle.map { " (Tab: \($0))" } ?? ""
+            appendWorktreeLog("已在 \(termName) 中打开: \(item.branch) (\(item.path))\(tabInfo)")
             worktreeOperation = OperationState(
                 isRunning: false,
                 title: "已打开终端",
                 detail: item.path,
                 logs: worktreeOperation.logs,
-                successMessage: "已在 \(termName) 中打开"
+                successMessage: "已在 \(termName) 中打开\(tabInfo)"
             )
         } catch {
             appendWorktreeLog("打开终端失败: \(error.localizedDescription)")
@@ -2550,8 +2559,10 @@ final class AppModel {
     func runScriptInTerminal(command: String) {
         guard let item = selectedWorktree else { return }
         let termName = appConfig?.terminalApp ?? settingsDraft.terminalApp
+        let shouldSetTitle = appConfig?.terminalSetTabTitle ?? settingsDraft.terminalSetTabTitle
+        let tabTitle = shouldSetTitle ? resolvedWorktreeTabTitle(item) : nil
         do {
-            try TerminalService.shared.runScriptInTerminal(command: command, path: item.path, terminalName: termName)
+            try TerminalService.shared.runScriptInTerminal(command: command, path: item.path, terminalName: termName, tabTitle: tabTitle)
             appendWorktreeLog("已在 \(termName) 执行: \(command)")
         } catch {
             appendWorktreeLog("终端执行失败: \(error.localizedDescription)")
@@ -3126,12 +3137,14 @@ final class AppModel {
         let termName = settingsDraft.terminalApp.trimmingCharacters(in: .whitespacesAndNewlines)
         let bundleID = settingsDraft.terminalBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
         let testPath = currentWorktreeProject?.path ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let tabTitle = settingsDraft.terminalSetTabTitle ? (currentWorktreeProject?.displayName ?? "GWorkbench 测试") : nil
         do {
-            try TerminalService.shared.openDirectory(path: testPath, terminalName: termName, bundleID: bundleID)
+            try TerminalService.shared.openDirectory(path: testPath, terminalName: termName, bundleID: bundleID, tabTitle: tabTitle)
+            let tabInfo = tabTitle.map { "，Tab: \($0)" } ?? ""
             settingsOperation = OperationState(
                 isRunning: false,
                 title: "已打开终端",
-                detail: "已使用 \(termName) 打开目录 \(testPath)",
+                detail: "已使用 \(termName) 打开目录 \(testPath)\(tabInfo)",
                 successMessage: "测试成功：已调起 \(termName)"
             )
         } catch {
@@ -4111,6 +4124,39 @@ final class AppModel {
         }
     }
 
+    /// 为工作树解析终端 Tab 标题：有自定义描述用描述，主仓库或无描述用仓库名称
+    func resolvedWorktreeTabTitle(_ item: WorktreeItem) -> String {
+        let trimmed = item.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && trimmed != "主仓库" && trimmed != "未填写功能描述" {
+            return sanitizeTerminalTabTitle(trimmed)
+        }
+        if !item.projectName.isEmpty {
+            return sanitizeTerminalTabTitle(item.projectName)
+        }
+        let lastComp = URL(fileURLWithPath: item.path).lastPathComponent
+        return sanitizeTerminalTabTitle(!lastComp.isEmpty ? lastComp : item.branch)
+    }
+
+    /// 为合并项目解析终端 Tab 标题：使用仓库名称
+    func resolvedProjectTabTitle(_ project: MergeProject) -> String {
+        if !project.displayName.isEmpty {
+            return sanitizeTerminalTabTitle(project.displayName)
+        }
+        if !project.name.isEmpty {
+            return sanitizeTerminalTabTitle(project.name)
+        }
+        let lastComp = URL(fileURLWithPath: project.path).lastPathComponent
+        return sanitizeTerminalTabTitle(lastComp)
+    }
+
+    private func sanitizeTerminalTabTitle(_ raw: String) -> String {
+        let singleLine = raw.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if singleLine.count > 40 {
+            return String(singleLine.prefix(40)) + "..."
+        }
+        return singleLine
+    }
+
     private func summaryAsEditableDescription(_ item: WorktreeItem) -> String {
         switch item.summary {
         case "主仓库", "未填写功能描述":
@@ -4207,6 +4253,7 @@ final class AppModel {
             terminalBundleID: settingsDraft.terminalBundleID.trimmingCharacters(in: .whitespacesAndNewlines),
             terminalLaunchHookMode: settingsDraft.terminalLaunchHookMode.trimmingCharacters(in: .whitespacesAndNewlines),
             terminalLaunchCommand: settingsDraft.terminalLaunchCommand.trimmingCharacters(in: .whitespacesAndNewlines),
+            terminalSetTabTitle: settingsDraft.terminalSetTabTitle,
             gitlabHost: (firstGitLab?.host ?? settingsDraft.gitlabHost).trimmingCharacters(in: .whitespacesAndNewlines),
             gitlabToken: (firstGitLab?.token ?? settingsDraft.gitlabToken).trimmingCharacters(in: .whitespacesAndNewlines),
             githubHost: (firstGitHub?.host ?? settingsDraft.githubHost).trimmingCharacters(in: .whitespacesAndNewlines),

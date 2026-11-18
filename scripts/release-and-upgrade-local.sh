@@ -73,25 +73,19 @@ cat > "$RELEASE_NOTES_FILE" <<'RELEASE_NOTES_EOF'
 
 ## English
 
-- **Feature: Seamless Rebased Conflict Resolution & Automated Merge Completion**
-  - Added background activity assertion (`beginActivity`) to keep monitoring git merge state even when GWorkbench is obscured or unfocused while working in Rebased.
-  - Automatically commits and pushes merge changes (`git commit --no-edit` + `git push`) when conflicts are resolved in Rebased (`Accept and Finish`), eliminating lingering unstaged/staged working tree changes.
-  - Excludes untracked IDE artifacts (such as `.idea/`) during auto-commit to prevent unwanted files from polluting merge history.
-  - Accurately detects external merge cancellations (e.g. `Abort Merge` in Rebased) with contextual prompt actions to retry or skip.
-- **UI & Quality Improvements**
-  - Enhanced `InteractiveSyncConflictBannerView` to stay active and responsive during the entire conflict resolution lifecycle.
-  - Added comprehensive test coverage for staging detection, external commit, external abort, and IDE directory filtering.
+- **Feature: Auto-Rename Terminal Tabs & Multi-Tab Integration**
+  - **Dynamic Tab Titles**: Opening a terminal now automatically names the tab after the worktree's description. For mainline branches or worktrees without descriptions, it uses the project repository name. Includes a configurable toggle in Preferences.
+  - **Ghostty Native Multi-Tab Integration**: Leverages Ghostty's surface configuration to append new tabs in existing windows without spawning extra instances. Fixes UTF-8 character encoding (no more garbled Chinese titles), ensures direct directory navigation, and automates command execution with native enter key events.
+  - **Otty Dedicated Support**: Utilizes `otty-cli tab new` and tab rename to reuse existing windows, seamlessly navigate to the worktree path, and lock custom titles against zsh prompt resets.
+  - **Unified Dispatcher**: Consolidated terminal invocation paths across Preferences, Worktree lists, and script runners, completely eliminating accidental fallback launches of Apple Terminal.
 
 ## 简体中文
 
-- **新增：Rebased 冲突解决无缝联动与自动合并收尾**
-  - 新增防 App Nap 后台合并状态监听机制（持有活动凭证），在切换到 Rebased 解决冲突期间保持毫秒级感知。
-  - 在 Rebased 点击 `Accept and Finish` 解决冲突后，后台自动执行 `git commit --no-edit` 和 `git push`，像原生 IDEA merge/rebase 一样干净收尾，不再留下未提交变动。
-  - 自动提交流水线中严格排除未跟踪的 IDE 临时文件（如 `.idea/`），避免污染代码合并历史。
-  - 精准识别 Rebased 外部取消合并（`Abort Merge`），智能展示重新合并或跳过分支快捷按钮。
-- **界面优化与测试保障**
-  - 强化冲突横幅状态管理，解决冲突暂存后横幅不再意外消失，保证全流程交互闭环。
-  - 补充针对暂存检测、外部提交、外部中止及 IDE 文件过滤的完整回归测试套件。
+- **新增：终端打开自动修改 Tab 标题与多终端原生多标签页支持**
+  - **智能 Tab 命名规则**：在工作树或本地仓库点击「终端打开」时，有功能描述的工作树自动以描述作为 Tab 名称；主仓库或未填写描述时自动使用仓库名。偏好设置中提供「自动修改终端 Tab 标题」开关（默认开启）。
+  - **Ghostty 专属深度适配**：支持在已有 Ghostty 窗口末尾直接追加新 Tab 并自动激活；采用 UTF-8 管道彻底解决中文与特殊字符标题乱码问题；基于原生 surface configuration 直达工作树目录，并通过原生按键驱动执行脚本与 Enter 事件。
+  - **Otty 专属深度适配**：支持在已有 Otty 窗口末尾追加新 Tab，并通过 tab rename 机制持久锁定 Tab 标题，防止被 Zsh prompt 钩子覆盖；工作目录精准定位至目标工作树物理路径。
+  - **统一终端调度器**：重构并统一了偏好设置测试、工作树终端打开、仓库项目终端打开及脚本执行的调用管道，彻底杜绝误拉起系统自带 Terminal 的问题。
 RELEASE_NOTES_EOF
 
 # Substitute version placeholder safely without shell expansion of note content

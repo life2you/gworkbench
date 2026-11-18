@@ -943,6 +943,17 @@ struct SettingsView: View {
                                 .font(.system(size: 11.5, design: .monospaced))
                         }
                     }
+
+                    Toggle(isOn: $appModel.settingsDraft.terminalSetTabTitle) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("自动修改终端 Tab 标题")
+                                .font(.system(size: 11, weight: .medium))
+                            Text("打开终端时，有描述的工作树自动以描述作为 Tab 名称；主仓库或无描述时使用仓库名称（支持 Otty、iTerm2、系统终端等）。")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.checkbox)
                 }
             }
         }
