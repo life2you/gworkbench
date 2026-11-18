@@ -1,13 +1,13 @@
 cask "gworkbench" do
-  version "0.3.1"
+  version "0.3.2"
 
   on_arm do
-    sha256 "4e85422684429b22d63f9fe6b4b5b9b9f165864c252a50b057ce4e887003683a"
+    sha256 "ced9a4c25978fe5823b22ef0de945ac4f1011f7a013bfe83ffb791b0c99bacfa"
     url "https://github.com/life2you/gworkbench/releases/download/v#{version}/GWorkbench-macos-arm64-v#{version}.zip"
   end
 
   on_intel do
-    sha256 "576ed58b7d624592a5054b6b120cbddac79b25388e1c3082112ac554ad21659a"
+    sha256 "678b23989ebdca9fc51f8dd019837bf8c71aa720ba71555ead8bdc40a8e21ffb"
     url "https://github.com/life2you/gworkbench/releases/download/v#{version}/GWorkbench-macos-x86_64-v#{version}.zip"
   end
 
